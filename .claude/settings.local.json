@@ -10,7 +10,8 @@
       "Bash(./gradlew classes *)",
       "Bash(PGPASSWORD=1234 psql -U postgres -c \"SELECT version\\(\\);\")",
       "Read(//c/Program Files/PostgreSQL/**)",
-      "Bash(PGPASSWORD=1234 C:/Program Files/PostgreSQL/18/bin/psql.exe *)"
+      "Bash(PGPASSWORD=1234 C:/Program Files/PostgreSQL/18/bin/psql.exe *)",
+      "Bash(./gradlew test *)"
     ]
   }
 }
