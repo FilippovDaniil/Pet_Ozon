@@ -6,6 +6,7 @@ import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.repository.InvoiceRepository;
 import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final UserRepository userRepository;
+    private final InvoiceRepository invoiceRepository;
 
     public List<OrderResponse> getAllOrders() {
         return orderRepository.findAll().stream()
@@ -68,6 +70,8 @@ public class OrderService {
             ir.setPriceAtOrder(item.getPriceAtOrder());
             return ir;
         }).collect(Collectors.toList()));
+        invoiceRepository.findByOrder(order)
+                .ifPresent(inv -> r.setInvoiceId(inv.getId()));
         return r;
     }
 }

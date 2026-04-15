@@ -15,4 +15,5 @@ public class OrderResponse {
     private BigDecimal totalAmount;
     private String shippingAddress;
     private List<OrderItemResponse> items;
+    private Long invoiceId;
 }
