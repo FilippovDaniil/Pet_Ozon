@@ -1,0 +1,432 @@
+{
+  "info": {
+    "name": "Pet_Ozon Marketplace",
+    "description": "REST API маркетплейса. Аутентификация через заголовок X-User-Id (1 = client, 2 = admin). Типичный сценарий: Products → Cart → Checkout → Invoice → Pay.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "clientUserId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "adminUserId",
+      "value": "2",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Products",
+      "description": "Публичные эндпоинты. Заголовок X-User-Id не нужен.",
+      "item": [
+        {
+          "name": "Получить все товары",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"]
+            },
+            "description": "Возвращает список всех товаров в магазине."
+          }
+        },
+        {
+          "name": "Получить товар по ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "1"]
+            },
+            "description": "Возвращает один товар по его ID. Если не найден — 404."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cart",
+      "description": "Работа с корзиной. Пользователь передаётся через заголовок X-User-Id. Если заголовок не передан — используется userId=1.",
+      "item": [
+        {
+          "name": "Посмотреть корзину",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clientUserId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/cart",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart"]
+            },
+            "description": "Возвращает текущую корзину пользователя со всеми позициями и суммой."
+          }
+        },
+        {
+          "name": "Добавить товар в корзину",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clientUserId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": 1,\n  \"quantity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cart/add",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart", "add"]
+            },
+            "description": "Добавляет товар в корзину. Если товар уже есть — увеличивает количество."
+          }
+        },
+        {
+          "name": "Изменить количество позиции",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cart/update/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart", "update", "1"]
+            },
+            "description": "Обновляет количество конкретной позиции корзины. В URL — ID позиции (cartItemId), не ID товара."
+          }
+        },
+        {
+          "name": "Удалить позицию из корзины",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/cart/remove/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart", "remove", "1"]
+            },
+            "description": "Удаляет позицию из корзины по ID позиции (cartItemId)."
+          }
+        },
+        {
+          "name": "Оформить заказ (checkout)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clientUserId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"shippingAddress\": \"Москва, ул. Примерная, д. 1, кв. 42\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/cart/checkout",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "cart", "checkout"]
+            },
+            "description": "Оформляет заказ из текущей корзины. Создаёт Order + Invoice. Корзина очищается. В ответе — данные заказа."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "description": "Просмотр заказов пользователя.",
+      "item": [
+        {
+          "name": "Мои заказы",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clientUserId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/my",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders", "my"]
+            },
+            "description": "Возвращает все заказы текущего пользователя."
+          }
+        },
+        {
+          "name": "Заказ по ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "orders", "1"]
+            },
+            "description": "Возвращает детали конкретного заказа с позициями."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invoice",
+      "description": "Счета на оплату. Создаются автоматически при checkout.",
+      "item": [
+        {
+          "name": "Получить счёт по ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/invoice/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "invoice", "1"]
+            },
+            "description": "Возвращает счёт по его ID со статусом и суммой."
+          }
+        },
+        {
+          "name": "Оплатить счёт",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethod\": \"CARD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/invoice/1/pay",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "invoice", "1", "pay"]
+            },
+            "description": "Оплачивает счёт. paymentMethod: CARD или CASH. Меняет статус Invoice → PAID, создаёт Payment."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Products",
+      "description": "Управление товарами. В реальном проекте потребует роль ADMIN.",
+      "item": [
+        {
+          "name": "Создать товар",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminUserId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Планшет Samsung Galaxy Tab\",\n  \"description\": \"10-дюймовый планшет с AMOLED экраном\",\n  \"price\": 29999.99,\n  \"stockQuantity\": 15,\n  \"imageUrl\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "products"]
+            },
+            "description": "Создаёт новый товар. Возвращает 201 Created."
+          }
+        },
+        {
+          "name": "Обновить товар",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminUserId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ноутбук Pro (обновлённый)\",\n  \"description\": \"Мощный ноутбук для разработчиков\",\n  \"price\": 89999.99,\n  \"stockQuantity\": 8,\n  \"imageUrl\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "products", "1"]
+            },
+            "description": "Обновляет существующий товар по ID."
+          }
+        },
+        {
+          "name": "Удалить товар",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminUserId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/products/6",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "products", "6"]
+            },
+            "description": "Удаляет товар по ID. Возвращает 204 No Content. Используй ID нового товара чтобы не удалить тестовые данные."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Orders",
+      "description": "Управление заказами. Доступно только администратору.",
+      "item": [
+        {
+          "name": "Все заказы",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminUserId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "orders"]
+            },
+            "description": "Возвращает все заказы всех пользователей."
+          }
+        },
+        {
+          "name": "Изменить статус заказа",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminUserId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"DELIVERED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/orders/1/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "orders", "1", "status"]
+            },
+            "description": "Меняет статус заказа. Возможные значения: CREATED, PAID, CANCELLED, DELIVERED."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Invoices",
+      "description": "Просмотр всех счетов.",
+      "item": [
+        {
+          "name": "Все счета",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminUserId}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/invoices",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "invoices"]
+            },
+            "description": "Возвращает все счета на оплату."
+          }
+        }
+      ]
+    }
+  ]
+}
