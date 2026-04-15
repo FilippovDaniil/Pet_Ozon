@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace — Вход</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        // Если уже залогинен — редиректим сразу
+        (function () {
+            const u = getCurrentUser();
+            if (u) window.location.href = u.role === 'ADMIN' ? 'admin.html' : 'client.html';
+        })();
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 flex items-center justify-center p-4">
+
+    <div x-data="loginApp()" class="w-full max-w-md">
+
+        <!-- Карточка -->
+        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden">
+
+            <!-- Шапка карточки -->
+            <div class="bg-gradient-to-r from-indigo-500 to-purple-600 px-8 pt-10 pb-8 text-white text-center">
+                <div class="text-5xl mb-3">🛍️</div>
+                <h1 class="text-2xl font-bold tracking-tight">Marketplace</h1>
+                <p class="text-indigo-100 text-sm mt-1">Учебный REST API маркетплейс</p>
+            </div>
+
+            <!-- Форма -->
+            <div class="px-8 py-8">
+                <form @submit.prevent="doLogin" class="space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+                        <input
+                            x-model="email"
+                            type="email"
+                            autocomplete="email"
+                            placeholder="client@example.com"
+                            class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm
+                                   focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                                   transition placeholder-gray-400"
+                            required
+                        >
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Пароль</label>
+                        <input
+                            x-model="password"
+                            type="password"
+                            autocomplete="current-password"
+                            placeholder="••••••••"
+                            class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm
+                                   focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+                                   transition placeholder-gray-400"
+                            required
+                        >
+                    </div>
+
+                    <!-- Ошибка -->
+                    <div
+                        x-show="error"
+                        x-transition
+                        class="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+                    >
+                        <span>⚠️</span>
+                        <span x-text="error"></span>
+                    </div>
+
+                    <button
+                        type="submit"
+                        :disabled="loading"
+                        class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800
+                               disabled:opacity-60 text-white font-semibold rounded-lg transition
+                               flex items-center justify-center gap-2"
+                    >
+                        <svg x-show="loading" class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                        <span x-text="loading ? 'Вход...' : 'Войти'"></span>
+                    </button>
+                </form>
+
+                <!-- Тестовые аккаунты -->
+                <div class="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Тестовые аккаунты</p>
+                    <div class="space-y-2">
+                        <button
+                            @click="fillClient()"
+                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-50 transition group"
+                        >
+                            <span class="text-sm">👤 <span class="font-medium text-gray-800">client@example.com</span></span>
+                            <span class="text-xs text-gray-400 ml-1">/ pass</span>
+                            <span class="float-right text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Покупатель</span>
+                        </button>
+                        <button
+                            @click="fillAdmin()"
+                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-purple-50 transition group"
+                        >
+                            <span class="text-sm">🔧 <span class="font-medium text-gray-800">admin@example.com</span></span>
+                            <span class="text-xs text-gray-400 ml-1">/ pass</span>
+                            <span class="float-right text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Админ</span>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-3 text-center">Нажмите на аккаунт — поля заполнятся автоматически</p>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-center text-indigo-200 text-xs mt-6">Spring Boot 3.4.4 · PostgreSQL · Pet-проект</p>
+    </div>
+
+    <script>
+        function loginApp() {
+            return {
+                email: '',
+                password: '',
+                error: '',
+                loading: false,
+
+                fillClient() { this.email = 'client@example.com'; this.password = 'pass'; this.error = ''; },
+                fillAdmin()  { this.email = 'admin@example.com';  this.password = 'pass'; this.error = ''; },
+
+                doLogin() {
+                    this.error = '';
+                    this.loading = true;
+                    // Небольшая задержка для UX
+                    setTimeout(() => {
+                        const user = login(this.email, this.password);
+                        this.loading = false;
+                        if (!user) {
+                            this.error = 'Неверный email или пароль';
+                            return;
+                        }
+                        window.location.href = user.role === 'ADMIN' ? 'admin.html' : 'client.html';
+                    }, 300);
+                },
+            };
+        }
+    </script>
+</body>
+</html>

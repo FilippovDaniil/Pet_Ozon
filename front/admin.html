@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace — Администратор</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        (function () {
+            const u = requireAuth('ADMIN');
+            if (!u) throw new Error('redirect');
+        })();
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <script src="js/api.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<div x-data="adminApp()" class="min-h-screen flex flex-col" x-cloak>
+
+    <!-- ═══════════════════════════════ NAVBAR ═══════════════════════════ -->
+    <nav class="bg-gray-900 text-white sticky top-0 z-40 shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <!-- Лого -->
+            <div class="flex items-center gap-3">
+                <span class="text-xl">🔧</span>
+                <span class="font-bold text-lg">Admin Panel</span>
+                <span class="text-gray-500 text-sm hidden sm:block">Marketplace</span>
+            </div>
+
+            <!-- Табы -->
+            <div class="flex items-center gap-1">
+                <button @click="setTab('products')"
+                    :class="activeTab === 'products'
+                        ? 'bg-gray-700 text-white font-semibold'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    Товары
+                </button>
+                <button @click="setTab('orders')"
+                    :class="activeTab === 'orders'
+                        ? 'bg-gray-700 text-white font-semibold'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    Заказы
+                </button>
+                <button @click="setTab('invoices')"
+                    :class="activeTab === 'invoices'
+                        ? 'bg-gray-700 text-white font-semibold'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    Счета
+                </button>
+            </div>
+
+            <!-- Пользователь -->
+            <div class="flex items-center gap-3">
+                <span class="text-gray-400 text-sm" x-text="user?.name"></span>
+                <button @click="logout()"
+                        class="text-xs text-gray-400 hover:text-red-400 transition px-3 py-1.5 rounded-lg hover:bg-gray-800">
+                    Выйти
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ═══════════════════════════ TOAST ════════════════════════════════ -->
+    <div class="fixed top-20 right-4 z-50 space-y-2">
+        <template x-for="t in toasts" :key="t.id">
+            <div x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 translate-x-4"
+                 x-transition:enter-end="opacity-100 translate-x-0"
+                 :class="t.type === 'error'
+                     ? 'bg-red-50 border-red-200 text-red-800'
+                     : 'bg-green-50 border-green-200 text-green-800'"
+                 class="flex items-center gap-2 px-4 py-3 rounded-xl border shadow-lg text-sm max-w-sm">
+                <span x-text="t.type === 'error' ? '⚠️' : '✅'"></span>
+                <span x-text="t.message"></span>
+            </div>
+        </template>
+    </div>
+
+    <!-- ═══════════════════════ MAIN CONTENT ═════════════════════════════ -->
+    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+
+        <!-- ─────────────────── TAB: ТОВАРЫ ─────────────────────────── -->
+        <div x-show="activeTab === 'products'">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-gray-900">Управление товарами</h2>
+                <button @click="openCreateModal()"
+                        class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition flex items-center gap-2">
+                    <span class="text-base">+</span> Новый товар
+                </button>
+            </div>
+
+            <!-- Loading -->
+            <div x-show="loadingProducts" class="bg-white rounded-xl p-8 text-center text-gray-400">
+                <div class="animate-spin text-3xl mb-2">⏳</div>
+                Загрузка...
+            </div>
+
+            <!-- Таблица товаров -->
+            <div x-show="!loadingProducts" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-12">ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Название</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Описание</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Цена</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Остаток</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide w-24">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <template x-for="p in products" :key="p.id">
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-4 py-3 text-gray-400 font-mono text-xs" x-text="p.id"></td>
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-2.5">
+                                        <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                                             :style="`background: ${productColor(p.id)}`"
+                                             x-text="p.name ? p.name[0].toUpperCase() : '?'">
+                                        </div>
+                                        <span class="font-medium text-gray-900" x-text="p.name"></span>
+                                    </div>
+                                </td>
+                                <td class="px-4 py-3 text-gray-400 hidden md:table-cell max-w-xs">
+                                    <span class="line-clamp-1" x-text="p.description || '—'"></span>
+                                </td>
+                                <td class="px-4 py-3 text-right font-semibold text-gray-900" x-text="fmt(p.price)"></td>
+                                <td class="px-4 py-3 text-right">
+                                    <span :class="p.stockQuantity > 0 ? 'text-green-700' : 'text-red-500'"
+                                          x-text="p.stockQuantity"></span>
+                                </td>
+                                <td class="px-4 py-3 text-right">
+                                    <div class="flex items-center justify-end gap-1">
+                                        <button @click="openEditModal(p)"
+                                                class="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                                                title="Редактировать">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                            </svg>
+                                        </button>
+                                        <button @click="deleteProduct(p)"
+                                                class="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition"
+                                                title="Удалить">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="!loadingProducts && products.length === 0">
+                            <td colspan="6" class="px-4 py-12 text-center text-gray-400">Товары не найдены</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ─────────────────── TAB: ЗАКАЗЫ ─────────────────────────── -->
+        <div x-show="activeTab === 'orders'">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-gray-900">Все заказы</h2>
+                <button @click="loadOrders()"
+                        class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition flex items-center gap-1.5">
+                    ↻ Обновить
+                </button>
+            </div>
+
+            <div x-show="loadingOrders" class="bg-white rounded-xl p-8 text-center text-gray-400">
+                <div class="animate-spin text-3xl mb-2">⏳</div>
+                Загрузка...
+            </div>
+
+            <div x-show="!loadingOrders" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-12">ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Дата</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Статус</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Сумма</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Адрес</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Изменить статус</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <template x-for="order in orders" :key="order.id">
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-4 py-3 text-gray-400 font-mono text-xs" x-text="order.id"></td>
+                                <td class="px-4 py-3 text-gray-500 text-xs hidden sm:table-cell" x-text="fmtDate(order.orderDate)"></td>
+                                <td class="px-4 py-3">
+                                    <span :class="statusBadge(order.status)"
+                                          class="text-xs px-2.5 py-1 rounded-full font-medium"
+                                          x-text="statusLabel(order.status)">
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-right font-semibold text-gray-900" x-text="fmt(order.totalAmount)"></td>
+                                <td class="px-4 py-3 text-gray-400 text-xs truncate max-w-xs hidden lg:table-cell"
+                                    x-text="order.shippingAddress || '—'"></td>
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center gap-1.5">
+                                        <select x-model="orderStatusEdits[order.id]"
+                                                class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 flex-1">
+                                            <option value="CREATED">Новый</option>
+                                            <option value="PAID">Оплачен</option>
+                                            <option value="CANCELLED">Отменён</option>
+                                            <option value="DELIVERED">Доставлен</option>
+                                        </select>
+                                        <button @click="saveOrderStatus(order)"
+                                                :disabled="orderStatusEdits[order.id] === order.status"
+                                                class="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-300
+                                                       text-white text-xs rounded-lg transition flex-shrink-0">
+                                            ✓
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="!loadingOrders && orders.length === 0">
+                            <td colspan="6" class="px-4 py-12 text-center text-gray-400">Заказов пока нет</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ─────────────────── TAB: СЧЕТА ──────────────────────────── -->
+        <div x-show="activeTab === 'invoices'">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-gray-900">Все счета</h2>
+                <button @click="loadInvoices()"
+                        class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition flex items-center gap-1.5">
+                    ↻ Обновить
+                </button>
+            </div>
+
+            <div x-show="loadingInvoices" class="bg-white rounded-xl p-8 text-center text-gray-400">
+                <div class="animate-spin text-3xl mb-2">⏳</div>
+                Загрузка...
+            </div>
+
+            <div x-show="!loadingInvoices" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-12">ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Заказ</th>
+                            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Сумма</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Статус</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Создан</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Оплачен</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        <template x-for="inv in invoices" :key="inv.id">
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-4 py-3 text-gray-400 font-mono text-xs" x-text="inv.id"></td>
+                                <td class="px-4 py-3">
+                                    <span class="text-indigo-600 font-medium">Заказ #<span x-text="inv.orderId"></span></span>
+                                </td>
+                                <td class="px-4 py-3 text-right font-semibold text-gray-900" x-text="fmt(inv.amount)"></td>
+                                <td class="px-4 py-3">
+                                    <span :class="inv.status === 'PAID'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : 'bg-yellow-100 text-yellow-700'"
+                                          class="text-xs px-2.5 py-1 rounded-full font-medium"
+                                          x-text="inv.status === 'PAID' ? 'Оплачен' : 'Не оплачен'">
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-gray-400 text-xs hidden sm:table-cell" x-text="fmtDate(inv.createdAt)"></td>
+                                <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell"
+                                    x-text="inv.paidAt ? fmtDate(inv.paidAt) : '—'"></td>
+                            </tr>
+                        </template>
+                        <tr x-show="!loadingInvoices && invoices.length === 0">
+                            <td colspan="6" class="px-4 py-12 text-center text-gray-400">Счетов пока нет</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- ═══════════════════ МОДАЛ: СОЗДАТЬ / РЕДАКТИРОВАТЬ ТОВАР ════════ -->
+    <div x-show="showProductModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+         @click.self="closeProductModal()">
+
+        <div x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
+
+            <h3 class="text-lg font-bold text-gray-900 mb-5"
+                x-text="editingProduct ? 'Редактировать товар' : 'Новый товар'"></h3>
+
+            <form @submit.prevent="saveProduct()" class="space-y-4">
+                <!-- Название -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Название *</label>
+                    <input x-model="productForm.name" required
+                           placeholder="Ноутбук Dell XPS 15"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+
+                <!-- Описание -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Описание</label>
+                    <textarea x-model="productForm.description" rows="2"
+                              placeholder="Краткое описание товара..."
+                              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                </div>
+
+                <!-- Цена + остаток -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Цена (₽) *</label>
+                        <input x-model.number="productForm.price" type="number" min="0" step="0.01" required
+                               placeholder="89999.99"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Кол-во на складе *</label>
+                        <input x-model.number="productForm.stockQuantity" type="number" min="0" required
+                               placeholder="10"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                </div>
+
+                <!-- URL изображения -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">URL изображения</label>
+                    <input x-model="productForm.imageUrl"
+                           placeholder="https://example.com/image.jpg"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+
+                <div class="flex gap-3 pt-2">
+                    <button type="button" @click="closeProductModal()"
+                            class="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
+                        Отмена
+                    </button>
+                    <button type="submit"
+                            class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition">
+                        <span x-text="editingProduct ? 'Сохранить' : 'Создать'"></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div><!-- end x-data -->
+
+<script>
+    function adminApp() {
+        return {
+            user: null,
+            activeTab: 'products',
+
+            products: [],
+            loadingProducts: false,
+
+            orders: [],
+            orderStatusEdits: {},
+            loadingOrders: false,
+
+            invoices: [],
+            loadingInvoices: false,
+
+            // Модал товара
+            showProductModal: false,
+            editingProduct: null,
+            productForm: { name: '', description: '', price: null, stockQuantity: null, imageUrl: '' },
+
+            toasts: [],
+            _toastId: 0,
+
+            async init() {
+                this.user = getCurrentUser();
+                if (!this.user) return;
+                await this.loadProducts();
+            },
+
+            async setTab(tab) {
+                this.activeTab = tab;
+                if (tab === 'products' && this.products.length === 0) await this.loadProducts();
+                if (tab === 'orders')   await this.loadOrders();
+                if (tab === 'invoices') await this.loadInvoices();
+            },
+
+            // ── Товары ────────────────────────────────────────────
+            async loadProducts() {
+                this.loadingProducts = true;
+                try {
+                    this.products = await api.getProducts();
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingProducts = false; }
+            },
+
+            openCreateModal() {
+                this.editingProduct = null;
+                this.productForm = { name: '', description: '', price: null, stockQuantity: null, imageUrl: '' };
+                this.showProductModal = true;
+            },
+
+            openEditModal(product) {
+                this.editingProduct = product;
+                this.productForm = {
+                    name: product.name,
+                    description: product.description || '',
+                    price: product.price,
+                    stockQuantity: product.stockQuantity,
+                    imageUrl: product.imageUrl || '',
+                };
+                this.showProductModal = true;
+            },
+
+            closeProductModal() {
+                this.showProductModal = false;
+                this.editingProduct = null;
+            },
+
+            async saveProduct() {
+                try {
+                    if (this.editingProduct) {
+                        await api.updateProduct(this.editingProduct.id, this.productForm);
+                        this.toast('Товар обновлён', 'success');
+                    } else {
+                        await api.createProduct(this.productForm);
+                        this.toast('Товар создан', 'success');
+                    }
+                    this.closeProductModal();
+                    await this.loadProducts();
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async deleteProduct(product) {
+                if (!confirm(`Удалить товар «${product.name}»?`)) return;
+                try {
+                    await api.deleteProduct(product.id);
+                    this.toast('Товар удалён', 'success');
+                    await this.loadProducts();
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Заказы ────────────────────────────────────────────
+            async loadOrders() {
+                this.loadingOrders = true;
+                try {
+                    this.orders = await api.getAllOrders();
+                    // Инициализируем selects текущими статусами
+                    this.orders.forEach(o => {
+                        if (this.orderStatusEdits[o.id] === undefined)
+                            this.orderStatusEdits[o.id] = o.status;
+                    });
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingOrders = false; }
+            },
+
+            async saveOrderStatus(order) {
+                try {
+                    const updated = await api.updateOrderStatus(order.id, this.orderStatusEdits[order.id]);
+                    const idx = this.orders.findIndex(o => o.id === order.id);
+                    if (idx !== -1) this.orders[idx] = updated;
+                    this.orders = [...this.orders]; // trigger reactivity
+                    this.toast(`Статус заказа #${order.id} изменён`, 'success');
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Счета ─────────────────────────────────────────────
+            async loadInvoices() {
+                this.loadingInvoices = true;
+                try {
+                    this.invoices = await api.getAllInvoices();
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingInvoices = false; }
+            },
+
+            // ── Утилиты ───────────────────────────────────────────
+            fmt(val) {
+                return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(val || 0);
+            },
+
+            fmtDate(dt) {
+                if (!dt) return '—';
+                return new Date(dt).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+            },
+
+            statusLabel(s) {
+                return { CREATED: 'Новый', PAID: 'Оплачен', CANCELLED: 'Отменён', DELIVERED: 'Доставлен' }[s] || s;
+            },
+
+            statusBadge(s) {
+                return {
+                    CREATED: 'bg-yellow-100 text-yellow-800',
+                    PAID: 'bg-green-100 text-green-800',
+                    CANCELLED: 'bg-red-100 text-red-700',
+                    DELIVERED: 'bg-blue-100 text-blue-800',
+                }[s] || 'bg-gray-100 text-gray-600';
+            },
+
+            productColor(id) {
+                const palette = [
+                    'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                    'linear-gradient(135deg,#0ea5e9,#6366f1)',
+                    'linear-gradient(135deg,#f59e0b,#ef4444)',
+                    'linear-gradient(135deg,#10b981,#0ea5e9)',
+                    'linear-gradient(135deg,#ec4899,#8b5cf6)',
+                    'linear-gradient(135deg,#14b8a6,#6366f1)',
+                ];
+                return palette[(id - 1) % palette.length];
+            },
+
+            toast(message, type = 'info') {
+                const id = ++this._toastId;
+                this.toasts.push({ id, message, type });
+                setTimeout(() => {
+                    this.toasts = this.toasts.filter(t => t.id !== id);
+                }, 3500);
+            },
+        };
+    }
+</script>
+</body>
+</html>
