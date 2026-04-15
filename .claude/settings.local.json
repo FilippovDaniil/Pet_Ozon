@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/entity/enums /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/repository /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/dto/request /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/dto/response /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/service /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/controller /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/exception /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/java/com/example/marketplace/config /c/Users/MaxxPC/IdeaProjects/Pet_Ozon/src/main/resources)",
+      "Bash(cat)",
+      "Bash(java *)",
+      "Bash(./gradlew compileJava --stacktrace)",
+      "Bash(./gradlew compileJava)",
+      "Bash(./gradlew --stop)",
+      "Bash(./gradlew classes *)",
+      "Bash(PGPASSWORD=1234 psql -U postgres -c \"SELECT version\\(\\);\")",
+      "Read(//c/Program Files/PostgreSQL/**)",
+      "Bash(PGPASSWORD=1234 C:/Program Files/PostgreSQL/18/bin/psql.exe *)"
+    ]
+  }
+}
