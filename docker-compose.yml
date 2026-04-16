@@ -17,5 +17,18 @@ services:
       timeout: 5s
       retries: 5
 
+  app:
+    build: .
+    container_name: marketplace-app
+    ports:
+      - "8888:8888"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://marketplace-db:5432/marketplace
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: "1234"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
