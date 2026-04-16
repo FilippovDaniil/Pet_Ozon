@@ -31,6 +31,10 @@ public class Product {
 
     private String imageUrl;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "seller_id")
+    private User seller;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

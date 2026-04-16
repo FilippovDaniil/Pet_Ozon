@@ -51,6 +51,20 @@ const api = {
     payInvoice: (invoiceId, paymentMethod) =>
         apiFetch(`/api/invoice/${invoiceId}/pay`, { method: 'POST', body: JSON.stringify({ paymentMethod }) }),
 
+    // ── Продавец ──────────────────────────────────────────────────────────
+    getSellerProducts: () =>
+        apiFetch('/api/seller/products'),
+    createSellerProduct: (data) =>
+        apiFetch('/api/seller/products', { method: 'POST', body: JSON.stringify(data) }),
+    updateSellerProduct: (id, data) =>
+        apiFetch(`/api/seller/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteSellerProduct: (id) =>
+        apiFetch(`/api/seller/products/${id}`, { method: 'DELETE' }),
+    getSellerBalance: () =>
+        apiFetch('/api/seller/balance'),
+    getSellerSales: () =>
+        apiFetch('/api/seller/sales'),
+
     // ── Админ: товары ─────────────────────────────────────────────────────
     createProduct: (data) =>
         apiFetch('/api/admin/products', { method: 'POST', body: JSON.stringify(data) }),

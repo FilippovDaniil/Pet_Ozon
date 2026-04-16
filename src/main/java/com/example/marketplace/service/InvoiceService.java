@@ -2,9 +2,7 @@ package com.example.marketplace.service;
 
 import com.example.marketplace.dto.response.InvoiceResponse;
 import com.example.marketplace.dto.response.PaymentResponse;
-import com.example.marketplace.entity.Invoice;
-import com.example.marketplace.entity.Order;
-import com.example.marketplace.entity.Payment;
+import com.example.marketplace.entity.*;
 import com.example.marketplace.entity.enums.InvoiceStatus;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.entity.enums.PaymentStatus;
@@ -12,10 +10,12 @@ import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.InvoiceRepository;
 import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.PaymentRepository;
+import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -27,6 +27,7 @@ public class InvoiceService {
     private final InvoiceRepository invoiceRepository;
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
+    private final UserRepository userRepository;
 
     public List<InvoiceResponse> getAllInvoices() {
         return invoiceRepository.findAll().stream()
@@ -45,17 +46,26 @@ public class InvoiceService {
             throw new IllegalArgumentException("Invoice #" + invoiceId + " is already paid");
         }
 
-        // Mark invoice as paid
         invoice.setStatus(InvoiceStatus.PAID);
         invoice.setPaidAt(LocalDateTime.now());
         invoiceRepository.save(invoice);
 
-        // Mark linked order as paid
         Order order = invoice.getOrder();
         order.setStatus(OrderStatus.PAID);
         orderRepository.save(order);
 
-        // Record payment
+        // Transfer money to sellers
+        for (OrderItem item : order.getItems()) {
+            User seller = item.getProduct().getSeller();
+            if (seller != null) {
+                BigDecimal earnings = item.getPriceAtOrder()
+                        .multiply(BigDecimal.valueOf(item.getQuantity()));
+                BigDecimal current = seller.getBalance() != null ? seller.getBalance() : BigDecimal.ZERO;
+                seller.setBalance(current.add(earnings));
+                userRepository.save(seller);
+            }
+        }
+
         Payment payment = new Payment();
         payment.setInvoice(invoice);
         payment.setAmount(invoice.getAmount());

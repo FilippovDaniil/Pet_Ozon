@@ -93,11 +93,55 @@
 
         <!-- ─────────────────── TAB: ТОВАРЫ ─────────────────────────── -->
         <div x-show="activeTab === 'products'">
+
+            <!-- ══════════ КАРУСЕЛЬ БАННЕРОВ ══════════ -->
+            <div class="relative overflow-hidden rounded-2xl mb-8 h-48 select-none"
+                 x-data="{
+                     slide: 0,
+                     slides: [
+                         { icon: '💻', title: 'Ноутбуки и ПК', sub: 'Dell XPS, ASUS ROG и другие', grad: 'from-indigo-600 to-violet-700' },
+                         { icon: '🎧', title: 'Аудиотехника', sub: 'Sony, Bose, Sennheiser, JBL', grad: 'from-teal-500 to-cyan-700' },
+                         { icon: '🖱️', title: 'Периферия', sub: 'Мыши, клавиатуры, хабы', grad: 'from-rose-500 to-pink-700' },
+                         { icon: '🖥️', title: 'Мониторы', sub: '4K, 144 Гц, IPS панели', grad: 'from-amber-500 to-orange-600' },
+                         { icon: '🎙️', title: 'Звукозапись', sub: 'Микрофоны и аудиоинтерфейсы', grad: 'from-emerald-500 to-green-700' },
+                     ]
+                 }"
+                 x-init="setInterval(() => slide = (slide + 1) % slides.length, 4000)">
+
+                <!-- Slides -->
+                <template x-for="(s, i) in slides" :key="i">
+                    <div class="absolute inset-0 flex items-center justify-between px-10 bg-gradient-to-r transition-opacity duration-700"
+                         :class="[`${s.grad}`, slide === i ? 'opacity-100 z-10' : 'opacity-0 z-0']">
+                        <div class="text-white">
+                            <p class="text-xs font-semibold uppercase tracking-widest text-white/70 mb-1">Marketplace</p>
+                            <h2 class="text-3xl font-extrabold leading-tight" x-text="s.title"></h2>
+                            <p class="text-white/80 text-sm mt-1" x-text="s.sub"></p>
+                        </div>
+                        <div class="text-8xl leading-none opacity-90" x-text="s.icon"></div>
+                    </div>
+                </template>
+
+                <!-- Dots -->
+                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-20">
+                    <template x-for="(s, i) in slides" :key="i">
+                        <button @click="slide = i"
+                                :class="slide === i ? 'bg-white w-5' : 'bg-white/50 w-2'"
+                                class="h-2 rounded-full transition-all duration-300"></button>
+                    </template>
+                </div>
+
+                <!-- Arrows -->
+                <button @click="slide = (slide - 1 + slides.length) % slides.length"
+                        class="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center transition text-sm">‹</button>
+                <button @click="slide = (slide + 1) % slides.length"
+                        class="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center transition text-sm">›</button>
+            </div>
+
             <h2 class="text-xl font-bold text-gray-900 mb-6">Каталог товаров</h2>
 
             <!-- Loading -->
             <div x-show="loadingProducts" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                <template x-for="n in [1,2,3,4,5,6]" :key="n">
+                <template x-for="n in [1,2,3,4,5,6,7,8]" :key="n">
                     <div class="bg-white rounded-xl shadow-sm animate-pulse h-72"></div>
                 </template>
             </div>
@@ -123,9 +167,16 @@
                         <!-- Тело карточки -->
                         <div class="p-4 flex flex-col flex-1">
                             <h3 class="font-semibold text-gray-900 text-sm leading-tight mb-1" x-text="p.name"></h3>
-                            <p class="text-gray-400 text-xs mb-3 line-clamp-2 flex-1" x-text="p.description || '—'"></p>
+                            <p class="text-gray-400 text-xs mb-2 line-clamp-2" x-text="p.description || '—'"></p>
 
-                            <div class="flex items-center justify-between mb-3">
+                            <!-- Магазин продавца -->
+                            <div x-show="p.shopName"
+                                 class="flex items-center gap-1 mb-2">
+                                <span class="text-xs text-indigo-500 font-medium bg-indigo-50 px-2 py-0.5 rounded-full"
+                                      x-text="'🏪 ' + p.shopName"></span>
+                            </div>
+
+                            <div class="flex items-center justify-between mb-3 mt-auto">
                                 <span class="text-lg font-bold text-indigo-600" x-text="fmt(p.price)"></span>
                                 <span :class="p.stockQuantity > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'"
                                       class="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -134,7 +185,7 @@
                             </div>
 
                             <!-- Количество + кнопка -->
-                            <div class="flex items-center gap-2 mt-auto">
+                            <div class="flex items-center gap-2">
                                 <div class="flex items-center border border-gray-200 rounded-lg overflow-hidden">
                                     <button @click="decQty(p.id)"
                                             class="px-2.5 py-1.5 text-gray-500 hover:bg-gray-50 transition text-sm font-bold">−</button>

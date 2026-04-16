@@ -71,6 +71,11 @@ public class ProductService {
         r.setPrice(product.getPrice());
         r.setStockQuantity(product.getStockQuantity());
         r.setImageUrl(product.getImageUrl());
+        if (product.getSeller() != null) {
+            r.setSellerId(product.getSeller().getId());
+            r.setSellerName(product.getSeller().getFullName());
+            r.setShopName(product.getSeller().getShopName());
+        }
         return r;
     }
 }

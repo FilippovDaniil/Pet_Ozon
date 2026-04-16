@@ -10,7 +10,7 @@
         // Если уже залогинен — редиректим сразу
         (function () {
             const u = getCurrentUser();
-            if (u) window.location.href = u.role === 'ADMIN' ? 'admin.html' : 'client.html';
+            if (u) window.location.href = roleHome(u.role);
         })();
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
@@ -90,16 +90,32 @@
                     <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Тестовые аккаунты</p>
                     <div class="space-y-2">
                         <button
-                            @click="fillClient()"
-                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-50 transition group"
+                            @click="fill('client@example.com')"
+                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-50 transition"
                         >
                             <span class="text-sm">👤 <span class="font-medium text-gray-800">client@example.com</span></span>
                             <span class="text-xs text-gray-400 ml-1">/ pass</span>
                             <span class="float-right text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Покупатель</span>
                         </button>
                         <button
-                            @click="fillAdmin()"
-                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-purple-50 transition group"
+                            @click="fill('seller1@example.com')"
+                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-emerald-50 transition"
+                        >
+                            <span class="text-sm">🏪 <span class="font-medium text-gray-800">seller1@example.com</span></span>
+                            <span class="text-xs text-gray-400 ml-1">/ pass</span>
+                            <span class="float-right text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">TechShop</span>
+                        </button>
+                        <button
+                            @click="fill('seller2@example.com')"
+                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-teal-50 transition"
+                        >
+                            <span class="text-sm">🎵 <span class="font-medium text-gray-800">seller2@example.com</span></span>
+                            <span class="text-xs text-gray-400 ml-1">/ pass</span>
+                            <span class="float-right text-xs bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full">AudioWorld</span>
+                        </button>
+                        <button
+                            @click="fill('admin@example.com')"
+                            class="w-full text-left px-3 py-2 rounded-lg hover:bg-purple-50 transition"
                         >
                             <span class="text-sm">🔧 <span class="font-medium text-gray-800">admin@example.com</span></span>
                             <span class="text-xs text-gray-400 ml-1">/ pass</span>
@@ -122,13 +138,11 @@
                 error: '',
                 loading: false,
 
-                fillClient() { this.email = 'client@example.com'; this.password = 'pass'; this.error = ''; },
-                fillAdmin()  { this.email = 'admin@example.com';  this.password = 'pass'; this.error = ''; },
+                fill(email) { this.email = email; this.password = 'pass'; this.error = ''; },
 
                 doLogin() {
                     this.error = '';
                     this.loading = true;
-                    // Небольшая задержка для UX
                     setTimeout(() => {
                         const user = login(this.email, this.password);
                         this.loading = false;
@@ -136,7 +150,7 @@
                             this.error = 'Неверный email или пароль';
                             return;
                         }
-                        window.location.href = user.role === 'ADMIN' ? 'admin.html' : 'client.html';
+                        window.location.href = roleHome(user.role);
                     }, 300);
                 },
             };
