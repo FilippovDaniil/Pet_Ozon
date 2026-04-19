@@ -1,6 +1,5 @@
 // api.js — обёртка над fetch для всех эндпоинтов бэкенда
-
-const API_BASE = 'http://localhost:8888';
+// API_BASE определён в auth.js, который загружается раньше
 
 function buildHeaders() {
     const headers = { 'Content-Type': 'application/json' };
@@ -30,8 +29,16 @@ async function apiFetch(path, { method = 'GET', body } = {}) {
 
 const api = {
     // ── Товары ────────────────────────────────────────────────────────────
-    getProducts: () =>
-        apiFetch('/api/products'),
+    getProducts: (params = {}) => {
+        const qs = new URLSearchParams();
+        if (params.name)     qs.set('name', params.name);
+        if (params.category) qs.set('category', params.category);
+        if (params.minPrice !== undefined && params.minPrice !== '') qs.set('minPrice', params.minPrice);
+        if (params.maxPrice !== undefined && params.maxPrice !== '') qs.set('maxPrice', params.maxPrice);
+        qs.set('page', params.page ?? 0);
+        qs.set('size', params.size ?? 20);
+        return apiFetch('/api/products?' + qs.toString());
+    },
 
     // ── Корзина ───────────────────────────────────────────────────────────
     getCart: () =>
@@ -46,8 +53,10 @@ const api = {
         apiFetch('/api/cart/checkout', { method: 'POST', body: JSON.stringify({ shippingAddress }) }),
 
     // ── Заказы (клиент) ───────────────────────────────────────────────────
-    getMyOrders: () =>
-        apiFetch('/api/orders/my'),
+    getMyOrders: async () => {
+        const page = await apiFetch('/api/orders/my');
+        return page ? page.content : [];
+    },
 
     // ── Счета ─────────────────────────────────────────────────────────────
     getInvoice: (id) =>
@@ -78,12 +87,20 @@ const api = {
         apiFetch(`/api/admin/products/${id}`, { method: 'DELETE' }),
 
     // ── Админ: заказы ─────────────────────────────────────────────────────
-    getAllOrders: () =>
-        apiFetch('/api/admin/orders'),
+    getAllOrders: async () => {
+        const page = await apiFetch('/api/admin/orders');
+        return page ? page.content : [];
+    },
     updateOrderStatus: (id, status) =>
         apiFetch(`/api/admin/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
 
     // ── Админ: счета ──────────────────────────────────────────────────────
     getAllInvoices: () =>
         apiFetch('/api/admin/invoices'),
+
+    // ── Профиль ───────────────────────────────────────────────────────────
+    getProfile: () =>
+        apiFetch('/api/profile/me'),
+    updateProfile: (data) =>
+        apiFetch('/api/profile/me', { method: 'PATCH', body: JSON.stringify(data) }),
 };

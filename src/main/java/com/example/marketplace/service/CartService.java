@@ -10,6 +10,7 @@ import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CartService {
@@ -90,6 +92,16 @@ public class CartService {
             throw new IllegalArgumentException("Cart is empty");
         }
 
+        // Pre-check stock availability
+        for (CartItem cartItem : cartItems) {
+            Product product = cartItem.getProduct();
+            if (product.getStockQuantity() < cartItem.getQuantity()) {
+                throw new IllegalArgumentException(
+                        "Недостаточно товара «" + product.getName() + "» на складе. " +
+                        "Доступно: " + product.getStockQuantity());
+            }
+        }
+
         BigDecimal total = cartItems.stream()
                 .map(i -> i.getProduct().getPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -103,15 +115,19 @@ public class CartService {
         order.setShippingAddress(shippingAddress);
         orderRepository.save(order);
 
-        // Create OrderItems (snapshot of cart)
+        // Create OrderItems (snapshot of cart) and reduce stock
         for (CartItem cartItem : cartItems) {
+            Product product = cartItem.getProduct();
             OrderItem orderItem = new OrderItem();
             orderItem.setOrder(order);
-            orderItem.setProduct(cartItem.getProduct());
+            orderItem.setProduct(product);
             orderItem.setQuantity(cartItem.getQuantity());
-            orderItem.setPriceAtOrder(cartItem.getProduct().getPrice());
+            orderItem.setPriceAtOrder(product.getPrice());
             orderItemRepository.save(orderItem);
             order.getItems().add(orderItem);
+
+            product.setStockQuantity(product.getStockQuantity() - cartItem.getQuantity());
+            productRepository.save(product);
         }
 
         // Create Invoice
@@ -125,6 +141,7 @@ public class CartService {
         cart.getItems().clear();
         cartRepository.save(cart);
 
+        log.info("Оформлен заказ id={} пользователь id={} сумма={}", order.getId(), userId, total);
         return toOrderResponse(order);
     }
 

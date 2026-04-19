@@ -31,6 +31,8 @@ public class Product {
 
     private String imageUrl;
 
+    private String category;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "seller_id")
     private User seller;

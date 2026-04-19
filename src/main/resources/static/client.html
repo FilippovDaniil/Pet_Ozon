@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace — Покупатель</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        (function () {
+            const u = requireAuth('CLIENT');
+            if (!u) throw new Error('redirect');
+        })();
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <script src="js/api.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- ═══════════════════════════════ NAVBAR ═══════════════════════════════ -->
+<div x-data="clientApp()" class="min-h-screen flex flex-col" x-cloak>
+
+    <nav class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <!-- Лого -->
+            <div class="flex items-center gap-3">
+                <span class="text-2xl">🛍️</span>
+                <span class="font-bold text-gray-900 text-lg">Marketplace</span>
+            </div>
+
+            <!-- Табы -->
+            <div class="flex items-center gap-1">
+                <button @click="setTab('products')"
+                    :class="activeTab === 'products'
+                        ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    Товары
+                </button>
+                <button @click="setTab('cart')"
+                    :class="activeTab === 'cart'
+                        ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm transition relative">
+                    Корзина
+                    <span x-show="cartCount > 0"
+                        class="absolute -top-1 -right-1 bg-indigo-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center"
+                        x-text="cartCount"></span>
+                </button>
+                <button @click="setTab('orders')"
+                    :class="activeTab === 'orders'
+                        ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    Мои заказы
+                </button>
+            </div>
+
+            <!-- Пользователь -->
+            <div class="flex items-center gap-3">
+                <span class="text-sm text-gray-600" x-text="user?.name"></span>
+                <a href="profile.html"
+                   class="text-sm text-gray-500 hover:text-indigo-600 transition px-3 py-1.5 rounded-lg hover:bg-indigo-50">
+                    Профиль
+                </a>
+                <button @click="logout()" class="text-sm text-gray-500 hover:text-red-600 transition px-3 py-1.5 rounded-lg hover:bg-red-50">
+                    Выйти
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ═══════════════════════════ TOAST ════════════════════════════════ -->
+    <div class="fixed top-20 right-4 z-50 space-y-2">
+        <template x-for="t in toasts" :key="t.id">
+            <div x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 translate-x-4"
+                 x-transition:enter-end="opacity-100 translate-x-0"
+                 x-transition:leave="transition ease-in duration-200"
+                 x-transition:leave-start="opacity-100"
+                 x-transition:leave-end="opacity-0"
+                 :class="t.type === 'error'
+                     ? 'bg-red-50 border-red-200 text-red-800'
+                     : 'bg-green-50 border-green-200 text-green-800'"
+                 class="flex items-center gap-2 px-4 py-3 rounded-xl border shadow-lg text-sm max-w-sm">
+                <span x-text="t.type === 'error' ? '⚠️' : '✅'"></span>
+                <span x-text="t.message"></span>
+            </div>
+        </template>
+    </div>
+
+    <!-- ═══════════════════════ MAIN CONTENT ═════════════════════════════ -->
+    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+
+        <!-- ─────────────────── TAB: ТОВАРЫ ─────────────────────────── -->
+        <div x-show="activeTab === 'products'">
+
+            <!-- ══════════ КАРУСЕЛЬ БАННЕРОВ ══════════ -->
+            <div class="relative overflow-hidden rounded-2xl mb-8 h-48 select-none"
+                 x-data="{
+                     slide: 0,
+                     slides: [
+                         { icon: '💻', title: 'Ноутбуки и ПК', sub: 'Dell XPS, ASUS ROG и другие', grad: 'from-indigo-600 to-violet-700' },
+                         { icon: '🎧', title: 'Аудиотехника', sub: 'Sony, Bose, Sennheiser, JBL', grad: 'from-teal-500 to-cyan-700' },
+                         { icon: '🖱️', title: 'Периферия', sub: 'Мыши, клавиатуры, хабы', grad: 'from-rose-500 to-pink-700' },
+                         { icon: '🖥️', title: 'Мониторы', sub: '4K, 144 Гц, IPS панели', grad: 'from-amber-500 to-orange-600' },
+                         { icon: '🎙️', title: 'Звукозапись', sub: 'Микрофоны и аудиоинтерфейсы', grad: 'from-emerald-500 to-green-700' },
+                     ]
+                 }"
+                 x-init="setInterval(() => slide = (slide + 1) % slides.length, 4000)">
+
+                <!-- Slides -->
+                <template x-for="(s, i) in slides" :key="i">
+                    <div class="absolute inset-0 flex items-center justify-between px-10 bg-gradient-to-r transition-opacity duration-700"
+                         :class="[`${s.grad}`, slide === i ? 'opacity-100 z-10' : 'opacity-0 z-0']">
+                        <div class="text-white">
+                            <p class="text-xs font-semibold uppercase tracking-widest text-white/70 mb-1">Marketplace</p>
+                            <h2 class="text-3xl font-extrabold leading-tight" x-text="s.title"></h2>
+                            <p class="text-white/80 text-sm mt-1" x-text="s.sub"></p>
+                        </div>
+                        <div class="text-8xl leading-none opacity-90" x-text="s.icon"></div>
+                    </div>
+                </template>
+
+                <!-- Dots -->
+                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-20">
+                    <template x-for="(s, i) in slides" :key="i">
+                        <button @click="slide = i"
+                                :class="slide === i ? 'bg-white w-5' : 'bg-white/50 w-2'"
+                                class="h-2 rounded-full transition-all duration-300"></button>
+                    </template>
+                </div>
+
+                <!-- Arrows -->
+                <button @click="slide = (slide - 1 + slides.length) % slides.length"
+                        class="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center transition text-sm">‹</button>
+                <button @click="slide = (slide + 1) % slides.length"
+                        class="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 bg-white/20 hover:bg-white/40 text-white rounded-full flex items-center justify-center transition text-sm">›</button>
+            </div>
+
+            <!-- ══════════ ПОИСК И ФИЛЬТРЫ ══════════ -->
+            <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-6">
+
+                <!-- Строка поиска -->
+                <div class="flex gap-3 mb-4">
+                    <div class="flex-1 relative">
+                        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-base select-none">🔍</span>
+                        <input x-model="searchQuery"
+                               @input.debounce.400ms="searchChanged()"
+                               placeholder="Поиск по названию..."
+                               class="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition">
+                    </div>
+                    <button x-show="hasFilters" @click="resetFilters()"
+                            class="px-4 py-2 text-sm text-gray-500 hover:text-red-600 border border-gray-200 hover:border-red-200 rounded-xl transition">
+                        Сбросить
+                    </button>
+                </div>
+
+                <!-- Категории -->
+                <div class="flex flex-wrap gap-2 mb-3">
+                    <template x-for="cat in CATEGORIES" :key="cat">
+                        <button @click="selectCategory(cat)"
+                                :class="selectedCategory === cat
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'"
+                                class="px-3 py-1.5 border rounded-full text-xs font-medium transition"
+                                x-text="cat === '' ? 'Все категории' : cat">
+                        </button>
+                    </template>
+                </div>
+
+                <!-- Фильтр цены -->
+                <div x-show="showPriceFilter" x-transition class="flex flex-wrap items-center gap-2 pt-3 border-t border-gray-100 mb-2">
+                    <span class="text-xs text-gray-500">Цена:</span>
+                    <input x-model="minPrice" @input.debounce.600ms="searchChanged()"
+                           type="number" placeholder="от" min="0"
+                           class="w-24 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <span class="text-gray-400 text-xs">—</span>
+                    <input x-model="maxPrice" @input.debounce.600ms="searchChanged()"
+                           type="number" placeholder="до" min="0"
+                           class="w-24 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                    <span class="text-xs text-gray-400">₽</span>
+                </div>
+
+                <!-- Нижняя строка -->
+                <div class="flex items-center justify-between">
+                    <button @click="showPriceFilter = !showPriceFilter"
+                            class="text-xs text-indigo-600 hover:text-indigo-800 transition"
+                            x-text="showPriceFilter ? '▲ Скрыть фильтр цены' : '▼ Фильтр по цене'">
+                    </button>
+                    <span class="text-xs text-gray-400"
+                          x-show="totalElements > 0"
+                          x-text="`Найдено: ${totalElements} тов.`">
+                    </span>
+                </div>
+            </div>
+
+            <h2 class="text-xl font-bold text-gray-900 mb-6"
+                x-text="selectedCategory ? selectedCategory : 'Каталог товаров'"></h2>
+
+            <!-- Loading -->
+            <div x-show="loadingProducts" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                <template x-for="n in [1,2,3,4,5,6,7,8]" :key="n">
+                    <div class="bg-white rounded-xl shadow-sm animate-pulse h-72"></div>
+                </template>
+            </div>
+
+            <!-- Пустой каталог -->
+            <div x-show="!loadingProducts && products.length === 0" class="text-center py-20 text-gray-400">
+                <div class="text-5xl mb-3">📦</div>
+                <p class="text-lg">Товары не найдены</p>
+            </div>
+
+            <!-- Сетка товаров -->
+            <div x-show="!loadingProducts && products.length > 0"
+                 class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                <template x-for="p in products" :key="p.id">
+                    <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden border border-gray-100">
+
+                        <!-- Цветная шапка-аватарка -->
+                        <div class="h-32 flex items-center justify-center text-4xl font-bold text-white"
+                             :style="`background: ${productColor(p.id)}`">
+                            <span x-text="p.name ? p.name[0].toUpperCase() : '?'"></span>
+                        </div>
+
+                        <!-- Тело карточки -->
+                        <div class="p-4 flex flex-col flex-1">
+                            <h3 class="font-semibold text-gray-900 text-sm leading-tight mb-1" x-text="p.name"></h3>
+                            <p class="text-gray-400 text-xs mb-2 line-clamp-2" x-text="p.description || '—'"></p>
+
+                            <!-- Категория + магазин -->
+                            <div class="flex flex-wrap gap-1 mb-2">
+                                <span x-show="p.category"
+                                      class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full"
+                                      x-text="p.category"></span>
+                                <span x-show="p.shopName"
+                                      class="text-xs text-indigo-500 font-medium bg-indigo-50 px-2 py-0.5 rounded-full"
+                                      x-text="'🏪 ' + p.shopName"></span>
+                            </div>
+
+                            <div class="flex items-center justify-between mb-3 mt-auto">
+                                <span class="text-lg font-bold text-indigo-600" x-text="fmt(p.price)"></span>
+                                <span :class="p.stockQuantity > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'"
+                                      class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                      x-text="p.stockQuantity > 0 ? `В наличии: ${p.stockQuantity}` : 'Нет в наличии'">
+                                </span>
+                            </div>
+
+                            <!-- Количество + кнопка -->
+                            <div class="flex items-center gap-2">
+                                <div class="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+                                    <button @click="decQty(p.id)"
+                                            class="px-2.5 py-1.5 text-gray-500 hover:bg-gray-50 transition text-sm font-bold">−</button>
+                                    <input type="number" :value="qty[p.id] || 1"
+                                           @input="qty[p.id] = Math.max(1, parseInt($event.target.value) || 1)"
+                                           min="1" class="w-10 text-center text-sm py-1.5 border-0 outline-none">
+                                    <button @click="incQty(p.id)"
+                                            class="px-2.5 py-1.5 text-gray-500 hover:bg-gray-50 transition text-sm font-bold">+</button>
+                                </div>
+                                <button @click="addToCart(p)"
+                                        :disabled="p.stockQuantity === 0"
+                                        class="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300
+                                               text-white text-xs font-semibold rounded-lg transition">
+                                    В корзину
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- ══════════ ПАГИНАЦИЯ ══════════ -->
+            <div x-show="!loadingProducts && totalPages > 1"
+                 class="flex items-center justify-center gap-1 mt-8 pb-4">
+                <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 0"
+                        class="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    ‹
+                </button>
+                <template x-for="p in getPageNumbers()" :key="p">
+                    <button @click="goToPage(p - 1)"
+                            :class="p - 1 === currentPage
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'"
+                            class="w-9 h-9 border rounded-lg text-sm font-medium transition"
+                            x-text="p">
+                    </button>
+                </template>
+                <button @click="goToPage(currentPage + 1)" :disabled="currentPage >= totalPages - 1"
+                        class="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    ›
+                </button>
+            </div>
+        </div>
+
+        <!-- ─────────────────── TAB: КОРЗИНА ────────────────────────── -->
+        <div x-show="activeTab === 'cart'">
+            <h2 class="text-xl font-bold text-gray-900 mb-6">Корзина</h2>
+
+            <!-- Loading -->
+            <div x-show="loadingCart" class="space-y-3">
+                <template x-for="n in [1,2,3]" :key="n">
+                    <div class="bg-white rounded-xl p-4 animate-pulse h-16"></div>
+                </template>
+            </div>
+
+            <!-- Пустая корзина -->
+            <div x-show="!loadingCart && (!cart || !cart.items || cart.items.length === 0)"
+                 class="text-center py-20 text-gray-400">
+                <div class="text-5xl mb-3">🛒</div>
+                <p class="text-lg mb-4">Корзина пуста</p>
+                <button @click="setTab('products')"
+                        class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm font-medium">
+                    Перейти в каталог
+                </button>
+            </div>
+
+            <!-- Содержимое корзины -->
+            <div x-show="!loadingCart && cart && cart.items && cart.items.length > 0"
+                 class="max-w-2xl space-y-3">
+
+                <template x-for="item in (cart?.items || [])" :key="item.id">
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
+
+                        <!-- Аватарка -->
+                        <div class="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                             :style="`background: ${productColor(item.productId)}`"
+                             x-text="item.productName ? item.productName[0].toUpperCase() : '?'">
+                        </div>
+
+                        <!-- Название + цена -->
+                        <div class="flex-1 min-w-0">
+                            <p class="font-medium text-gray-900 text-sm truncate" x-text="item.productName"></p>
+                            <p class="text-xs text-gray-400" x-text="fmt(item.price) + ' / шт.'"></p>
+                        </div>
+
+                        <!-- Количество -->
+                        <div class="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+                            <button @click="updateCartItem(item, item.quantity - 1)"
+                                    :disabled="item.quantity <= 1"
+                                    class="px-2.5 py-1 text-gray-500 hover:bg-gray-50 transition text-sm font-bold disabled:opacity-30">−</button>
+                            <span class="px-3 text-sm font-medium" x-text="item.quantity"></span>
+                            <button @click="updateCartItem(item, item.quantity + 1)"
+                                    class="px-2.5 py-1 text-gray-500 hover:bg-gray-50 transition text-sm font-bold">+</button>
+                        </div>
+
+                        <!-- Сумма -->
+                        <div class="w-28 text-right">
+                            <span class="font-semibold text-gray-900 text-sm"
+                                  x-text="fmt(item.price * item.quantity)"></span>
+                        </div>
+
+                        <!-- Удалить -->
+                        <button @click="removeFromCart(item.id)"
+                                class="text-gray-300 hover:text-red-500 transition ml-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </template>
+
+                <!-- Итого + кнопка оформления -->
+                <div class="bg-indigo-50 rounded-xl border border-indigo-100 p-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <span class="text-gray-600 font-medium">Итого</span>
+                        <span class="text-2xl font-bold text-indigo-700" x-text="fmt(cart?.totalPrice || 0)"></span>
+                    </div>
+
+                    <!-- Форма оформления -->
+                    <div x-show="!showCheckout">
+                        <button @click="showCheckout = true"
+                                class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition">
+                            Оформить заказ
+                        </button>
+                    </div>
+                    <div x-show="showCheckout" x-transition class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Адрес доставки</label>
+                            <input x-model="checkoutAddress"
+                                   placeholder="Москва, ул. Примерная, д. 1, кв. 12"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div class="flex gap-2">
+                            <button @click="showCheckout = false; checkoutAddress = ''"
+                                    class="flex-1 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition">
+                                Отмена
+                            </button>
+                            <button @click="doCheckout()"
+                                    class="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-sm transition">
+                                Подтвердить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─────────────────── TAB: ЗАКАЗЫ ─────────────────────────── -->
+        <div x-show="activeTab === 'orders'">
+            <h2 class="text-xl font-bold text-gray-900 mb-6">Мои заказы</h2>
+
+            <!-- Loading -->
+            <div x-show="loadingOrders" class="space-y-4">
+                <template x-for="n in [1,2,3]" :key="n">
+                    <div class="bg-white rounded-xl p-5 animate-pulse h-24"></div>
+                </template>
+            </div>
+
+            <!-- Нет заказов -->
+            <div x-show="!loadingOrders && orders.length === 0" class="text-center py-20 text-gray-400">
+                <div class="text-5xl mb-3">📋</div>
+                <p class="text-lg mb-4">Заказов пока нет</p>
+                <button @click="setTab('products')"
+                        class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm font-medium">
+                    Начать покупки
+                </button>
+            </div>
+
+            <!-- Список заказов -->
+            <div x-show="!loadingOrders && orders.length > 0" class="max-w-2xl space-y-4">
+                <template x-for="order in orders" :key="order.id">
+                    <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+
+                        <!-- Заголовок заказа -->
+                        <div class="p-4 cursor-pointer hover:bg-gray-50 transition"
+                             @click="expandedOrder = expandedOrder === order.id ? null : order.id">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-3">
+                                    <span class="text-sm font-bold text-gray-900">Заказ #<span x-text="order.id"></span></span>
+                                    <span :class="statusBadge(order.status)"
+                                          class="text-xs px-2.5 py-0.5 rounded-full font-medium"
+                                          x-text="statusLabel(order.status)">
+                                    </span>
+                                </div>
+                                <div class="flex items-center gap-4">
+                                    <span class="font-semibold text-gray-900" x-text="fmt(order.totalAmount)"></span>
+                                    <span class="text-gray-300 text-sm" x-text="expandedOrder === order.id ? '▲' : '▼'"></span>
+                                </div>
+                            </div>
+                            <div class="mt-1 text-xs text-gray-400" x-text="fmtDate(order.orderDate)"></div>
+                        </div>
+
+                        <!-- Детали заказа -->
+                        <div x-show="expandedOrder === order.id" x-transition class="border-t border-gray-100">
+
+                            <!-- Позиции -->
+                            <div class="p-4 space-y-2">
+                                <template x-for="item in order.items" :key="item.id">
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-700" x-text="item.productName"></span>
+                                        <span class="text-gray-500">
+                                            <span x-text="item.quantity"></span>
+                                            × <span x-text="fmt(item.priceAtOrder)"></span>
+                                        </span>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- Адрес + кнопка оплаты -->
+                            <div class="px-4 pb-4 space-y-3">
+                                <div class="text-xs text-gray-400">
+                                    📍 <span x-text="order.shippingAddress || 'Не указан'"></span>
+                                </div>
+
+                                <!-- Кнопка оплаты — только для CREATED статуса с invoiceId -->
+                                <div x-show="order.status === 'CREATED' && order.invoiceId">
+                                    <button @click="openPayModal(order.invoiceId)"
+                                            class="w-full py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg text-sm transition">
+                                        💳 Оплатить счёт #<span x-text="order.invoiceId"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </main>
+
+    <!-- ═══════════════════════ МОДАЛ ОПЛАТЫ ═════════════════════════════ -->
+    <div x-show="showPayModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+         @click.self="showPayModal = false">
+
+        <div x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+
+            <h3 class="text-lg font-bold text-gray-900 mb-1">Оплата счёта</h3>
+            <p class="text-sm text-gray-500 mb-5">Счёт #<span x-text="payInvoiceId"></span></p>
+
+            <div class="space-y-3 mb-5">
+                <label class="block text-sm font-medium text-gray-700">Способ оплаты</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <template x-for="method in ['CARD', 'CASH', 'CRYPTO', 'TRANSFER']" :key="method">
+                        <button @click="paymentMethod = method"
+                                :class="paymentMethod === method
+                                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-semibold'
+                                    : 'border-gray-200 text-gray-600 hover:border-gray-300'"
+                                class="py-2.5 border-2 rounded-lg text-sm transition">
+                            <span x-text="methodLabel(method)"></span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+
+            <div class="flex gap-3">
+                <button @click="showPayModal = false"
+                        class="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
+                    Отмена
+                </button>
+                <button @click="doPayInvoice()"
+                        class="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl text-sm transition">
+                    Оплатить
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div><!-- end x-data -->
+
+<script>
+    function clientApp() {
+        return {
+            user: null,
+            activeTab: 'products',
+
+            products: [],
+            qty: {},
+            loadingProducts: false,
+            searchQuery: '',
+            selectedCategory: '',
+            minPrice: '',
+            maxPrice: '',
+            showPriceFilter: false,
+            currentPage: 0,
+            totalPages: 0,
+            totalElements: 0,
+            pageSize: 12,
+            CATEGORIES: ['', 'Ноутбуки', 'Периферия', 'Мониторы', 'Накопители', 'Аудио'],
+
+            cart: null,
+            cartCount: 0,
+            loadingCart: false,
+            showCheckout: false,
+            checkoutAddress: '',
+
+            orders: [],
+            expandedOrder: null,
+            loadingOrders: false,
+
+            showPayModal: false,
+            payInvoiceId: null,
+            paymentMethod: 'CARD',
+
+            toasts: [],
+            _toastId: 0,
+
+            async init() {
+                this.user = getCurrentUser();
+                if (!this.user) return;
+                await this.loadProducts();
+                // Pre-fill checkout address from profile
+                try {
+                    const profile = await api.getProfile();
+                    if (profile?.address) this.checkoutAddress = profile.address;
+                } catch {}
+            },
+
+            async setTab(tab) {
+                this.activeTab = tab;
+                if (tab === 'products' && this.products.length === 0) await this.loadProducts();
+                if (tab === 'cart')   await this.loadCart();
+                if (tab === 'orders') await this.loadOrders();
+            },
+
+            // ── Товары ────────────────────────────────────────────
+            async loadProducts() {
+                this.loadingProducts = true;
+                try {
+                    const page = await api.getProducts({
+                        name:     this.searchQuery  || undefined,
+                        category: this.selectedCategory || undefined,
+                        minPrice: this.minPrice     || undefined,
+                        maxPrice: this.maxPrice     || undefined,
+                        page:     this.currentPage,
+                        size:     this.pageSize,
+                    });
+                    this.products      = page?.content      || [];
+                    this.totalPages    = page?.totalPages   || 0;
+                    this.totalElements = page?.totalElements || 0;
+                    this.products.forEach(p => { if (!this.qty[p.id]) this.qty[p.id] = 1; });
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingProducts = false; }
+            },
+
+            async searchChanged() {
+                this.currentPage = 0;
+                await this.loadProducts();
+            },
+
+            async selectCategory(cat) {
+                this.selectedCategory = cat;
+                this.currentPage = 0;
+                await this.loadProducts();
+            },
+
+            async resetFilters() {
+                this.searchQuery = '';
+                this.selectedCategory = '';
+                this.minPrice = '';
+                this.maxPrice = '';
+                this.currentPage = 0;
+                await this.loadProducts();
+            },
+
+            async goToPage(p) {
+                if (p < 0 || p >= this.totalPages) return;
+                this.currentPage = p;
+                await this.loadProducts();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            },
+
+            getPageNumbers() {
+                return Array.from({ length: this.totalPages }, (_, i) => i + 1);
+            },
+
+            get hasFilters() {
+                return !!(this.searchQuery || this.selectedCategory || this.minPrice || this.maxPrice);
+            },
+
+            incQty(pid) { this.qty[pid] = (this.qty[pid] || 1) + 1; },
+            decQty(pid) { if ((this.qty[pid] || 1) > 1) this.qty[pid]--; },
+
+            async addToCart(product) {
+                try {
+                    const cart = await api.addToCart(product.id, this.qty[product.id] || 1);
+                    this.cart = cart;
+                    this.cartCount = cart?.items?.length || 0;
+                    this.toast(`«${product.name}» добавлен в корзину`, 'success');
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Корзина ───────────────────────────────────────────
+            async loadCart() {
+                this.loadingCart = true;
+                try {
+                    this.cart = await api.getCart();
+                    this.cartCount = this.cart?.items?.length || 0;
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingCart = false; }
+            },
+
+            async removeFromCart(cartItemId) {
+                try {
+                    await api.removeFromCart(cartItemId);
+                    await this.loadCart();
+                    this.toast('Товар удалён из корзины', 'success');
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async updateCartItem(item, newQty) {
+                if (newQty < 1) return;
+                try {
+                    this.cart = await api.updateCartItem(item.id, newQty);
+                    this.cartCount = this.cart?.items?.length || 0;
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async doCheckout() {
+                if (!this.checkoutAddress.trim()) {
+                    this.toast('Введите адрес доставки', 'error');
+                    return;
+                }
+                try {
+                    await api.checkout(this.checkoutAddress);
+                    this.showCheckout = false;
+                    this.checkoutAddress = '';
+                    this.cart = null;
+                    this.cartCount = 0;
+                    this.toast('Заказ оформлен! Перехожу к заказам...', 'success');
+                    setTimeout(() => this.setTab('orders'), 1500);
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Заказы ────────────────────────────────────────────
+            async loadOrders() {
+                this.loadingOrders = true;
+                try {
+                    this.orders = await api.getMyOrders();
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingOrders = false; }
+            },
+
+            // ── Оплата ────────────────────────────────────────────
+            openPayModal(invoiceId) {
+                this.payInvoiceId = invoiceId;
+                this.paymentMethod = 'CARD';
+                this.showPayModal = true;
+            },
+
+            async doPayInvoice() {
+                try {
+                    await api.payInvoice(this.payInvoiceId, this.paymentMethod);
+                    this.showPayModal = false;
+                    this.toast('Оплата прошла успешно!', 'success');
+                    await this.loadOrders();
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Утилиты ───────────────────────────────────────────
+            fmt(val) {
+                return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 0 }).format(val || 0);
+            },
+
+            fmtDate(dt) {
+                if (!dt) return '';
+                return new Date(dt).toLocaleString('ru-RU', { dateStyle: 'medium', timeStyle: 'short' });
+            },
+
+            statusLabel(s) {
+                return { CREATED: 'Новый', PAID: 'Оплачен', CANCELLED: 'Отменён', DELIVERED: 'Доставлен' }[s] || s;
+            },
+
+            statusBadge(s) {
+                return {
+                    CREATED: 'bg-yellow-100 text-yellow-800',
+                    PAID: 'bg-green-100 text-green-800',
+                    CANCELLED: 'bg-red-100 text-red-700',
+                    DELIVERED: 'bg-blue-100 text-blue-800',
+                }[s] || 'bg-gray-100 text-gray-600';
+            },
+
+            methodLabel(m) {
+                return { CARD: '💳 Карта', CASH: '💵 Наличные', CRYPTO: '₿ Крипто', TRANSFER: '🏦 Перевод' }[m] || m;
+            },
+
+            productColor(id) {
+                const palette = [
+                    'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                    'linear-gradient(135deg,#0ea5e9,#6366f1)',
+                    'linear-gradient(135deg,#f59e0b,#ef4444)',
+                    'linear-gradient(135deg,#10b981,#0ea5e9)',
+                    'linear-gradient(135deg,#ec4899,#8b5cf6)',
+                    'linear-gradient(135deg,#14b8a6,#6366f1)',
+                ];
+                return palette[(id - 1) % palette.length];
+            },
+
+            toast(message, type = 'info') {
+                const id = ++this._toastId;
+                this.toasts.push({ id, message, type });
+                setTimeout(() => {
+                    this.toasts = this.toasts.filter(t => t.id !== id);
+                }, 3500);
+            },
+        };
+    }
+</script>
+</body>
+</html>

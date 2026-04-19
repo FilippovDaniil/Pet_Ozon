@@ -5,9 +5,12 @@ import com.example.marketplace.dto.request.CheckoutRequest;
 import com.example.marketplace.dto.request.UpdateCartItemRequest;
 import com.example.marketplace.dto.response.CartResponse;
 import com.example.marketplace.dto.response.OrderResponse;
+import com.example.marketplace.entity.User;
 import com.example.marketplace.service.CartService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,30 +20,15 @@ public class CartController {
 
     private final CartService cartService;
 
-    /**
-     * Временная заглушка: пользователь определяется по заголовку X-User-Id.
-     * Если заголовок не передан — используется id=1 (первый пользователь).
-     * После добавления Spring Security этот метод будет заменён на получение
-     * пользователя из SecurityContext.
-     */
-    private Long resolveUserId(String xUserId) {
-        if (xUserId != null && !xUserId.isBlank()) {
-            return Long.parseLong(xUserId);
-        }
-        return 1L;
-    }
-
     @GetMapping
-    public CartResponse getCart(
-            @RequestHeader(value = "X-User-Id", required = false) String xUserId) {
-        return cartService.getCartByUserId(resolveUserId(xUserId));
+    public CartResponse getCart(@AuthenticationPrincipal User user) {
+        return cartService.getCartByUserId(user.getId());
     }
 
     @PostMapping(value = "/add", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public CartResponse addToCart(
-            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
-            @RequestBody AddToCartRequest request) {
-        return cartService.addToCart(resolveUserId(xUserId), request.getProductId(), request.getQuantity());
+    public CartResponse addToCart(@AuthenticationPrincipal User user,
+                                  @Valid @RequestBody AddToCartRequest request) {
+        return cartService.addToCart(user.getId(), request.getProductId(), request.getQuantity());
     }
 
     @DeleteMapping("/remove/{cartItemId}")
@@ -49,18 +37,14 @@ public class CartController {
     }
 
     @PutMapping(value = "/update/{cartItemId}", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public CartResponse updateCartItem(
-            @PathVariable Long cartItemId,
-            @RequestBody UpdateCartItemRequest request) {
+    public CartResponse updateCartItem(@PathVariable Long cartItemId,
+                                       @Valid @RequestBody UpdateCartItemRequest request) {
         return cartService.updateQuantity(cartItemId, request.getQuantity());
     }
 
     @PostMapping(value = "/checkout", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public OrderResponse checkout(
-            @RequestHeader(value = "X-User-Id", required = false) String xUserId,
-            @RequestBody(required = false) CheckoutRequest request) {
-        String address = (request != null && request.getShippingAddress() != null)
-                ? request.getShippingAddress() : "";
-        return cartService.checkout(resolveUserId(xUserId), address);
+    public OrderResponse checkout(@AuthenticationPrincipal User user,
+                                  @Valid @RequestBody CheckoutRequest request) {
+        return cartService.checkout(user.getId(), request.getShippingAddress());
     }
 }

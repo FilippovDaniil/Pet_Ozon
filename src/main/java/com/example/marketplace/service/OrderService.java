@@ -10,12 +10,16 @@ import com.example.marketplace.repository.InvoiceRepository;
 import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderService {
@@ -24,18 +28,14 @@ public class OrderService {
     private final UserRepository userRepository;
     private final InvoiceRepository invoiceRepository;
 
-    public List<OrderResponse> getAllOrders() {
-        return orderRepository.findAll().stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+    public Page<OrderResponse> getAllOrders(Pageable pageable) {
+        return orderRepository.findAll(pageable).map(this::toResponse);
     }
 
-    public List<OrderResponse> getOrdersByUserId(Long userId) {
+    public Page<OrderResponse> getOrdersByUserId(Long userId, Pageable pageable) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-        return orderRepository.findByUser(user).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+        return orderRepository.findByUser(user, pageable).map(this::toResponse);
     }
 
     public OrderResponse getOrderById(Long id) {
@@ -46,6 +46,7 @@ public class OrderService {
     public OrderResponse updateStatus(Long id, OrderStatus status) {
         Order order = findEntityById(id);
         order.setStatus(status);
+        log.info("Статус заказа id={} изменён на {}", id, status);
         return toResponse(orderRepository.save(order));
     }
 

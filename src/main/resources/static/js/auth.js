@@ -1,14 +1,15 @@
 // auth.js — управление сессией через JWT
 
-const API_BASE = 'http://localhost:8888';
+const API_BASE = '';
 
 function saveSession(data) {
     localStorage.setItem('marketplace_token', data.token);
     localStorage.setItem('marketplace_user', JSON.stringify({
-        userId: data.userId,
-        email:  data.email,
-        role:   data.role,
-        name:   data.fullName || data.email,
+        userId:   data.userId,
+        email:    data.email,
+        role:     data.role,
+        name:     data.fullName || data.email,
+        shopName: data.shopName || null,
     }));
 }
 

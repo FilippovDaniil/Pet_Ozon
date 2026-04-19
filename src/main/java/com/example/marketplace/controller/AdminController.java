@@ -8,7 +8,11 @@ import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.service.InvoiceService;
 import com.example.marketplace.service.OrderService;
 import com.example.marketplace.service.ProductService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -28,14 +32,14 @@ public class AdminController {
 
     @PostMapping(value = "/products", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public ProductResponse createProduct(@RequestBody CreateProductRequest request) {
+    public ProductResponse createProduct(@Valid @RequestBody CreateProductRequest request) {
         return productService.createProduct(request);
     }
 
     @PutMapping(value = "/products/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ProductResponse updateProduct(
             @PathVariable Long id,
-            @RequestBody CreateProductRequest request) {
+            @Valid @RequestBody CreateProductRequest request) {
         return productService.updateProduct(id, request);
     }
 
@@ -48,14 +52,14 @@ public class AdminController {
     // --- Orders ---
 
     @GetMapping("/orders")
-    public List<OrderResponse> getAllOrders() {
-        return orderService.getAllOrders();
+    public Page<OrderResponse> getAllOrders(@PageableDefault(size = 20) Pageable pageable) {
+        return orderService.getAllOrders(pageable);
     }
 
     @PutMapping(value = "/orders/{id}/status", consumes = MediaType.APPLICATION_JSON_VALUE)
     public OrderResponse updateOrderStatus(
             @PathVariable Long id,
-            @RequestBody UpdateOrderStatusRequest request) {
+            @Valid @RequestBody UpdateOrderStatusRequest request) {
         return orderService.updateStatus(id, request.getStatus());
     }
 

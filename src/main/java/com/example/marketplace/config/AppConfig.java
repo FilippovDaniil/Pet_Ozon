@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 
@@ -23,6 +24,7 @@ public class AppConfig {
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
     private final CartRepository cartRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Bean
     public CommandLineRunner initData() {
@@ -46,69 +48,77 @@ public class AppConfig {
                 // TechShop — компьютерная техника
                 addProduct("Ноутбук Dell XPS 15",
                         "Intel Core i7, 16 ГБ RAM, 512 ГБ SSD, OLED 15.6\" 4K",
-                        "89999.99", 10, seller1);
+                        "89999.99", 10, seller1, "Ноутбуки");
                 addProduct("Ноутбук ASUS ROG Zephyrus G14",
                         "AMD Ryzen 9, RTX 4070, 32 ГБ RAM, 1 ТБ SSD, 165 Гц",
-                        "119999.99", 5, seller1);
+                        "119999.99", 5, seller1, "Ноутбуки");
                 addProduct("Беспроводная мышь Logitech MX Master 3",
                         "Эргономичная, 7 кнопок, зарядка USB-C, 70 дней от батареи",
-                        "4999.99", 50, seller1);
+                        "4999.99", 50, seller1, "Периферия");
                 addProduct("Механическая клавиатура Keychron K2",
                         "Компактная (75%), Bluetooth + USB, подсветка RGB",
-                        "7999.99", 25, seller1);
+                        "7999.99", 25, seller1, "Периферия");
                 addProduct("Монитор Samsung 27\" 4K UHD",
                         "IPS, HDR400, 60 Гц, USB-C 65 Вт, HDMI 2.0, DisplayPort",
-                        "34999.99", 15, seller1);
+                        "34999.99", 15, seller1, "Мониторы");
                 addProduct("Игровая мышь Razer DeathAdder V3",
                         "30 000 DPI, оптический сенсор Focus Pro, 90 г",
-                        "5999.99", 30, seller1);
+                        "5999.99", 30, seller1, "Периферия");
                 addProduct("USB-хаб Anker 7-in-1",
                         "4K HDMI, 100 Вт PD, USB-A 3.0 × 3, SD/microSD",
-                        "2999.99", 40, seller1);
+                        "2999.99", 40, seller1, "Периферия");
                 addProduct("Веб-камера Logitech C920 Pro",
                         "Full HD 1080p/30fps, автофокус, стереомикрофон",
-                        "6999.99", 20, seller1);
+                        "6999.99", 20, seller1, "Периферия");
                 addProduct("SSD Samsung 970 EVO Plus 1 ТБ",
                         "M.2 NVMe, 3500 МБ/с чтение, 3300 МБ/с запись",
-                        "8999.99", 35, seller1);
+                        "8999.99", 35, seller1, "Накопители");
                 addProduct("Игровой монитор ASUS TUF VG27AQL1A",
                         "27\", IPS, 2560×1440, 170 Гц, HDR400, G-Sync совм.",
-                        "28999.99", 12, seller1);
+                        "28999.99", 12, seller1, "Мониторы");
 
                 // AudioWorld — аудиотехника
                 addProduct("Наушники Sony WH-1000XM5",
                         "Беспроводные, ANC, 30 ч работы, Multipoint, LDAC",
-                        "24999.99", 20, seller2);
+                        "24999.99", 20, seller2, "Аудио");
                 addProduct("TWS Apple AirPods Pro 2",
                         "ANC, Transparency, Spatial Audio, MagSafe, H2 чип",
-                        "19999.99", 25, seller2);
+                        "19999.99", 25, seller2, "Аудио");
                 addProduct("Колонка JBL Charge 5",
                         "40 Вт, IP67, 20 ч работы, PartyBoost, USB-A зарядка",
-                        "12999.99", 18, seller2);
+                        "12999.99", 18, seller2, "Аудио");
                 addProduct("Саундбар Samsung HW-Q600C",
                         "3.1.2 Ch, 360 Вт, Dolby Atmos, DTS:X, HDMI eARC",
-                        "39999.99", 8, seller2);
+                        "39999.99", 8, seller2, "Аудио");
                 addProduct("Микрофон Blue Yeti",
                         "USB-конденсаторный, 4 режима, 48 кГц / 16 бит",
-                        "11999.99", 15, seller2);
+                        "11999.99", 15, seller2, "Аудио");
                 addProduct("Наушники Sennheiser HD 560S",
                         "Открытые, 38 Ом, 6–38 000 Гц, вес 240 г",
-                        "14999.99", 22, seller2);
+                        "14999.99", 22, seller2, "Аудио");
                 addProduct("TWS Samsung Galaxy Buds2 Pro",
                         "ANC, 3D Audio, IPX7, 8 ч + 22 ч кейс, Bluetooth 5.3",
-                        "11999.99", 30, seller2);
+                        "11999.99", 30, seller2, "Аудио");
                 addProduct("Аудиоинтерфейс Focusrite Scarlett Solo",
                         "USB, 2 вх / 2 вых, 192 кГц / 24 бит, Air режим",
-                        "9999.99", 12, seller2);
+                        "9999.99", 12, seller2, "Аудио");
                 addProduct("Виниловый проигрыватель Audio-Technica AT-LP120X",
                         "USB, прямой привод, 33/45/78 об/мин, встроенный фонокорректор",
-                        "22999.99", 7, seller2);
+                        "22999.99", 7, seller2, "Аудио");
                 addProduct("Наушники Bose QuietComfort 45",
                         "ANC, 24 ч работы, Aware Mode, Bluetooth 5.1, USB-C",
-                        "21999.99", 16, seller2);
+                        "21999.99", 16, seller2, "Аудио");
 
                 log.info("Created 20 test products (10 TechShop + 10 AudioWorld)");
             }
+
+            // Back-fill categories for existing products that have none (migration)
+            productRepository.findAll().stream()
+                    .filter(p -> p.getCategory() == null)
+                    .forEach(p -> {
+                        p.setCategory(categorizeByName(p.getName()));
+                        productRepository.save(p);
+                    });
 
             log.info("=== Marketplace ready ===");
             log.info("  client1@example.com  / pass → покупатель");
@@ -119,10 +129,16 @@ public class AppConfig {
     }
 
     private User ensureUser(String email, String password, String fullName, Role role, String shopName) {
-        return userRepository.findByEmail(email).orElseGet(() -> {
+        return userRepository.findByEmail(email).map(u -> {
+            if (!u.getPassword().startsWith("$2a$")) {
+                u.setPassword(passwordEncoder.encode(password));
+                return userRepository.save(u);
+            }
+            return u;
+        }).orElseGet(() -> {
             User u = new User();
             u.setEmail(email);
-            u.setPassword(password);
+            u.setPassword(passwordEncoder.encode(password));
             u.setFullName(fullName);
             u.setRole(role);
             u.setShopName(shopName);
@@ -133,13 +149,26 @@ public class AppConfig {
         });
     }
 
-    private void addProduct(String name, String description, String price, int stock, User seller) {
+    private void addProduct(String name, String description, String price, int stock, User seller, String category) {
         Product p = new Product();
         p.setName(name);
         p.setDescription(description);
         p.setPrice(new BigDecimal(price));
         p.setStockQuantity(stock);
         p.setSeller(seller);
+        p.setCategory(category);
         productRepository.save(p);
+    }
+
+    private String categorizeByName(String name) {
+        if (name == null) return "Другое";
+        if (name.contains("Ноутбук")) return "Ноутбуки";
+        if (name.contains("Монитор") || name.contains("монитор")) return "Мониторы";
+        if (name.contains("SSD")) return "Накопители";
+        if (name.contains("Наушники") || name.contains("TWS") || name.contains("AirPods")
+                || name.contains("Колонка") || name.contains("Саундбар")
+                || name.contains("Микрофон") || name.contains("Аудиоинтерфейс")
+                || name.contains("Виниловый")) return "Аудио";
+        return "Периферия";
     }
 }
