@@ -5,6 +5,7 @@ import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.repository.InvoiceRepository;
 import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -21,13 +26,15 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
 
-    @Mock OrderRepository orderRepository;
-    @Mock UserRepository  userRepository;
+    @Mock OrderRepository   orderRepository;
+    @Mock UserRepository    userRepository;
+    @Mock InvoiceRepository invoiceRepository;
 
     @InjectMocks
     OrderService orderService;
@@ -54,57 +61,59 @@ class OrderServiceTest {
     // ── getAllOrders ──────────────────────────────────────────────────────────
 
     @Test
-    void getAllOrders_returnsAll() {
+    void getAllOrders_returnsPage() {
         User user = makeUser(1L);
-        when(orderRepository.findAll()).thenReturn(List.of(
+        PageImpl<Order> orderPage = new PageImpl<>(List.of(
                 makeOrder(1L, user, OrderStatus.CREATED, new BigDecimal("5000.00")),
                 makeOrder(2L, user, OrderStatus.PAID,    new BigDecimal("3000.00"))
         ));
+        when(orderRepository.findAll(any(Pageable.class))).thenReturn(orderPage);
 
-        List<OrderResponse> result = orderService.getAllOrders();
+        Page<OrderResponse> result = orderService.getAllOrders(PageRequest.of(0, 20));
 
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).getStatus()).isEqualTo(OrderStatus.CREATED);
-        assertThat(result.get(1).getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getContent().get(0).getStatus()).isEqualTo(OrderStatus.CREATED);
+        assertThat(result.getContent().get(1).getStatus()).isEqualTo(OrderStatus.PAID);
     }
 
     @Test
-    void getAllOrders_empty_returnsEmptyList() {
-        when(orderRepository.findAll()).thenReturn(List.of());
+    void getAllOrders_empty_returnsEmptyPage() {
+        when(orderRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(orderService.getAllOrders()).isEmpty();
+        assertThat(orderService.getAllOrders(Pageable.unpaged()).getContent()).isEmpty();
     }
 
     // ── getOrdersByUserId ─────────────────────────────────────────────────────
 
     @Test
-    void getOrdersByUserId_found_returnsUserOrders() {
+    void getOrdersByUserId_found_returnsUserOrdersPage() {
         User user = makeUser(1L);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(orderRepository.findByUser(user)).thenReturn(List.of(
+        PageImpl<Order> page = new PageImpl<>(List.of(
                 makeOrder(1L, user, OrderStatus.CREATED, new BigDecimal("1000.00"))
         ));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(orderRepository.findByUser(eq(user), any(Pageable.class))).thenReturn(page);
 
-        List<OrderResponse> result = orderService.getOrdersByUserId(1L);
+        Page<OrderResponse> result = orderService.getOrdersByUserId(1L, PageRequest.of(0, 20));
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getTotalAmount()).isEqualByComparingTo("1000.00");
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getTotalAmount()).isEqualByComparingTo("1000.00");
     }
 
     @Test
-    void getOrdersByUserId_noOrders_returnsEmptyList() {
+    void getOrdersByUserId_noOrders_returnsEmptyPage() {
         User user = makeUser(1L);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(orderRepository.findByUser(user)).thenReturn(List.of());
+        when(orderRepository.findByUser(eq(user), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(orderService.getOrdersByUserId(1L)).isEmpty();
+        assertThat(orderService.getOrdersByUserId(1L, Pageable.unpaged()).getContent()).isEmpty();
     }
 
     @Test
     void getOrdersByUserId_userNotFound_throwsException() {
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> orderService.getOrdersByUserId(99L))
+        assertThatThrownBy(() -> orderService.getOrdersByUserId(99L, Pageable.unpaged()))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("User not found");
     }

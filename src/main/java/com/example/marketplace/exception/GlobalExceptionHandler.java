@@ -2,6 +2,9 @@ package com.example.marketplace.exception;
 
 import com.example.marketplace.dto.response.ErrorResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -32,6 +35,24 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleBadRequest(IllegalArgumentException ex) {
         return new ErrorResponse(LocalDateTime.now(), ex.getMessage(), 400);
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErrorResponse handleAuthentication(AuthenticationException ex) {
+        return new ErrorResponse(LocalDateTime.now(), ex.getMessage(), 401);
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ErrorResponse handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex) {
+        return new ErrorResponse(LocalDateTime.now(), ex.getMessage(), 415);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleUnreadableBody(HttpMessageNotReadableException ex) {
+        return new ErrorResponse(LocalDateTime.now(), "Malformed JSON request", 400);
     }
 
     @ExceptionHandler(Exception.class)

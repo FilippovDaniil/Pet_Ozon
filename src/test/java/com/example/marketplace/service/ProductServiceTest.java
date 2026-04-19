@@ -10,6 +10,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -22,11 +26,9 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
 
-    @Mock
-    private ProductRepository productRepository;
+    @Mock ProductRepository productRepository;
 
-    @InjectMocks
-    private ProductService productService;
+    @InjectMocks ProductService productService;
 
     private Product makeProduct(Long id, String name, BigDecimal price, int stock) {
         Product p = new Product();
@@ -40,24 +42,36 @@ class ProductServiceTest {
     // ── getAllProducts ────────────────────────────────────────────────────────
 
     @Test
-    void getAllProducts_returnsListOfResponses() {
-        when(productRepository.findAll()).thenReturn(List.of(
+    void getAllProducts_noFilters_returnsPageOfResponses() {
+        PageImpl<Product> products = new PageImpl<>(List.of(
                 makeProduct(1L, "Ноутбук", new BigDecimal("79999.99"), 10),
                 makeProduct(2L, "Мышь",    new BigDecimal("1999.99"),  50)
         ));
+        when(productRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(products);
 
-        List<ProductResponse> result = productService.getAllProducts();
+        Page<ProductResponse> result = productService.getAllProducts(null, null, null, null, Pageable.unpaged());
 
-        assertThat(result).hasSize(2);
-        assertThat(result.get(0).getName()).isEqualTo("Ноутбук");
-        assertThat(result.get(1).getName()).isEqualTo("Мышь");
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getContent().get(0).getName()).isEqualTo("Ноутбук");
+        assertThat(result.getContent().get(1).getName()).isEqualTo("Мышь");
     }
 
     @Test
-    void getAllProducts_empty_returnsEmptyList() {
-        when(productRepository.findAll()).thenReturn(List.of());
+    void getAllProducts_empty_returnsEmptyPage() {
+        when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
 
-        assertThat(productService.getAllProducts()).isEmpty();
+        assertThat(productService.getAllProducts(null, null, null, null, Pageable.unpaged()).getContent()).isEmpty();
+    }
+
+    @Test
+    void getAllProducts_withFilters_passesSpecToRepository() {
+        when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+
+        productService.getAllProducts("Ноутбук", null, new BigDecimal("5000"), new BigDecimal("100000"), Pageable.unpaged());
+
+        verify(productRepository).findAll(any(Specification.class), any(Pageable.class));
     }
 
     // ── getProductById ────────────────────────────────────────────────────────

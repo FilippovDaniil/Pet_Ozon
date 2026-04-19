@@ -3,12 +3,14 @@ package com.example.marketplace.service;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.repository.CartRepository;
 import com.example.marketplace.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.Optional;
 
@@ -18,11 +20,11 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
 
-    @Mock
-    UserRepository userRepository;
+    @Mock UserRepository userRepository;
+    @Mock CartRepository cartRepository;
+    @Mock PasswordEncoder passwordEncoder;
 
-    @InjectMocks
-    UserService userService;
+    @InjectMocks UserService userService;
 
     private User makeUser(Long id, String email, Role role) {
         User u = new User();
@@ -86,5 +88,32 @@ class UserServiceTest {
         assertThatThrownBy(() -> userService.getByEmail("nobody@example.com"))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("nobody@example.com");
+    }
+
+    // ── registerClient ────────────────────────────────────────────────────────
+
+    @Test
+    void registerClient_newEmail_savesUserAndCart() {
+        when(userRepository.existsByEmail("new@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("encoded-pass");
+        User saved = makeUser(10L, "new@example.com", Role.CLIENT);
+        when(userRepository.save(any(User.class))).thenReturn(saved);
+        when(cartRepository.save(any())).thenReturn(null);
+
+        User result = userService.registerClient("new@example.com", "password123", "Новый");
+
+        assertThat(result.getId()).isEqualTo(10L);
+        assertThat(result.getRole()).isEqualTo(Role.CLIENT);
+        verify(userRepository).save(any(User.class));
+        verify(cartRepository).save(any());
+    }
+
+    @Test
+    void registerClient_duplicateEmail_throwsException() {
+        when(userRepository.existsByEmail("client@example.com")).thenReturn(true);
+
+        assertThatThrownBy(() -> userService.registerClient("client@example.com", "pass", "Тест"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Email already registered");
     }
 }

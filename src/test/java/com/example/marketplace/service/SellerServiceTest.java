@@ -252,7 +252,7 @@ class SellerServiceTest {
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(productRepository, never()).delete(any());
+        verify(productRepository, never()).delete(any(Product.class));
     }
 
     @Test
@@ -265,7 +265,7 @@ class SellerServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not belong");
 
-        verify(productRepository, never()).delete(any());
+        verify(productRepository, never()).delete(any(Product.class));
     }
 
     // ── getBalance ────────────────────────────────────────────────────────────

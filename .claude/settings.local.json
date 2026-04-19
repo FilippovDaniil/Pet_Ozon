@@ -11,7 +11,10 @@
       "Bash(PGPASSWORD=1234 psql -U postgres -c \"SELECT version\\(\\);\")",
       "Read(//c/Program Files/PostgreSQL/**)",
       "Bash(PGPASSWORD=1234 C:/Program Files/PostgreSQL/18/bin/psql.exe *)",
-      "Bash(./gradlew test *)"
+      "Bash(./gradlew test *)",
+      "Bash(./gradlew compileTestJava)",
+      "Bash(python3 -c 'import sys; from html.parser import HTMLParser; *)",
+      "Bash(xargs grep *)"
     ]
   }
 }

@@ -1,16 +1,24 @@
 package com.example.marketplace.controller;
 
+import com.example.marketplace.config.SecurityConfig;
+import com.example.marketplace.config.TestSecurityConfig;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.dto.response.SellerResponse;
 import com.example.marketplace.entity.Order;
+import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.OrderStatus;
+import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.security.JwtAuthenticationFilter;
 import com.example.marketplace.service.OrderService;
 import com.example.marketplace.service.SellerService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,17 +31,33 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(SellerController.class)
+@WebMvcTest(
+        value = SellerController.class,
+        excludeFilters = {
+                @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = SecurityConfig.class),
+                @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE, classes = JwtAuthenticationFilter.class)
+        }
+)
+@Import(TestSecurityConfig.class)
 class SellerControllerTest {
 
     @Autowired MockMvc mockMvc;
+
     @MockitoBean SellerService sellerService;
     @MockitoBean OrderService  orderService;
 
-    private static final Long DEFAULT_SELLER_ID = 3L;
+    private User mockSellerUser(Long id) {
+        User u = new User();
+        u.setId(id);
+        u.setEmail("seller@example.com");
+        u.setShopName("Test Shop");
+        u.setRole(Role.SELLER);
+        return u;
+    }
 
     private ProductResponse makeProductResponse(Long id, String name) {
         ProductResponse r = new ProductResponse();
@@ -68,12 +92,12 @@ class SellerControllerTest {
     // ── GET /api/seller/products ──────────────────────────────────────────────
 
     @Test
-    void getMyProducts_withHeader_callsServiceWithGivenId() throws Exception {
-        when(sellerService.getSellerProducts(5L)).thenReturn(
+    void getMyProducts_authenticated_returnsSellerProducts() throws Exception {
+        when(sellerService.getSellerProducts(3L)).thenReturn(
                 List.of(makeProductResponse(1L, "Товар 1"), makeProductResponse(2L, "Товар 2"))
         );
 
-        mockMvc.perform(get("/api/seller/products").header("X-User-Id", "5"))
+        mockMvc.perform(get("/api/seller/products").with(user(mockSellerUser(3L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].id").value(1))
@@ -81,44 +105,39 @@ class SellerControllerTest {
     }
 
     @Test
-    void getMyProducts_withoutHeader_usesDefaultSellerId() throws Exception {
-        when(sellerService.getSellerProducts(DEFAULT_SELLER_ID)).thenReturn(
-                List.of(makeProductResponse(1L, "Товар"))
-        );
-
+    void getMyProducts_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/seller/products"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(status().isUnauthorized());
+    }
 
-        verify(sellerService).getSellerProducts(DEFAULT_SELLER_ID);
+    @Test
+    void getMyProducts_clientRole_returns403() throws Exception {
+        User client = new User();
+        client.setId(1L);
+        client.setRole(Role.CLIENT);
+
+        mockMvc.perform(get("/api/seller/products").with(user(client)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
     void getMyProducts_sellerNotFound_returns404() throws Exception {
-        when(sellerService.getSellerProducts(DEFAULT_SELLER_ID))
+        when(sellerService.getSellerProducts(3L))
                 .thenThrow(new ResourceNotFoundException("Seller not found with id: 3"));
 
-        mockMvc.perform(get("/api/seller/products"))
+        mockMvc.perform(get("/api/seller/products").with(user(mockSellerUser(3L))))
                 .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void getMyProducts_userIsNotSeller_returns400() throws Exception {
-        when(sellerService.getSellerProducts(DEFAULT_SELLER_ID))
-                .thenThrow(new IllegalArgumentException("User 3 is not a seller"));
-
-        mockMvc.perform(get("/api/seller/products"))
-                .andExpect(status().isBadRequest());
     }
 
     // ── POST /api/seller/products ─────────────────────────────────────────────
 
     @Test
     void createProduct_validRequest_returns201() throws Exception {
-        when(sellerService.createProduct(eq(DEFAULT_SELLER_ID), any()))
+        when(sellerService.createProduct(eq(3L), any()))
                 .thenReturn(makeProductResponse(10L, "Новый товар"));
 
         mockMvc.perform(post("/api/seller/products")
+                        .with(user(mockSellerUser(3L)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Новый товар\",\"price\":1500.00,\"stockQuantity\":5}"))
                 .andExpect(status().isCreated())
@@ -128,34 +147,25 @@ class SellerControllerTest {
 
     @Test
     void createProduct_sellerNotFound_returns404() throws Exception {
-        when(sellerService.createProduct(eq(DEFAULT_SELLER_ID), any()))
+        when(sellerService.createProduct(eq(3L), any()))
                 .thenThrow(new ResourceNotFoundException("Seller not found with id: 3"));
 
         mockMvc.perform(post("/api/seller/products")
+                        .with(user(mockSellerUser(3L)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Товар\",\"price\":100.00,\"stockQuantity\":1}"))
                 .andExpect(status().isNotFound());
-    }
-
-    @Test
-    void createProduct_userIsNotSeller_returns400() throws Exception {
-        when(sellerService.createProduct(eq(DEFAULT_SELLER_ID), any()))
-                .thenThrow(new IllegalArgumentException("User 3 is not a seller"));
-
-        mockMvc.perform(post("/api/seller/products")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Товар\",\"price\":100.00,\"stockQuantity\":1}"))
-                .andExpect(status().isBadRequest());
     }
 
     // ── PUT /api/seller/products/{id} ─────────────────────────────────────────
 
     @Test
     void updateProduct_found_returns200WithUpdatedData() throws Exception {
-        when(sellerService.updateProduct(eq(DEFAULT_SELLER_ID), eq(1L), any()))
+        when(sellerService.updateProduct(eq(3L), eq(1L), any()))
                 .thenReturn(makeProductResponse(1L, "Обновлённый товар"));
 
         mockMvc.perform(put("/api/seller/products/1")
+                        .with(user(mockSellerUser(3L)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Обновлённый товар\",\"price\":2000.00,\"stockQuantity\":8}"))
                 .andExpect(status().isOk())
@@ -165,10 +175,11 @@ class SellerControllerTest {
 
     @Test
     void updateProduct_notFound_returns404() throws Exception {
-        when(sellerService.updateProduct(eq(DEFAULT_SELLER_ID), eq(99L), any()))
+        when(sellerService.updateProduct(eq(3L), eq(99L), any()))
                 .thenThrow(new ResourceNotFoundException("Product not found with id: 99"));
 
         mockMvc.perform(put("/api/seller/products/99")
+                        .with(user(mockSellerUser(3L)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Нет\",\"price\":1.0,\"stockQuantity\":0}"))
                 .andExpect(status().isNotFound());
@@ -176,10 +187,11 @@ class SellerControllerTest {
 
     @Test
     void updateProduct_belongsToAnotherSeller_returns400() throws Exception {
-        when(sellerService.updateProduct(eq(DEFAULT_SELLER_ID), eq(2L), any()))
+        when(sellerService.updateProduct(eq(3L), eq(2L), any()))
                 .thenThrow(new IllegalArgumentException("Product does not belong to this seller"));
 
         mockMvc.perform(put("/api/seller/products/2")
+                        .with(user(mockSellerUser(3L)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Чужой\",\"price\":1.0,\"stockQuantity\":1}"))
                 .andExpect(status().isBadRequest())
@@ -190,18 +202,20 @@ class SellerControllerTest {
 
     @Test
     void deleteProduct_found_returns204() throws Exception {
-        doNothing().when(sellerService).deleteProduct(DEFAULT_SELLER_ID, 1L);
+        doNothing().when(sellerService).deleteProduct(3L, 1L);
 
-        mockMvc.perform(delete("/api/seller/products/1"))
+        mockMvc.perform(delete("/api/seller/products/1")
+                        .with(user(mockSellerUser(3L))))
                 .andExpect(status().isNoContent());
     }
 
     @Test
     void deleteProduct_notFound_returns404() throws Exception {
         doThrow(new ResourceNotFoundException("Product not found with id: 99"))
-                .when(sellerService).deleteProduct(DEFAULT_SELLER_ID, 99L);
+                .when(sellerService).deleteProduct(3L, 99L);
 
-        mockMvc.perform(delete("/api/seller/products/99"))
+        mockMvc.perform(delete("/api/seller/products/99")
+                        .with(user(mockSellerUser(3L))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Product not found with id: 99"));
     }
@@ -209,9 +223,10 @@ class SellerControllerTest {
     @Test
     void deleteProduct_belongsToAnotherSeller_returns400() throws Exception {
         doThrow(new IllegalArgumentException("Product does not belong to this seller"))
-                .when(sellerService).deleteProduct(DEFAULT_SELLER_ID, 5L);
+                .when(sellerService).deleteProduct(3L, 5L);
 
-        mockMvc.perform(delete("/api/seller/products/5"))
+        mockMvc.perform(delete("/api/seller/products/5")
+                        .with(user(mockSellerUser(3L))))
                 .andExpect(status().isBadRequest());
     }
 
@@ -219,9 +234,9 @@ class SellerControllerTest {
 
     @Test
     void getBalance_returns200WithSellerInfo() throws Exception {
-        when(sellerService.getBalance(DEFAULT_SELLER_ID)).thenReturn(makeSellerResponse(DEFAULT_SELLER_ID));
+        when(sellerService.getBalance(3L)).thenReturn(makeSellerResponse(3L));
 
-        mockMvc.perform(get("/api/seller/balance"))
+        mockMvc.perform(get("/api/seller/balance").with(user(mockSellerUser(3L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(3))
                 .andExpect(jsonPath("$.shopName").value("Test Shop"))
@@ -230,10 +245,10 @@ class SellerControllerTest {
 
     @Test
     void getBalance_sellerNotFound_returns404() throws Exception {
-        when(sellerService.getBalance(DEFAULT_SELLER_ID))
+        when(sellerService.getBalance(3L))
                 .thenThrow(new ResourceNotFoundException("Seller not found with id: 3"));
 
-        mockMvc.perform(get("/api/seller/balance"))
+        mockMvc.perform(get("/api/seller/balance").with(user(mockSellerUser(3L))))
                 .andExpect(status().isNotFound());
     }
 
@@ -243,10 +258,10 @@ class SellerControllerTest {
     void getSales_returnsMappedOrderList() throws Exception {
         Order order = new Order();
         order.setId(1L);
-        when(sellerService.getSellerOrders(DEFAULT_SELLER_ID)).thenReturn(List.of(order));
+        when(sellerService.getSellerOrders(3L)).thenReturn(List.of(order));
         when(orderService.toResponse(order)).thenReturn(makeOrderResponse(1L, OrderStatus.PAID));
 
-        mockMvc.perform(get("/api/seller/sales"))
+        mockMvc.perform(get("/api/seller/sales").with(user(mockSellerUser(3L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].id").value(1))
@@ -255,19 +270,19 @@ class SellerControllerTest {
 
     @Test
     void getSales_noOrders_returnsEmptyList() throws Exception {
-        when(sellerService.getSellerOrders(DEFAULT_SELLER_ID)).thenReturn(List.of());
+        when(sellerService.getSellerOrders(3L)).thenReturn(List.of());
 
-        mockMvc.perform(get("/api/seller/sales"))
+        mockMvc.perform(get("/api/seller/sales").with(user(mockSellerUser(3L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test
     void getSales_sellerNotFound_returns404() throws Exception {
-        when(sellerService.getSellerOrders(DEFAULT_SELLER_ID))
+        when(sellerService.getSellerOrders(3L))
                 .thenThrow(new ResourceNotFoundException("Seller not found with id: 3"));
 
-        mockMvc.perform(get("/api/seller/sales"))
+        mockMvc.perform(get("/api/seller/sales").with(user(mockSellerUser(3L))))
                 .andExpect(status().isNotFound());
     }
 }
