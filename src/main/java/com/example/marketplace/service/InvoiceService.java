@@ -20,6 +20,19 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Сервис оплаты счетов.
+ *
+ * Главный метод pay() выполняет сразу несколько действий в одной транзакции:
+ *   1. Помечает Invoice как оплаченный.
+ *   2. Переводит Order в статус PAID.
+ *   3. Начисляет деньги продавцам (balance += сумма их товаров).
+ *   4. Создаёт запись Payment.
+ *
+ * Почему всё в одной транзакции?
+ * Если баланс продавца обновится, но Payment не запишется (например, ошибка БД),
+ * откат транзакции гарантирует консистентность данных.
+ */
 @Service
 @RequiredArgsConstructor
 public class InvoiceService {
@@ -39,6 +52,11 @@ public class InvoiceService {
         return toResponse(findEntityById(id));
     }
 
+    /**
+     * Оплата счёта.
+     * Идемпотентная проверка: если счёт уже оплачен — бросаем исключение.
+     * Это защита от случайного двойного списания.
+     */
     @Transactional
     public PaymentResponse pay(Long invoiceId, String paymentMethod) {
         Invoice invoice = findEntityById(invoiceId);
@@ -46,15 +64,18 @@ public class InvoiceService {
             throw new IllegalArgumentException("Invoice #" + invoiceId + " is already paid");
         }
 
+        // Шаг 1: обновляем счёт.
         invoice.setStatus(InvoiceStatus.PAID);
         invoice.setPaidAt(LocalDateTime.now());
         invoiceRepository.save(invoice);
 
+        // Шаг 2: обновляем статус заказа.
         Order order = invoice.getOrder();
         order.setStatus(OrderStatus.PAID);
         orderRepository.save(order);
 
-        // Transfer money to sellers
+        // Шаг 3: начисляем деньги продавцам.
+        // Если в заказе товары разных продавцов — каждый получает свою долю.
         for (OrderItem item : order.getItems()) {
             User seller = item.getProduct().getSeller();
             if (seller != null) {
@@ -66,9 +87,11 @@ public class InvoiceService {
             }
         }
 
+        // Шаг 4: создаём платёжный документ.
         Payment payment = new Payment();
         payment.setInvoice(invoice);
         payment.setAmount(invoice.getAmount());
+        // Если метод оплаты не указан — по умолчанию "CARD".
         payment.setPaymentMethod(paymentMethod != null && !paymentMethod.isBlank() ? paymentMethod : "CARD");
         payment.setStatus(PaymentStatus.SUCCESS);
         payment.setTimestamp(LocalDateTime.now());

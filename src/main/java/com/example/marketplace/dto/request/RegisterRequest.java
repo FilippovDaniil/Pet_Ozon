@@ -6,6 +6,14 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
+/**
+ * Тело запроса POST /api/auth/register.
+ *
+ * @Size(min = 6) — минимальная длина строки. Дополняет @NotBlank:
+ * пустая строка не пройдёт @NotBlank, а короткая — @Size.
+ *
+ * fullName необязателен — можно зарегистрироваться без имени.
+ */
 @Getter
 @Setter
 public class RegisterRequest {

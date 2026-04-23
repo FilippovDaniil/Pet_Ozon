@@ -19,6 +19,19 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * Административные эндпоинты — только для роли ADMIN.
+ *
+ * Доступ контролируется в SecurityConfig:
+ *   .requestMatchers("/api/admin/**").hasRole("ADMIN")
+ * Spring проверяет роль ПЕРЕД вызовом метода контроллера.
+ * Если роль не совпадает — автоматически 403 Forbidden.
+ *
+ * Группы операций:
+ *   /api/admin/products  — CRUD товаров (без привязки к продавцу)
+ *   /api/admin/orders    — просмотр и изменение статуса любых заказов
+ *   /api/admin/invoices  — просмотр всех счетов
+ */
 @RestController
 @RequestMapping(value = "/api/admin", produces = MediaType.APPLICATION_JSON_VALUE)
 @RequiredArgsConstructor
@@ -28,14 +41,16 @@ public class AdminController {
     private final OrderService orderService;
     private final InvoiceService invoiceService;
 
-    // --- Products ---
+    // --- Управление товарами ---
 
+    // @ResponseStatus(CREATED) — Spring автоматически вернёт HTTP 201 вместо 200.
     @PostMapping(value = "/products", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public ProductResponse createProduct(@Valid @RequestBody CreateProductRequest request) {
         return productService.createProduct(request);
     }
 
+    // PUT — полная замена ресурса (все поля обновляются).
     @PutMapping(value = "/products/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ProductResponse updateProduct(
             @PathVariable Long id,
@@ -43,19 +58,21 @@ public class AdminController {
         return productService.updateProduct(id, request);
     }
 
+    // NO_CONTENT (204) — стандартный ответ при успешном удалении (тело пустое).
     @DeleteMapping("/products/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteProduct(@PathVariable Long id) {
         productService.deleteProduct(id);
     }
 
-    // --- Orders ---
+    // --- Управление заказами ---
 
     @GetMapping("/orders")
     public Page<OrderResponse> getAllOrders(@PageableDefault(size = 20) Pageable pageable) {
         return orderService.getAllOrders(pageable);
     }
 
+    /** Смена статуса заказа: CREATED → PAID, PAID → DELIVERED, CREATED → CANCELLED и т.д. */
     @PutMapping(value = "/orders/{id}/status", consumes = MediaType.APPLICATION_JSON_VALUE)
     public OrderResponse updateOrderStatus(
             @PathVariable Long id,
@@ -63,7 +80,7 @@ public class AdminController {
         return orderService.updateStatus(id, request.getStatus());
     }
 
-    // --- Invoices ---
+    // --- Просмотр счетов ---
 
     @GetMapping("/invoices")
     public List<InvoiceResponse> getAllInvoices() {

@@ -8,6 +8,20 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 
+/**
+ * Тело запроса для создания / обновления товара.
+ *
+ * Используется в:
+ *   POST /api/admin/products      — AdminController.createProduct()
+ *   PUT  /api/admin/products/{id} — AdminController.updateProduct()
+ *   POST /api/seller/products     — SellerController.createProduct()
+ *   PUT  /api/seller/products/{id}— SellerController.updateProduct()
+ *
+ * @Positive — число должно быть строго больше нуля (цена не может быть 0 или отрицательной).
+ * @Min(0)   — количество на складе может быть 0 (товар закончился), но не отрицательным.
+ *
+ * BigDecimal используется для денег: double теряет точность при арифметике с дробями.
+ */
 @Data
 public class CreateProductRequest {
 

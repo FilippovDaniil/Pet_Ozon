@@ -20,6 +20,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+/**
+ * Сервис корзины и оформления заказа — «сердце» бизнес-логики маркетплейса.
+ *
+ * Главный метод — checkout(): превращает корзину в заказ.
+ * Алгоритм checkout:
+ *   1. Проверяем наличие товаров на складе.
+ *   2. Считаем итоговую сумму.
+ *   3. Создаём Order с позициями OrderItem (снимок цен).
+ *   4. Уменьшаем stockQuantity у каждого товара.
+ *   5. Создаём Invoice со статусом UNPAID.
+ *   6. Очищаем корзину.
+ * Всё это — в одной транзакции (@Transactional).
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -33,18 +46,24 @@ public class CartService {
     private final OrderItemRepository orderItemRepository;
     private final InvoiceRepository invoiceRepository;
 
+    // readOnly = true: JPA не будет отслеживать изменения сущностей → чуть быстрее.
     @Transactional(readOnly = true)
     public CartResponse getCartByUserId(Long userId) {
         Cart cart = findCartByUserId(userId);
         return toCartResponse(cart);
     }
 
+    /**
+     * Добавляет товар в корзину.
+     * Если товар уже есть — увеличивает quantity (не создаёт дублей).
+     */
     @Transactional
     public CartResponse addToCart(Long userId, Long productId, int quantity) {
         Cart cart = findCartByUserId(userId);
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
 
+        // Проверяем: есть ли уже такой товар в корзине?
         Optional<CartItem> existing = cartItemRepository.findByCartAndProduct(cart, product);
         if (existing.isPresent()) {
             CartItem item = existing.get();
@@ -78,12 +97,18 @@ public class CartService {
                 .orElseThrow(() -> new ResourceNotFoundException("CartItem not found with id: " + cartItemId));
         item.setQuantity(quantity);
         cartItemRepository.save(item);
-        // Load cart fresh to reflect changes
         Cart cart = cartRepository.findById(item.getCart().getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Cart not found"));
         return toCartResponse(cart);
     }
 
+    /**
+     * Оформление заказа: атомарно превращает корзину в Order + Invoice.
+     *
+     * @Transactional гарантирует: либо ВСЕ изменения применяются, либо НИ ОДНОГО.
+     * Например, если при создании 5-го OrderItem произойдёт ошибка —
+     * вся операция откатится, и stock не уменьшится, и Order не создастся.
+     */
     @Transactional
     public OrderResponse checkout(Long userId, String shippingAddress) {
         Cart cart = findCartByUserId(userId);
@@ -92,7 +117,7 @@ public class CartService {
             throw new IllegalArgumentException("Cart is empty");
         }
 
-        // Pre-check stock availability
+        // Предварительная проверка: достаточно ли товара на складе?
         for (CartItem cartItem : cartItems) {
             Product product = cartItem.getProduct();
             if (product.getStockQuantity() < cartItem.getQuantity()) {
@@ -102,11 +127,12 @@ public class CartService {
             }
         }
 
+        // reduce() суммирует все позиции: BigDecimal.ZERO — начальное значение.
         BigDecimal total = cartItems.stream()
                 .map(i -> i.getProduct().getPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Create Order
+        // Создаём заказ.
         Order order = new Order();
         order.setUser(cart.getUser());
         order.setOrderDate(LocalDateTime.now());
@@ -115,29 +141,31 @@ public class CartService {
         order.setShippingAddress(shippingAddress);
         orderRepository.save(order);
 
-        // Create OrderItems (snapshot of cart) and reduce stock
+        // Создаём позиции заказа (снимок корзины) и списываем остаток.
         for (CartItem cartItem : cartItems) {
             Product product = cartItem.getProduct();
             OrderItem orderItem = new OrderItem();
             orderItem.setOrder(order);
             orderItem.setProduct(product);
             orderItem.setQuantity(cartItem.getQuantity());
+            // Фиксируем цену на момент заказа — она не изменится при будущих изменениях товара.
             orderItem.setPriceAtOrder(product.getPrice());
             orderItemRepository.save(orderItem);
             order.getItems().add(orderItem);
 
+            // Уменьшаем остаток на складе.
             product.setStockQuantity(product.getStockQuantity() - cartItem.getQuantity());
             productRepository.save(product);
         }
 
-        // Create Invoice
+        // Создаём счёт на оплату.
         Invoice invoice = new Invoice();
         invoice.setOrder(order);
         invoice.setAmount(total);
         invoice.setStatus(InvoiceStatus.UNPAID);
         invoiceRepository.save(invoice);
 
-        // Clear cart
+        // Очищаем корзину — позиции удаляются каскадно благодаря orphanRemoval = true.
         cart.getItems().clear();
         cartRepository.save(cart);
 

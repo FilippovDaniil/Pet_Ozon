@@ -15,6 +15,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 
+/**
+ * Бизнес-логика для работы с каталогом товаров.
+ *
+ * Главная особенность: метод getAllProducts использует JPA Specification
+ * для динамической фильтрации. Specification — это функциональный интерфейс,
+ * который строит условие WHERE для SQL-запроса.
+ *
+ * Методы toResponse / findEntityById объявлены public, чтобы
+ * SellerService мог их переиспользовать без дублирования кода.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -22,11 +32,22 @@ public class ProductService {
 
     private final ProductRepository productRepository;
 
+    /**
+     * Возвращает постранично список товаров с опциональными фильтрами.
+     *
+     * Specification.where(null) — начало цепочки без условий (эквивалент "1=1").
+     * Каждый фильтр добавляется через .and(...) только если параметр передан.
+     *
+     * Лямбда (root, q, cb) → ... — это Predicate:
+     *   root — ссылка на Product-класс в JPQL (аналог таблицы),
+     *   cb   — CriteriaBuilder, фабрика условий (like, equal, lessThan и т.д.).
+     */
     public Page<ProductResponse> getAllProducts(String name, String category,
                                                 BigDecimal minPrice, BigDecimal maxPrice,
                                                 Pageable pageable) {
         Specification<Product> spec = Specification.where(null);
         if (name != null && !name.isBlank()) {
+            // LIKE '%name%' без учёта регистра
             spec = spec.and((root, q, cb) ->
                     cb.like(cb.lower(root.get("name")), "%" + name.toLowerCase() + "%"));
         }
@@ -42,6 +63,7 @@ public class ProductService {
             spec = spec.and((root, q, cb) ->
                     cb.lessThanOrEqualTo(root.get("price"), maxPrice));
         }
+        // Page<Product> → Page<ProductResponse>: .map() применяет toResponse к каждому элементу.
         return productRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
@@ -85,11 +107,21 @@ public class ProductService {
         log.info("Удалён товар id={}", id);
     }
 
+    /** Возвращает JPA-сущность (а не DTO) — используется внутри приложения. */
     public Product findEntityById(Long id) {
         return productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
     }
 
+    /**
+     * Конвертирует JPA-сущность Product в DTO ProductResponse.
+     *
+     * Зачем конвертировать? Прямая отдача сущности через REST проблематична:
+     *   1. Circular references (Product → User → Cart → CartItem → Product...) вызывают StackOverflow.
+     *   2. В ответе видны все поля, включая внутренние.
+     *   3. Ленивые поля (@ManyToOne LAZY) вызовут LazyInitializationException за пределами транзакции.
+     * DTO — «плоский» объект только с нужными полями.
+     */
     public ProductResponse toResponse(Product product) {
         ProductResponse r = new ProductResponse();
         r.setId(product.getId());

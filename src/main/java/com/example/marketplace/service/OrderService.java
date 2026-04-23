@@ -19,6 +19,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Сервис для работы с заказами.
+ *
+ * Отвечает за просмотр заказов и смену статуса (только для Admin).
+ * Создание заказа — в CartService.checkout().
+ *
+ * toResponse() объявлен public: его переиспользует SellerController
+ * для конвертации заказов продавца.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -28,10 +37,12 @@ public class OrderService {
     private final UserRepository userRepository;
     private final InvoiceRepository invoiceRepository;
 
+    /** Все заказы — только для Admin. Возвращает постранично. */
     public Page<OrderResponse> getAllOrders(Pageable pageable) {
         return orderRepository.findAll(pageable).map(this::toResponse);
     }
 
+    /** Заказы конкретного пользователя — с пагинацией. */
     public Page<OrderResponse> getOrdersByUserId(Long userId, Pageable pageable) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
@@ -42,6 +53,10 @@ public class OrderService {
         return toResponse(findEntityById(id));
     }
 
+    /**
+     * Смена статуса заказа — используется Admin-ом.
+     * Например: PAID → DELIVERED или CREATED → CANCELLED.
+     */
     @Transactional
     public OrderResponse updateStatus(Long id, OrderStatus status) {
         Order order = findEntityById(id);
@@ -55,6 +70,11 @@ public class OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found with id: " + id));
     }
 
+    /**
+     * Конвертирует Order в DTO.
+     * Дополнительно подтягивает invoiceId, если счёт уже создан.
+     * ifPresent — безопасно: не бросает исключение, если Invoice не найден.
+     */
     public OrderResponse toResponse(Order order) {
         OrderResponse r = new OrderResponse();
         r.setId(order.getId());
@@ -71,6 +91,7 @@ public class OrderService {
             ir.setPriceAtOrder(item.getPriceAtOrder());
             return ir;
         }).collect(Collectors.toList()));
+        // Добавляем ID счёта в ответ, если он существует.
         invoiceRepository.findByOrder(order)
                 .ifPresent(inv -> r.setInvoiceId(inv.getId()));
         return r;

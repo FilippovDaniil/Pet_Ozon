@@ -14,7 +14,13 @@
       "Bash(./gradlew test *)",
       "Bash(./gradlew compileTestJava)",
       "Bash(python3 -c 'import sys; from html.parser import HTMLParser; *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(./gradlew bootRun)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(curl -s http://localhost:8080/api/products?size=2)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :8888)",
+      "Bash(./gradlew bootRun --args=\"--server.port=8666\")"
     ]
   }
 }

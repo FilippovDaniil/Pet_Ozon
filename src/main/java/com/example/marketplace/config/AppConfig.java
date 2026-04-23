@@ -16,6 +16,21 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 
+/**
+ * Инициализация тестовых данных при старте приложения.
+ *
+ * CommandLineRunner — интерфейс Spring Boot с единственным методом run().
+ * Spring вызывает его автоматически ПОСЛЕ того, как поднял весь контекст.
+ * Это удобно для наполнения БД начальными данными.
+ *
+ * Почему через @Bean, а не через @PostConstruct?
+ * @Bean позволяет Spring управлять зависимостями в методе (Transactional и т.д.).
+ * Логика внутри CommandLineRunner выполняется в одной транзакции.
+ *
+ * Идемпотентность: данные создаются только если их ещё нет
+ * (проверяем через findByEmail и productRepository.count()).
+ * Можно перезапускать приложение без дублирования данных.
+ */
 @Configuration
 @RequiredArgsConstructor
 @Slf4j
@@ -36,6 +51,7 @@ public class AppConfig {
             User seller1 = ensureUser("seller1@example.com", "pass", "Алексей Технов",   Role.SELLER,  "TechShop");
             User seller2 = ensureUser("seller2@example.com", "pass", "Мария Звукова",    Role.SELLER,  "AudioWorld");
 
+            // Каждому пользователю создаём корзину, если её ещё нет.
             for (User u : new User[]{client, admin, seller1, seller2}) {
                 if (cartRepository.findByUser(u).isEmpty()) {
                     Cart cart = new Cart();
@@ -112,7 +128,7 @@ public class AppConfig {
                 log.info("Created 20 test products (10 TechShop + 10 AudioWorld)");
             }
 
-            // Back-fill categories for existing products that have none (migration)
+            // Миграция: устанавливаем категорию для старых товаров без неё.
             productRepository.findAll().stream()
                     .filter(p -> p.getCategory() == null)
                     .forEach(p -> {
@@ -128,6 +144,12 @@ public class AppConfig {
         };
     }
 
+    /**
+     * Создаёт пользователя, если его ещё нет в БД.
+     * Если пользователь существует, но пароль хранится в открытом виде (не BCrypt),
+     * обновляет его до хэшированного — это защита при смене алгоритма хэширования.
+     * BCrypt-хэши всегда начинаются с "$2a$".
+     */
     private User ensureUser(String email, String password, String fullName, Role role, String shopName) {
         return userRepository.findByEmail(email).map(u -> {
             if (!u.getPassword().startsWith("$2a$")) {
@@ -160,6 +182,7 @@ public class AppConfig {
         productRepository.save(p);
     }
 
+    /** Определяет категорию товара по ключевым словам в названии (упрощённая логика). */
     private String categorizeByName(String name) {
         if (name == null) return "Другое";
         if (name.contains("Ноутбук")) return "Ноутбуки";

@@ -18,6 +18,18 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Бизнес-логика для продавца.
+ *
+ * Продавец управляет только своими товарами.
+ * Ключевая безопасность: методы resolveSellerProduct и resolveSeller
+ * проверяют, что продавец работает именно со своими данными.
+ * Это называется «авторизация на уровне данных» (row-level security).
+ *
+ * ProductService переиспользуется здесь через делегирование:
+ * productService.toResponse() и productService.findEntityById()
+ * — не дублируем код конвертации.
+ */
 @Service
 @RequiredArgsConstructor
 public class SellerService {
@@ -25,8 +37,9 @@ public class SellerService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
-    private final ProductService productService;
+    private final ProductService productService;  // делегируем конвертацию в ProductService
 
+    /** Возвращает все товары данного продавца. */
     public List<ProductResponse> getSellerProducts(Long sellerId) {
         User seller = resolveSeller(sellerId);
         return productRepository.findBySeller(seller).stream()
@@ -34,6 +47,7 @@ public class SellerService {
                 .collect(Collectors.toList());
     }
 
+    /** Продавец создаёт новый товар — он автоматически привязывается к этому продавцу. */
     @Transactional
     public ProductResponse createProduct(Long sellerId, CreateProductRequest request) {
         User seller = resolveSeller(sellerId);
@@ -49,6 +63,7 @@ public class SellerService {
 
     @Transactional
     public ProductResponse updateProduct(Long sellerId, Long productId, CreateProductRequest request) {
+        // resolveSellerProduct проверяет: товар существует И принадлежит этому продавцу.
         Product product = resolveSellerProduct(sellerId, productId);
         product.setName(request.getName());
         product.setDescription(request.getDescription());
@@ -64,6 +79,7 @@ public class SellerService {
         productRepository.delete(product);
     }
 
+    /** Возвращает баланс продавца — сколько он заработал на продажах. */
     public SellerResponse getBalance(Long sellerId) {
         User seller = resolveSeller(sellerId);
         SellerResponse r = new SellerResponse();
@@ -75,11 +91,16 @@ public class SellerService {
         return r;
     }
 
+    /** Возвращает заказы, содержащие товары этого продавца. */
     public List<Order> getSellerOrders(Long sellerId) {
         resolveSeller(sellerId);
         return orderRepository.findBySellerId(sellerId);
     }
 
+    /**
+     * Загружает пользователя и проверяет, что он является продавцом.
+     * Двойная проверка: и существование, и роль.
+     */
     private User resolveSeller(Long sellerId) {
         User user = userRepository.findById(sellerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Seller not found with id: " + sellerId));
@@ -89,6 +110,10 @@ public class SellerService {
         return user;
     }
 
+    /**
+     * Загружает товар и проверяет, что он принадлежит данному продавцу.
+     * Без этой проверки продавец мог бы изменить чужой товар, зная его id.
+     */
     private Product resolveSellerProduct(Long sellerId, Long productId) {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + productId));
