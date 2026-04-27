@@ -21,7 +21,7 @@ services:
     build: .
     container_name: marketplace-app
     ports:
-      - "8888:8888"
+      - "8667:8667"
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://marketplace-db:5432/marketplace
       SPRING_DATASOURCE_USERNAME: postgres

@@ -116,7 +116,7 @@ docker:
 
   # Выполнять только при пуше в ветку main (не для каждого feature-branch)
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "master"'
 
   needs:
     - build  # нужен JAR из предыдущей стадии
