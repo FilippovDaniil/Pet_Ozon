@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+// Юнит-тесты ProductService: каталог товаров, CRUD, динамические фильтры.
 @ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
 
@@ -30,6 +31,7 @@ class ProductServiceTest {
 
     @InjectMocks ProductService productService;
 
+    // Вспомогательный метод: создаёт продукт для тестов
     private Product makeProduct(Long id, String name, BigDecimal price, int stock) {
         Product p = new Product();
         p.setId(id);
@@ -47,8 +49,11 @@ class ProductServiceTest {
                 makeProduct(1L, "Ноутбук", new BigDecimal("79999.99"), 10),
                 makeProduct(2L, "Мышь",    new BigDecimal("1999.99"),  50)
         ));
+        // Specification — динамический SQL-фильтр. any(Specification.class) принимает любой фильтр.
+        // Pageable — параметры пагинации и сортировки. any(Pageable.class) принимает любые.
         when(productRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(products);
 
+        // Все фильтры null → никаких условий WHERE в SQL
         Page<ProductResponse> result = productService.getAllProducts(null, null, null, null, Pageable.unpaged());
 
         assertThat(result.getContent()).hasSize(2);
@@ -66,11 +71,14 @@ class ProductServiceTest {
 
     @Test
     void getAllProducts_withFilters_passesSpecToRepository() {
+        // Тест не проверяет саму Specification (это сложно с моком), только то,
+        // что репозиторий был вызван — значит фильтр был передан.
         when(productRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         productService.getAllProducts("Ноутбук", null, new BigDecimal("5000"), new BigDecimal("100000"), Pageable.unpaged());
 
+        // verify подтверждает что findAll был вызван (с фильтрами из параметров)
         verify(productRepository).findAll(any(Specification.class), any(Pageable.class));
     }
 
@@ -83,6 +91,7 @@ class ProductServiceTest {
 
         ProductResponse result = productService.getProductById(1L);
 
+        // Проверяем все ключевые поля DTO-ответа
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getName()).isEqualTo("Ноутбук");
         assertThat(result.getPrice()).isEqualByComparingTo("79999.99");
@@ -102,6 +111,7 @@ class ProductServiceTest {
 
     @Test
     void createProduct_savesAndReturnsResponse() {
+        // CreateProductRequest — DTO с данными нового товара от клиента
         CreateProductRequest req = new CreateProductRequest();
         req.setName("Клавиатура");
         req.setDescription("Механическая");
@@ -117,7 +127,7 @@ class ProductServiceTest {
         assertThat(result.getId()).isEqualTo(3L);
         assertThat(result.getName()).isEqualTo("Клавиатура");
         assertThat(result.getStockQuantity()).isEqualTo(20);
-        verify(productRepository).save(any(Product.class));
+        verify(productRepository).save(any(Product.class)); // убеждаемся что save был вызван
     }
 
     // ── updateProduct ─────────────────────────────────────────────────────────
@@ -127,6 +137,7 @@ class ProductServiceTest {
         Product existing = makeProduct(1L, "Старое", new BigDecimal("1000.00"), 5);
         when(productRepository.findById(1L)).thenReturn(Optional.of(existing));
 
+        // Запрос с новыми значениями всех полей
         CreateProductRequest req = new CreateProductRequest();
         req.setName("Новое");
         req.setPrice(new BigDecimal("2000.00"));
@@ -137,6 +148,7 @@ class ProductServiceTest {
 
         ProductResponse result = productService.updateProduct(1L, req);
 
+        // Все поля должны обновиться
         assertThat(result.getName()).isEqualTo("Новое");
         assertThat(result.getPrice()).isEqualByComparingTo("2000.00");
         assertThat(result.getStockQuantity()).isEqualTo(15);
@@ -155,21 +167,23 @@ class ProductServiceTest {
 
     @Test
     void deleteProduct_found_deletesById() {
-        when(productRepository.existsById(1L)).thenReturn(true);
+        when(productRepository.existsById(1L)).thenReturn(true); // товар существует
 
         productService.deleteProduct(1L);
 
+        // Убеждаемся что deleteById был вызван с правильным id
         verify(productRepository).deleteById(1L);
     }
 
     @Test
     void deleteProduct_notFound_throwsException() {
-        when(productRepository.existsById(99L)).thenReturn(false);
+        when(productRepository.existsById(99L)).thenReturn(false); // товара нет
 
         assertThatThrownBy(() -> productService.deleteProduct(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("99");
 
+        // never() — убеждаемся что deleteById не вызывался (нечего удалять)
         verify(productRepository, never()).deleteById(any());
     }
 }

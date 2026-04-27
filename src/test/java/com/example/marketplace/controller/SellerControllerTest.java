@@ -35,6 +35,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// Тесты SellerController: управление товарами продавца, баланс, продажи.
+// Все эндпоинты /api/seller/** требуют роли SELLER — тестируем и авторизацию.
 @WebMvcTest(
         value = SellerController.class,
         excludeFilters = {
@@ -47,9 +49,11 @@ class SellerControllerTest {
 
     @Autowired MockMvc mockMvc;
 
+    // SellerController использует два сервиса
     @MockitoBean SellerService sellerService;
     @MockitoBean OrderService  orderService;
 
+    // Создаёт пользователя с ролью SELLER и заданным id
     private User mockSellerUser(Long id) {
         User u = new User();
         u.setId(id);
@@ -93,13 +97,14 @@ class SellerControllerTest {
 
     @Test
     void getMyProducts_authenticated_returnsSellerProducts() throws Exception {
+        // Продавец id=3 запрашивает свои товары
         when(sellerService.getSellerProducts(3L)).thenReturn(
                 List.of(makeProductResponse(1L, "Товар 1"), makeProductResponse(2L, "Товар 2"))
         );
 
         mockMvc.perform(get("/api/seller/products").with(user(mockSellerUser(3L))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$.length()").value(2)) // массив (не Page) → $.length()
                 .andExpect(jsonPath("$[0].id").value(1))
                 .andExpect(jsonPath("$[1].id").value(2));
     }
@@ -112,12 +117,13 @@ class SellerControllerTest {
 
     @Test
     void getMyProducts_clientRole_returns403() throws Exception {
+        // CLIENT не имеет роли SELLER → .requestMatchers("/api/seller/**").hasRole("SELLER") → 403
         User client = new User();
         client.setId(1L);
         client.setRole(Role.CLIENT);
 
         mockMvc.perform(get("/api/seller/products").with(user(client)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden()); // HTTP 403 Forbidden
     }
 
     @Test
@@ -133,6 +139,8 @@ class SellerControllerTest {
 
     @Test
     void createProduct_validRequest_returns201() throws Exception {
+        // eq(3L) — первый аргумент (sellerId) должен быть 3L
+        // any() — второй аргумент (CreateProductRequest) может быть любым объектом
         when(sellerService.createProduct(eq(3L), any()))
                 .thenReturn(makeProductResponse(10L, "Новый товар"));
 
@@ -140,7 +148,7 @@ class SellerControllerTest {
                         .with(user(mockSellerUser(3L)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Новый товар\",\"price\":1500.00,\"stockQuantity\":5}"))
-                .andExpect(status().isCreated())
+                .andExpect(status().isCreated()) // HTTP 201 Created
                 .andExpect(jsonPath("$.id").value(10))
                 .andExpect(jsonPath("$.name").value("Новый товар"));
     }
@@ -161,10 +169,11 @@ class SellerControllerTest {
 
     @Test
     void updateProduct_found_returns200WithUpdatedData() throws Exception {
+        // sellerId=3L, productId=1L, req=any()
         when(sellerService.updateProduct(eq(3L), eq(1L), any()))
                 .thenReturn(makeProductResponse(1L, "Обновлённый товар"));
 
-        mockMvc.perform(put("/api/seller/products/1")
+        mockMvc.perform(put("/api/seller/products/1") // {id}=1 в URL — это productId
                         .with(user(mockSellerUser(3L)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Обновлённый товар\",\"price\":2000.00,\"stockQuantity\":8}"))
@@ -187,6 +196,7 @@ class SellerControllerTest {
 
     @Test
     void updateProduct_belongsToAnotherSeller_returns400() throws Exception {
+        // Продавец пытается обновить чужой товар → IllegalArgumentException → 400
         when(sellerService.updateProduct(eq(3L), eq(2L), any()))
                 .thenThrow(new IllegalArgumentException("Product does not belong to this seller"));
 
@@ -206,7 +216,7 @@ class SellerControllerTest {
 
         mockMvc.perform(delete("/api/seller/products/1")
                         .with(user(mockSellerUser(3L))))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isNoContent()); // HTTP 204 No Content (успешное удаление без тела)
     }
 
     @Test
@@ -256,9 +266,11 @@ class SellerControllerTest {
 
     @Test
     void getSales_returnsMappedOrderList() throws Exception {
+        // getSellerOrders возвращает Entity-объекты Order
         Order order = new Order();
         order.setId(1L);
         when(sellerService.getSellerOrders(3L)).thenReturn(List.of(order));
+        // Контроллер вызывает orderService.toResponse() для преобразования Order → OrderResponse
         when(orderService.toResponse(order)).thenReturn(makeOrderResponse(1L, OrderStatus.PAID));
 
         mockMvc.perform(get("/api/seller/sales").with(user(mockSellerUser(3L))))

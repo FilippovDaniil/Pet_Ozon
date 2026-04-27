@@ -26,17 +26,21 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+// Юнит-тесты SellerService: управление товарами продавца, баланс, заказы.
+// SellerService содержит логику проверки владения (продавец может редактировать только свои товары).
 @ExtendWith(MockitoExtension.class)
 class SellerServiceTest {
 
     @Mock ProductRepository productRepository;
     @Mock UserRepository    userRepository;
     @Mock OrderRepository   orderRepository;
+    // ProductService тоже мокируем: SellerService делегирует ему преобразование Product → ProductResponse
     @Mock ProductService    productService;
 
     @InjectMocks
     SellerService sellerService;
 
+    // Создаёт пользователя с ролью SELLER
     private User makeSeller(Long id) {
         User u = new User();
         u.setId(id);
@@ -48,6 +52,7 @@ class SellerServiceTest {
         return u;
     }
 
+    // Создаёт пользователя с ролью CLIENT (не продавец)
     private User makeClient(Long id) {
         User u = new User();
         u.setId(id);
@@ -56,16 +61,18 @@ class SellerServiceTest {
         return u;
     }
 
+    // Создаёт продукт, привязанный к продавцу
     private Product makeProduct(Long id, User seller) {
         Product p = new Product();
         p.setId(id);
         p.setName("Product " + id);
         p.setPrice(new BigDecimal("1000.00"));
         p.setStockQuantity(5);
-        p.setSeller(seller);
+        p.setSeller(seller); // продавец — обязательное поле для проверки владения
         return p;
     }
 
+    // Создаёт готовый DTO-ответ для мока productService.toResponse()
     private ProductResponse makeProductResponse(Long id, String name) {
         ProductResponse r = new ProductResponse();
         r.setId(id);
@@ -84,12 +91,14 @@ class SellerServiceTest {
         Product p2 = makeProduct(2L, seller);
         when(userRepository.findById(3L)).thenReturn(Optional.of(seller));
         when(productRepository.findBySeller(seller)).thenReturn(List.of(p1, p2));
+        // Настраиваем мок: при вызове toResponse для конкретного продукта вернуть нужный DTO
         when(productService.toResponse(p1)).thenReturn(makeProductResponse(1L, "Product 1"));
         when(productService.toResponse(p2)).thenReturn(makeProductResponse(2L, "Product 2"));
 
         List<ProductResponse> result = sellerService.getSellerProducts(3L);
 
         assertThat(result).hasSize(2);
+        // extracting — извлекает поле из каждого элемента списка для проверки
         assertThat(result).extracting(ProductResponse::getId).containsExactly(1L, 2L);
     }
 
@@ -97,7 +106,7 @@ class SellerServiceTest {
     void getSellerProducts_emptyList_returnsEmpty() {
         User seller = makeSeller(3L);
         when(userRepository.findById(3L)).thenReturn(Optional.of(seller));
-        when(productRepository.findBySeller(seller)).thenReturn(List.of());
+        when(productRepository.findBySeller(seller)).thenReturn(List.of()); // нет товаров
 
         assertThat(sellerService.getSellerProducts(3L)).isEmpty();
     }
@@ -113,6 +122,7 @@ class SellerServiceTest {
 
     @Test
     void getSellerProducts_userIsNotSeller_throwsException() {
+        // Клиент пытается вызвать метод продавца — должен получить ошибку
         when(userRepository.findById(1L)).thenReturn(Optional.of(makeClient(1L)));
 
         assertThatThrownBy(() -> sellerService.getSellerProducts(1L))
@@ -144,10 +154,13 @@ class SellerServiceTest {
         assertThat(result.getId()).isEqualTo(5L);
         assertThat(result.getName()).isEqualTo("New Gadget");
 
+        // ArgumentCaptor позволяет «поймать» объект, переданный в save, и проверить его поля.
+        // Это нужно когда мы хотим проверить не просто факт вызова, а содержимое аргумента.
         ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
         verify(productRepository).save(captor.capture());
-        Product captured = captor.getValue();
-        assertThat(captured.getSeller()).isEqualTo(seller);
+        Product captured = captor.getValue(); // получаем объект, который был передан в save
+
+        assertThat(captured.getSeller()).isEqualTo(seller); // товар привязан к правильному продавцу
         assertThat(captured.getName()).isEqualTo("New Gadget");
         assertThat(captured.getPrice()).isEqualByComparingTo("2500.00");
         assertThat(captured.getStockQuantity()).isEqualTo(10);
@@ -161,7 +174,7 @@ class SellerServiceTest {
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("99");
 
-        verify(productRepository, never()).save(any());
+        verify(productRepository, never()).save(any()); // save не должен вызываться
     }
 
     @Test
@@ -194,6 +207,7 @@ class SellerServiceTest {
         ProductResponse result = sellerService.updateProduct(3L, 1L, req);
 
         assertThat(result.getName()).isEqualTo("Updated Name");
+        // Проверяем что поля объекта product действительно изменились (сервис мутирует объект)
         assertThat(product.getDescription()).isEqualTo("Updated description");
         assertThat(product.getPrice()).isEqualByComparingTo("3000.00");
         assertThat(product.getStockQuantity()).isEqualTo(20);
@@ -212,10 +226,12 @@ class SellerServiceTest {
 
     @Test
     void updateProduct_productBelongsToAnotherSeller_throwsException() {
+        // Товар принадлежит продавцу id=4, а запрос приходит от продавца id=3
         User otherSeller = makeSeller(4L);
         Product product = makeProduct(1L, otherSeller);
         when(productRepository.findById(1L)).thenReturn(Optional.of(product));
 
+        // Продавец id=3 не должен редактировать чужой товар
         assertThatThrownBy(() -> sellerService.updateProduct(3L, 1L, new CreateProductRequest()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not belong");
@@ -223,6 +239,7 @@ class SellerServiceTest {
 
     @Test
     void updateProduct_productWithNullSeller_throwsException() {
+        // Товар без продавца (seller=null) — тоже не принадлежит продавцу id=3
         Product product = makeProduct(1L, null);
         when(productRepository.findById(1L)).thenReturn(Optional.of(product));
 
@@ -241,6 +258,7 @@ class SellerServiceTest {
 
         sellerService.deleteProduct(3L, 1L);
 
+        // Удаляем по объекту (а не по id) — так сервис проверяет владельца перед удалением
         verify(productRepository).delete(product);
     }
 
@@ -273,11 +291,12 @@ class SellerServiceTest {
     @Test
     void getBalance_returnsFullSellerInfo() {
         User seller = makeSeller(3L);
-        seller.setBalance(new BigDecimal("15000.50"));
+        seller.setBalance(new BigDecimal("15000.50")); // устанавливаем текущий баланс
         when(userRepository.findById(3L)).thenReturn(Optional.of(seller));
 
         SellerResponse result = sellerService.getBalance(3L);
 
+        // SellerResponse содержит все публичные данные продавца + его баланс
         assertThat(result.getId()).isEqualTo(3L);
         assertThat(result.getEmail()).isEqualTo("seller3@example.com");
         assertThat(result.getFullName()).isEqualTo("Seller 3");
@@ -311,6 +330,7 @@ class SellerServiceTest {
         Order o1 = new Order(); o1.setId(1L);
         Order o2 = new Order(); o2.setId(2L);
         when(userRepository.findById(3L)).thenReturn(Optional.of(seller));
+        // findBySellerId — кастомный JPQL-запрос: заказы, содержащие товары этого продавца
         when(orderRepository.findBySellerId(3L)).thenReturn(List.of(o1, o2));
 
         List<Order> result = sellerService.getSellerOrders(3L);
@@ -336,6 +356,7 @@ class SellerServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not a seller");
 
+        // Если пользователь не продавец, до репозитория дойти не должно
         verify(orderRepository, never()).findBySellerId(any());
     }
 }

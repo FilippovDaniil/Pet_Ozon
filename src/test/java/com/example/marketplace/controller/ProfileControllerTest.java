@@ -25,6 +25,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// Тесты ProfileController: просмотр и обновление профиля текущего пользователя.
+// GET /api/profile/me и PATCH /api/profile/me — требуют аутентификации.
 @WebMvcTest(
         value = ProfileController.class,
         excludeFilters = {
@@ -39,6 +41,7 @@ class ProfileControllerTest {
 
     @MockitoBean UserService userService;
 
+    // Создаёт тестового пользователя со всеми заполненными полями профиля
     private User mockClientUser() {
         User u = new User();
         u.setId(1L);
@@ -54,8 +57,10 @@ class ProfileControllerTest {
 
     @Test
     void getProfile_authenticated_returns200WithUserData() throws Exception {
+        // ProfileController берёт @AuthenticationPrincipal User user напрямую из SecurityContext.
+        // UserService не вызывается — данные возвращаются из объекта, подставленного через .with(user(...)).
         mockMvc.perform(get("/api/profile/me")
-                        .with(user(mockClientUser())))
+                        .with(user(mockClientUser()))) // имитируем вошедшего пользователя
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.email").value("client@example.com"))
@@ -74,6 +79,7 @@ class ProfileControllerTest {
 
     @Test
     void updateProfile_allFields_returns200WithUpdatedData() throws Exception {
+        // Создаём «обновлённый» объект который вернёт UserService
         User updated = new User();
         updated.setId(1L);
         updated.setEmail("client@example.com");
@@ -82,8 +88,11 @@ class ProfileControllerTest {
         updated.setRole(Role.CLIENT);
         updated.setBalance(new BigDecimal("500.00"));
 
+        // eq(1L) — первый аргумент (userId) должен быть 1L
+        // any() — второй аргумент (UpdateProfileRequest) может быть любым
         when(userService.updateProfile(eq(1L), any())).thenReturn(updated);
 
+        // PATCH — частичное обновление: меняем только переданные поля
         mockMvc.perform(patch("/api/profile/me")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -95,6 +104,7 @@ class ProfileControllerTest {
 
     @Test
     void updateProfile_onlyFullName_returns200() throws Exception {
+        // Можно передать только одно поле — остальные не меняются (частичное обновление)
         User updated = mockClientUser();
         updated.setFullName("Новое Имя");
         when(userService.updateProfile(eq(1L), any())).thenReturn(updated);
@@ -109,6 +119,7 @@ class ProfileControllerTest {
 
     @Test
     void updateProfile_shopName_returns200() throws Exception {
+        // shopName актуально для продавцов, но поле есть у всех пользователей
         User updated = mockClientUser();
         updated.setShopName("Мой Магазин");
         when(userService.updateProfile(eq(1L), any())).thenReturn(updated);
@@ -131,6 +142,7 @@ class ProfileControllerTest {
 
     @Test
     void updateProfile_userNotFound_returns404() throws Exception {
+        // ResourceNotFoundException → GlobalExceptionHandler → 404
         when(userService.updateProfile(eq(1L), any()))
                 .thenThrow(new com.example.marketplace.exception.ResourceNotFoundException("User not found: 1"));
 

@@ -27,6 +27,7 @@
 - [Тесты](#тесты)
 - [Полный сценарий покупки](#полный-сценарий-покупки)
 - [API Reference](#api-reference)
+- [Запуск в GitLab CI/CD](#запуск-в-gitlab-cicd)
 
 ---
 
@@ -1830,6 +1831,104 @@ InvoiceService.pay(1, "CARD")  @Transactional
 | GET | `/api/admin/orders` | `page`, `size` | `Page<OrderResponse>` |
 | PUT | `/api/admin/orders/{id}/status` | `{status}` | `OrderResponse` |
 | GET | `/api/admin/invoices` | — | `List<InvoiceResponse>` |
+
+---
+
+## Запуск в GitLab CI/CD
+
+В репозитории есть файл `.gitlab-ci.yml`, который автоматически запускает тесты, собирает JAR и публикует Docker-образ при каждом пуше в GitLab.
+
+### Как работает пайплайн
+
+```
+git push → GitLab запускает пайплайн из .gitlab-ci.yml
+              │
+              ▼
+         [test]      ← ./gradlew test (с реальной PostgreSQL в Docker)
+              │
+              ▼
+         [build]     ← ./gradlew bootJar (собирает fat JAR)
+              │
+              ▼
+         [docker]    ← docker build + docker push (только ветка main)
+```
+
+Три стадии выполняются **последовательно**: если тесты упали — сборка не запустится.
+
+### Структура `.gitlab-ci.yml`
+
+| Стадия | Что делает | Когда запускается |
+|---|---|---|
+| `test` | Прогоняет `./gradlew test`, поднимает PostgreSQL как service | Каждый push |
+| `build` | Собирает JAR через `./gradlew bootJar -x test` | После успешных тестов |
+| `docker` | Собирает и публикует Docker-образ в GitLab Registry | Только в ветке `main` |
+
+### Быстрый старт
+
+**1. Загрузить проект в GitLab**
+
+```bash
+# Если репозиторий ещё не создан в GitLab — создайте его через UI
+# Затем добавьте remote и запушьте
+git remote add origin https://gitlab.com/YOUR_USERNAME/pet-ozon.git
+git push -u origin master
+```
+
+После пуша GitLab автоматически найдёт `.gitlab-ci.yml` и запустит пайплайн.  
+Статус: **CI/CD → Pipelines** в меню слева.
+
+**2. Настроить Runner (если его нет)**
+
+GitLab.com предоставляет бесплатные shared runners — дополнительных настроек не нужно.  
+Для self-hosted GitLab нужно [установить и зарегистрировать runner](https://docs.gitlab.com/runner/install/).
+
+**3. Настроить переменные для Docker Registry (опционально)**
+
+Для стадии `docker` нужно чтобы `CI_REGISTRY_IMAGE` было настроено.  
+GitLab автоматически выставляет переменные `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD`  
+если Container Registry включён для проекта (**Settings → General → Visibility → Container Registry**).
+
+Вручную добавить переменные: **Settings → CI/CD → Variables**:
+
+| Переменная | Пример значения | Описание |
+|---|---|---|
+| `CI_REGISTRY_IMAGE` | `registry.gitlab.com/username/pet-ozon` | Полный путь к образу |
+
+### Просмотр результатов тестов
+
+GitLab автоматически показывает результаты тестов прямо в Merge Request:
+
+```
+Merge Request → вкладка "Tests"
+```
+
+Полный HTML-отчёт Gradle:
+
+```
+CI/CD → Pipelines → выбрать запуск → Jobs → test → Browse Artifacts → build/reports/tests/test/index.html
+```
+
+### Запуск образа из Registry
+
+После успешной стадии `docker` образ доступен в GitLab Registry:
+
+```bash
+# Скачать образ
+docker pull registry.gitlab.com/YOUR_USERNAME/pet-ozon:latest
+
+# Запустить с внешней БД
+docker run -p 8888:8888 \
+  -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/marketplace \
+  -e SPRING_DATASOURCE_USERNAME=postgres \
+  -e SPRING_DATASOURCE_PASSWORD=1234 \
+  registry.gitlab.com/YOUR_USERNAME/pet-ozon:latest
+```
+
+### Кеш зависимостей Gradle
+
+Пайплайн кеширует скачанные зависимости Gradle между запусками.  
+Ключ кеша — содержимое файлов `build.gradle` и `settings.gradle`.  
+При изменении зависимостей кеш автоматически инвалидируется и скачивается заново.
 
 ---
 

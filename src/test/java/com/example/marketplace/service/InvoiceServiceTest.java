@@ -27,17 +27,23 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+// Юнит-тесты для InvoiceService — проверяем логику оплаты и начисления баланса продавцу.
+// MockitoExtension заменяет реальные репозитории на моки, БД не используется.
 @ExtendWith(MockitoExtension.class)
 class InvoiceServiceTest {
 
+    // Моки всех репозиториев, которые использует InvoiceService
     @Mock InvoiceRepository invoiceRepository;
     @Mock OrderRepository   orderRepository;
     @Mock PaymentRepository paymentRepository;
     @Mock UserRepository    userRepository;
 
+    // InvoiceService создаётся с подставленными выше моками вместо реальных зависимостей
     @InjectMocks
     InvoiceService invoiceService;
 
+    // Вспомогательный метод: создаёт Invoice с заданными параметрами.
+    // Счёт всегда связан с заказом (Order) — поэтому создаём оба объекта.
     private Invoice makeInvoice(Long id, BigDecimal amount, InvoiceStatus status) {
         Order order = new Order();
         order.setId(1L);
@@ -54,6 +60,8 @@ class InvoiceServiceTest {
         return invoice;
     }
 
+    // Вспомогательный метод: настраивает мок paymentRepository так, чтобы при сохранении
+    // любого Payment возвращался готовый объект с нужными данными.
     private Payment stubPaymentSave(Invoice invoice, String method) {
         Payment payment = new Payment();
         payment.setId(1L);
@@ -70,6 +78,7 @@ class InvoiceServiceTest {
 
     @Test
     void getAllInvoices_returnsAll() {
+        // Мок возвращает список из двух счетов с разными статусами
         when(invoiceRepository.findAll()).thenReturn(List.of(
                 makeInvoice(1L, new BigDecimal("5000.00"), InvoiceStatus.UNPAID),
                 makeInvoice(2L, new BigDecimal("3000.00"), InvoiceStatus.PAID)
@@ -89,10 +98,11 @@ class InvoiceServiceTest {
 
         InvoiceResponse result = invoiceService.getInvoiceById(1L);
 
+        // Проверяем все ключевые поля DTO-ответа
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getStatus()).isEqualTo(InvoiceStatus.UNPAID);
         assertThat(result.getAmount()).isEqualByComparingTo("5000.00");
-        assertThat(result.getOrderId()).isEqualTo(1L);
+        assertThat(result.getOrderId()).isEqualTo(1L); // id связанного заказа
     }
 
     @Test
@@ -101,7 +111,7 @@ class InvoiceServiceTest {
 
         assertThatThrownBy(() -> invoiceService.getInvoiceById(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("99");
+                .hasMessageContaining("99"); // сообщение об ошибке должно содержать id
     }
 
     // ── pay ───────────────────────────────────────────────────────────────────
@@ -116,15 +126,18 @@ class InvoiceServiceTest {
 
         PaymentResponse result = invoiceService.pay(1L, "CARD");
 
+        // Проверяем поля ответа
         assertThat(result.getPaymentMethod()).isEqualTo("CARD");
         assertThat(result.getStatus()).isEqualTo(PaymentStatus.SUCCESS);
         assertThat(result.getAmount()).isEqualByComparingTo("5000.00");
         assertThat(result.getInvoiceId()).isEqualTo(1L);
 
+        // Проверяем что статусы обновились в объектах
         assertThat(invoice.getStatus()).isEqualTo(InvoiceStatus.PAID);
-        assertThat(invoice.getPaidAt()).isNotNull();
+        assertThat(invoice.getPaidAt()).isNotNull(); // дата оплаты должна быть установлена
         assertThat(invoice.getOrder().getStatus()).isEqualTo(OrderStatus.PAID);
 
+        // Проверяем что все три сохранения действительно произошли
         verify(invoiceRepository).save(invoice);
         verify(orderRepository).save(invoice.getOrder());
         verify(paymentRepository).save(any(Payment.class));
@@ -145,6 +158,7 @@ class InvoiceServiceTest {
 
     @Test
     void pay_nullMethod_defaultsToCard() {
+        // Если метод оплаты не передан (null), сервис должен использовать "CARD" по умолчанию
         Invoice invoice = makeInvoice(1L, new BigDecimal("1000.00"), InvoiceStatus.UNPAID);
         when(invoiceRepository.findById(1L)).thenReturn(Optional.of(invoice));
         when(invoiceRepository.save(invoice)).thenReturn(invoice);
@@ -158,6 +172,7 @@ class InvoiceServiceTest {
 
     @Test
     void pay_blankMethod_defaultsToCard() {
+        // Пустая строка (только пробелы) тоже должна заменяться на "CARD"
         Invoice invoice = makeInvoice(1L, new BigDecimal("1000.00"), InvoiceStatus.UNPAID);
         when(invoiceRepository.findById(1L)).thenReturn(Optional.of(invoice));
         when(invoiceRepository.save(invoice)).thenReturn(invoice);
@@ -171,6 +186,7 @@ class InvoiceServiceTest {
 
     @Test
     void pay_alreadyPaid_throwsIllegalArgument() {
+        // Защита от двойной оплаты: если счёт уже PAID — бросить исключение
         Invoice invoice = makeInvoice(1L, new BigDecimal("5000.00"), InvoiceStatus.PAID);
         when(invoiceRepository.findById(1L)).thenReturn(Optional.of(invoice));
 
@@ -178,6 +194,7 @@ class InvoiceServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("already paid");
 
+        // never() — убедиться что save на paymentRepository НЕ вызывался (платёж не создан)
         verify(paymentRepository, never()).save(any());
     }
 
@@ -191,17 +208,21 @@ class InvoiceServiceTest {
     }
 
     // ── seller balance update (new functionality) ──────────────────────────────
+    // Тесты для начисления выручки продавцу при оплате заказа.
 
     @Test
     void pay_withSellerItems_updatesSellerBalance() {
+        // Создаём продавца с начальным балансом 1000
         User seller = new User();
         seller.setId(10L);
         seller.setBalance(new BigDecimal("1000.00"));
 
+        // Товар принадлежит этому продавцу
         Product product = new Product();
         product.setId(1L);
         product.setSeller(seller);
 
+        // Позиция заказа: 2 штуки по 500 рублей
         OrderItem item = new OrderItem();
         item.setProduct(product);
         item.setQuantity(2);
@@ -225,15 +246,18 @@ class InvoiceServiceTest {
 
     @Test
     void pay_withMultipleSellers_updatesEachBalance() {
+        // Два продавца с разными начальными балансами
         User seller1 = new User(); seller1.setId(10L); seller1.setBalance(BigDecimal.ZERO);
         User seller2 = new User(); seller2.setId(11L); seller2.setBalance(new BigDecimal("500.00"));
 
         Product p1 = new Product(); p1.setId(1L); p1.setSeller(seller1);
         Product p2 = new Product(); p2.setId(2L); p2.setSeller(seller2);
 
+        // seller1 продаёт 1 товар за 300 → заработок 300
         OrderItem item1 = new OrderItem();
         item1.setProduct(p1); item1.setQuantity(1); item1.setPriceAtOrder(new BigDecimal("300.00"));
 
+        // seller2 продаёт 3 товара за 200 → заработок 600
         OrderItem item2 = new OrderItem();
         item2.setProduct(p2); item2.setQuantity(3); item2.setPriceAtOrder(new BigDecimal("200.00"));
 
@@ -243,21 +267,26 @@ class InvoiceServiceTest {
         when(invoiceRepository.findById(1L)).thenReturn(Optional.of(invoice));
         when(invoiceRepository.save(invoice)).thenReturn(invoice);
         when(orderRepository.save(any(Order.class))).thenReturn(invoice.getOrder());
+        // thenAnswer возвращает тот же объект, что был передан в save — имитирует реальный репозиторий
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         stubPaymentSave(invoice, "CARD");
 
         invoiceService.pay(1L, "CARD");
 
+        // seller1: 0 + 300 = 300
         assertThat(seller1.getBalance()).isEqualByComparingTo("300.00");
+        // seller2: 500 + 600 = 1100
         assertThat(seller2.getBalance()).isEqualByComparingTo("1100.00");
+        // times(2) — убедиться что save был вызван ровно два раза (по одному на каждого продавца)
         verify(userRepository, times(2)).save(any(User.class));
     }
 
     @Test
     void pay_withProductWithoutSeller_doesNotUpdateBalance() {
+        // Товар без продавца (например, создан администратором) — баланс никому не начисляется
         Product product = new Product();
         product.setId(1L);
-        product.setSeller(null);
+        product.setSeller(null); // seller = null
 
         OrderItem item = new OrderItem();
         item.setProduct(product);
@@ -274,6 +303,7 @@ class InvoiceServiceTest {
 
         invoiceService.pay(1L, "CARD");
 
+        // never() — убедиться что userRepository.save вообще не вызывался
         verify(userRepository, never()).save(any());
     }
 }

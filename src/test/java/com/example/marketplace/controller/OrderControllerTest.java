@@ -32,6 +32,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// Тесты OrderController: GET /api/orders/my (с пагинацией), GET /api/orders/{id}.
 @WebMvcTest(
         value = OrderController.class,
         excludeFilters = {
@@ -69,17 +70,22 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_authenticated_returns200WithPage() throws Exception {
+        // PageImpl — реализация Page<T> для тестов: оборачивает обычный список
         PageImpl<OrderResponse> page = new PageImpl<>(List.of(
                 makeOrderResponse(1L, OrderStatus.CREATED, new BigDecimal("5000.00")),
                 makeOrderResponse(2L, OrderStatus.PAID, new BigDecimal("3000.00"))
         ));
+        // eq(1L) — первый аргумент должен быть ровно 1L (id из аутентификации)
+        // any(Pageable.class) — параметры пагинации могут быть любые
         when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/orders/my").with(user(mockClientUser())))
                 .andExpect(status().isOk())
+                // $.content — массив элементов страницы в ответе Page<T>
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.content[0].status").value("CREATED"))
                 .andExpect(jsonPath("$.content[1].status").value("PAID"))
+                // $.totalElements — общее число элементов (не только на этой странице)
                 .andExpect(jsonPath("$.totalElements").value(2));
     }
 
@@ -96,6 +102,7 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_unauthenticated_returns401() throws Exception {
+        // Запрос без токена/аутентификации → 401 Unauthorized
         mockMvc.perform(get("/api/orders/my"))
                 .andExpect(status().isUnauthorized());
     }
@@ -112,12 +119,14 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_withPaginationParams_passes() throws Exception {
+        // ?page=0&size=5 — Spring автоматически создаёт Pageable из query-параметров
         when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/orders/my?page=0&size=5").with(user(mockClientUser())))
                 .andExpect(status().isOk());
 
+        // Убеждаемся что сервис был вызван (значит параметры пагинации дошли до контроллера)
         verify(orderService).getOrdersByUserId(eq(1L), any(Pageable.class));
     }
 

@@ -22,9 +22,13 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
+// @ExtendWith(MockitoExtension.class) — подключает Mockito к JUnit 5.
+// Mockito автоматически инициализирует поля @Mock и @InjectMocks перед каждым тестом.
 @ExtendWith(MockitoExtension.class)
 class CartServiceTest {
 
+    // @Mock создаёт «заглушку» (фиктивный объект) вместо реального репозитория.
+    // Мок не обращается к БД — он просто возвращает то, что ему скажут через when(...).thenReturn(...)
     @Mock CartRepository       cartRepository;
     @Mock CartItemRepository   cartItemRepository;
     @Mock ProductRepository    productRepository;
@@ -33,10 +37,14 @@ class CartServiceTest {
     @Mock OrderItemRepository  orderItemRepository;
     @Mock InvoiceRepository    invoiceRepository;
 
+    // @InjectMocks создаёт реальный объект CartService и передаёт в него все @Mock-поля выше.
+    // Это позволяет тестировать логику сервиса без реальной базы данных.
     @InjectMocks
     CartService cartService;
 
     // ── helpers ───────────────────────────────────────────────────────────────
+    // Вспомогательные методы для создания тестовых объектов.
+    // Выделены в отдельные методы, чтобы не дублировать код в каждом тесте.
 
     private User makeUser(Long id) {
         User u = new User();
@@ -59,7 +67,7 @@ class CartServiceTest {
         Cart c = new Cart();
         c.setId(id);
         c.setUser(user);
-        c.setItems(new ArrayList<>());
+        c.setItems(new ArrayList<>()); // пустой список позиций
         return c;
     }
 
@@ -72,6 +80,8 @@ class CartServiceTest {
         return item;
     }
 
+    // stubFindCart — настраивает моки так, чтобы при поиске пользователя и его корзины
+    // возвращались заданные объекты. Используется в большинстве тестов.
     private void stubFindCart(User user, Cart cart) {
         when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
         when(cartRepository.findByUser(user)).thenReturn(Optional.of(cart));
@@ -83,12 +93,14 @@ class CartServiceTest {
     void getCartByUserId_emptyCart_returnszeroTotal() {
         User user = makeUser(1L);
         Cart cart = makeCart(1L, user);
-        stubFindCart(user, cart);
+        stubFindCart(user, cart); // настроить моки: найти юзера и его пустую корзину
 
         CartResponse result = cartService.getCartByUserId(1L);
 
+        // assertThat — метод AssertJ для читаемых проверок вместо assertEquals(expected, actual)
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getItems()).isEmpty();
+        // isEqualByComparingTo для BigDecimal: сравнивает значение, игнорируя масштаб (0 == 0.00)
         assertThat(result.getTotalPrice()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
@@ -108,8 +120,10 @@ class CartServiceTest {
 
     @Test
     void getCartByUserId_userNotFound_throwsException() {
+        // Настраиваем мок: при поиске id=99 возвращать Optional.empty() (пользователь не найден)
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
 
+        // assertThatThrownBy проверяет, что вызов метода бросает ожидаемое исключение
         assertThatThrownBy(() -> cartService.getCartByUserId(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("User not found");
@@ -119,7 +133,7 @@ class CartServiceTest {
     void getCartByUserId_cartNotFound_throwsException() {
         User user = makeUser(1L);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(cartRepository.findByUser(user)).thenReturn(Optional.empty());
+        when(cartRepository.findByUser(user)).thenReturn(Optional.empty()); // корзина не найдена
 
         assertThatThrownBy(() -> cartService.getCartByUserId(1L))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -135,15 +149,18 @@ class CartServiceTest {
         Product product = makeProduct(1L, "Мышь", new BigDecimal("1999.00"));
         stubFindCart(user, cart);
         when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        // Optional.empty() означает: этого товара ещё нет в корзине → нужно создать новую позицию
         when(cartItemRepository.findByCartAndProduct(cart, product)).thenReturn(Optional.empty());
 
         CartItem saved = makeCartItem(1L, cart, product, 3);
+        // any(CartItem.class) — принять любой объект CartItem при вызове save
         when(cartItemRepository.save(any(CartItem.class))).thenReturn(saved);
 
         CartResponse result = cartService.addToCart(1L, 1L, 3);
 
         assertThat(result.getItems()).hasSize(1);
         assertThat(result.getItems().get(0).getQuantity()).isEqualTo(3);
+        // verify проверяет, что метод save действительно был вызван
         verify(cartItemRepository).save(any(CartItem.class));
     }
 
@@ -152,10 +169,11 @@ class CartServiceTest {
         User user = makeUser(1L);
         Cart cart = makeCart(1L, user);
         Product product = makeProduct(1L, "Мышь", new BigDecimal("1999.00"));
-        CartItem existing = makeCartItem(1L, cart, product, 2);
+        CartItem existing = makeCartItem(1L, cart, product, 2); // уже 2 штуки в корзине
         cart.getItems().add(existing);
         stubFindCart(user, cart);
         when(productRepository.findById(1L)).thenReturn(Optional.of(product));
+        // Возвращаем существующую позицию → сервис должен увеличить количество, а не создавать новое
         when(cartItemRepository.findByCartAndProduct(cart, product)).thenReturn(Optional.of(existing));
         when(cartItemRepository.save(existing)).thenReturn(existing);
 
@@ -188,6 +206,7 @@ class CartServiceTest {
 
         cartService.removeFromCart(1L);
 
+        // Проверяем что delete был вызван именно с этим объектом
         verify(cartItemRepository).delete(item);
     }
 
@@ -215,12 +234,14 @@ class CartServiceTest {
 
         cartService.updateQuantity(1L, 10);
 
-        assertThat(item.getQuantity()).isEqualTo(10);
+        assertThat(item.getQuantity()).isEqualTo(10); // количество обновлено
         verify(cartItemRepository).save(item);
     }
 
     @Test
     void updateQuantity_zero_throwsIllegalArgument() {
+        // Нулевое количество — нарушение бизнес-правила.
+        // Сервис должен бросить IllegalArgumentException ещё до обращения к БД.
         assertThatThrownBy(() -> cartService.updateQuantity(1L, 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("greater than 0");
@@ -242,6 +263,8 @@ class CartServiceTest {
         cart.getItems().add(makeCartItem(1L, cart, product, 2)); // total = 100000
         stubFindCart(user, cart);
 
+        // thenAnswer — вернуть сам переданный аргумент (вместо создания нового объекта).
+        // inv.getArgument(0) — первый аргумент вызова метода save (объект OrderItem).
         when(orderItemRepository.save(any(OrderItem.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
@@ -252,10 +275,11 @@ class CartServiceTest {
         assertThat(result.getShippingAddress()).isEqualTo("Москва, ул. Тестовая, 1");
         assertThat(result.getItems()).hasSize(1);
 
+        // Проверяем все ключевые шаги checkout: заказ, счёт, очистка корзины
         verify(orderRepository).save(any(Order.class));
         verify(invoiceRepository).save(any(Invoice.class));
         verify(cartRepository).save(cart);
-        assertThat(cart.getItems()).isEmpty();
+        assertThat(cart.getItems()).isEmpty(); // корзина должна быть очищена
     }
 
     @Test
@@ -272,6 +296,7 @@ class CartServiceTest {
 
         OrderResponse result = cartService.checkout(1L, "Адрес");
 
+        // 80000 + 6000 = 86000
         assertThat(result.getTotalAmount()).isEqualByComparingTo("86000.00");
         assertThat(result.getItems()).hasSize(2);
     }
@@ -279,7 +304,7 @@ class CartServiceTest {
     @Test
     void checkout_emptyCart_throwsIllegalArgument() {
         User user = makeUser(1L);
-        Cart cart = makeCart(1L, user); // empty items
+        Cart cart = makeCart(1L, user); // пустая корзина — нет товаров
         stubFindCart(user, cart);
 
         assertThatThrownBy(() -> cartService.checkout(1L, "Адрес"))
@@ -289,6 +314,8 @@ class CartServiceTest {
 
     @Test
     void checkout_snapshotsPriceAtOrderTime() {
+        // Тест проверяет «снимок» цены: в OrderItem должна сохраниться цена товара на момент заказа,
+        // а не текущая цена (которая может измениться позже).
         User user = makeUser(1L);
         Cart cart = makeCart(1L, user);
         Product product = makeProduct(1L, "Товар", new BigDecimal("999.00"));
@@ -297,6 +324,7 @@ class CartServiceTest {
         when(orderItemRepository.save(any(OrderItem.class)))
                 .thenAnswer(inv -> {
                     OrderItem oi = inv.getArgument(0);
+                    // Проверяем внутри лямбды: цена снимка должна совпадать с ценой товара
                     assertThat(oi.getPriceAtOrder()).isEqualByComparingTo("999.00");
                     return oi;
                 });

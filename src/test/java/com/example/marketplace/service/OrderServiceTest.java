@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+// Юнит-тесты OrderService: получение заказов (с пагинацией), смена статуса.
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
 
@@ -63,12 +64,15 @@ class OrderServiceTest {
     @Test
     void getAllOrders_returnsPage() {
         User user = makeUser(1L);
+        // PageImpl — реализация Page<T> для тестов: создаём страницу из готового списка
         PageImpl<Order> orderPage = new PageImpl<>(List.of(
                 makeOrder(1L, user, OrderStatus.CREATED, new BigDecimal("5000.00")),
                 makeOrder(2L, user, OrderStatus.PAID,    new BigDecimal("3000.00"))
         ));
+        // any(Pageable.class) — принять любой Pageable (не важно какая страница/сортировка)
         when(orderRepository.findAll(any(Pageable.class))).thenReturn(orderPage);
 
+        // PageRequest.of(0, 20) — запросить страницу 0, размер 20
         Page<OrderResponse> result = orderService.getAllOrders(PageRequest.of(0, 20));
 
         assertThat(result.getContent()).hasSize(2);
@@ -80,6 +84,7 @@ class OrderServiceTest {
     void getAllOrders_empty_returnsEmptyPage() {
         when(orderRepository.findAll(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
+        // Pageable.unpaged() — запросить все записи без пагинации
         assertThat(orderService.getAllOrders(Pageable.unpaged()).getContent()).isEmpty();
     }
 
@@ -92,6 +97,7 @@ class OrderServiceTest {
                 makeOrder(1L, user, OrderStatus.CREATED, new BigDecimal("1000.00"))
         ));
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        // eq(user) — принять только точно этого пользователя (не any()), any(Pageable.class) — любой Pageable
         when(orderRepository.findByUser(eq(user), any(Pageable.class))).thenReturn(page);
 
         Page<OrderResponse> result = orderService.getOrdersByUserId(1L, PageRequest.of(0, 20));
@@ -153,8 +159,8 @@ class OrderServiceTest {
 
         OrderResponse result = orderService.updateStatus(1L, OrderStatus.DELIVERED);
 
-        assertThat(result.getStatus()).isEqualTo(OrderStatus.DELIVERED);
-        verify(orderRepository).save(order);
+        assertThat(result.getStatus()).isEqualTo(OrderStatus.DELIVERED); // статус изменён
+        verify(orderRepository).save(order); // изменения сохранены в БД
     }
 
     @Test
@@ -167,6 +173,8 @@ class OrderServiceTest {
 
     @Test
     void updateStatus_allStatusValues_areAccepted() {
+        // Параметризованный тест вручную: проверяем каждое значение enum OrderStatus.
+        // OrderStatus.values() возвращает все значения перечисления.
         User user = makeUser(1L);
         for (OrderStatus status : OrderStatus.values()) {
             Order order = makeOrder(1L, user, OrderStatus.CREATED, BigDecimal.TEN);

@@ -1,0 +1,132 @@
+# GitLab CI/CD Pipeline для Pet_Ozon Marketplace API
+#
+# Пайплайн состоит из трёх стадий, которые выполняются последовательно:
+#   test  → build → docker
+#
+# Переменные для Docker Registry нужно настроить в GitLab:
+#   Settings → CI/CD → Variables:
+#     CI_REGISTRY_IMAGE — например: registry.gitlab.com/username/pet-ozon
+
+stages:
+  - test    # прогон тестов
+  - build   # сборка JAR
+  - docker  # сборка и публикация Docker-образа
+
+# ─── Глобальные переменные ────────────────────────────────────────────────────
+
+variables:
+  # Gradle не будет создавать домашний каталог в /root — кладём его в проект
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  # Имя образа: берётся из переменной GitLab или задаётся вручную
+  IMAGE_NAME: "${CI_REGISTRY_IMAGE:-pet-ozon}"
+
+# ─── Кеш зависимостей Gradle ─────────────────────────────────────────────────
+# Gradle скачивает зависимости один раз и кеширует их между запусками пайплайна.
+# Без кеша каждый запуск скачивает ~100 МБ зависимостей заново.
+
+.gradle-cache: &gradle-cache
+  cache:
+    key:
+      files:
+        - build.gradle          # ключ кеша меняется при изменении зависимостей
+        - settings.gradle
+    paths:
+      - .gradle/                # кешируем скачанные зависимости
+    policy: pull-push           # читать И записывать кеш
+
+# ─── Стадия: test ────────────────────────────────────────────────────────────
+
+test:
+  stage: test
+  # eclipse-temurin — официальный образ OpenJDK от Eclipse Foundation
+  # alpine — минимальный дистрибутив Linux (~5 МБ вместо ~200 МБ для ubuntu)
+  image: eclipse-temurin:21-jdk-alpine
+  <<: *gradle-cache
+
+  # services: запускает PostgreSQL как отдельный контейнер, доступный по hostname "postgres"
+  services:
+    - name: postgres:15-alpine
+      alias: postgres   # имя хоста внутри пайплайна
+
+  # Переменные окружения для подключения к тестовой БД
+  variables:
+    POSTGRES_DB: marketplace_test
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: "1234"
+    # Spring Boot подключается к PostgreSQL по имени сервиса "postgres"
+    SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/marketplace_test"
+    SPRING_DATASOURCE_USERNAME: postgres
+    SPRING_DATASOURCE_PASSWORD: "1234"
+    # Отключаем цветной вывод Gradle — в логах GitLab лишнее
+    GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+
+  script:
+    - chmod +x gradlew
+    # --no-daemon: не запускать фоновый процесс Gradle (в CI он не нужен и тратит память)
+    # --stacktrace: при ошибке показать полный стектрейс для отладки
+    - ./gradlew test --no-daemon --stacktrace
+
+  # artifacts: сохраняет отчёты о тестах чтобы их можно было посмотреть в GitLab UI
+  artifacts:
+    when: always  # сохранять даже если тесты упали
+    reports:
+      # junit: GitLab парсит XML и показывает результаты прямо в merge request
+      junit: build/test-results/test/**/*.xml
+    paths:
+      # HTML-отчёт Gradle (вкладка "Browse" в артефактах)
+      - build/reports/tests/
+    expire_in: 7 days  # удалить через 7 дней
+
+# ─── Стадия: build ───────────────────────────────────────────────────────────
+
+build:
+  stage: build
+  image: eclipse-temurin:21-jdk-alpine
+  <<: *gradle-cache
+
+  variables:
+    GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+
+  script:
+    - chmod +x gradlew
+    # bootJar: собирает fat JAR со встроенным Tomcat
+    # -x test: пропускаем тесты (уже прогнали на предыдущей стадии)
+    - ./gradlew bootJar --no-daemon -x test
+
+  artifacts:
+    paths:
+      - build/libs/*.jar  # сохраняем JAR для следующей стадии (docker)
+    expire_in: 1 hour
+
+  # Запускать только если стадия test прошла успешно (поведение по умолчанию)
+  needs:
+    - test
+
+# ─── Стадия: docker ──────────────────────────────────────────────────────────
+
+docker:
+  stage: docker
+  # docker:dind (Docker-in-Docker): позволяет запускать Docker команды внутри GitLab Runner
+  image: docker:24
+  services:
+    - docker:24-dind  # фоновый Docker-демон
+
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"  # TLS для безопасного соединения с Docker-демоном
+
+  # Выполнять только при пуше в ветку main (не для каждого feature-branch)
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+  needs:
+    - build  # нужен JAR из предыдущей стадии
+
+  script:
+    # Логинимся в GitLab Container Registry
+    # CI_REGISTRY_USER и CI_REGISTRY_PASSWORD — встроенные переменные GitLab
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    # Собираем образ с двумя тегами: конкретный коммит и "latest"
+    - docker build -t "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA" -t "$IMAGE_NAME:latest" .
+    # Публикуем оба тега в Registry
+    - docker push "$IMAGE_NAME:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE_NAME:latest"

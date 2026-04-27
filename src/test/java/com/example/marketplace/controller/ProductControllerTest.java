@@ -26,6 +26,8 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// Тесты ProductController: публичные эндпоинты каталога.
+// GET /api/products и GET /api/products/{id} доступны без аутентификации.
 @WebMvcTest(
         value = ProductController.class,
         excludeFilters = {
@@ -57,9 +59,12 @@ class ProductControllerTest {
                 makeResponse(1L, "Ноутбук", new BigDecimal("79999.99"), 10),
                 makeResponse(2L, "Мышь",    new BigDecimal("1999.99"),  50)
         ));
+        // isNull() — проверяет что аргумент == null (фильтр не передан)
+        // any(Pageable.class) — любой объект пагинации
         when(productService.getAllProducts(isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(page);
 
+        // Запрос без query-параметров — все фильтры null
         mockMvc.perform(get("/api/products"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(2))
@@ -84,13 +89,16 @@ class ProductControllerTest {
         PageImpl<ProductResponse> page = new PageImpl<>(
                 List.of(makeResponse(1L, "Ноутбук", new BigDecimal("79999.99"), 10))
         );
+        // eq("Ноутбук") — первый аргумент должен быть именно "Ноутбук", а не просто any()
         when(productService.getAllProducts(eq("Ноутбук"), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(page);
 
+        // ?name=Ноутбук — Spring извлекает @RequestParam name из URL и передаёт в сервис
         mockMvc.perform(get("/api/products?name=Ноутбук"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].name").value("Ноутбук"));
 
+        // Проверяем что сервис вызван с правильным именем (не null)
         verify(productService).getAllProducts(eq("Ноутбук"), isNull(), isNull(), isNull(), any(Pageable.class));
     }
 
@@ -99,6 +107,7 @@ class ProductControllerTest {
         when(productService.getAllProducts(isNull(), isNull(), any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
+        // ?minPrice=1000&maxPrice=50000 — Spring автоматически конвертирует строки в BigDecimal
         mockMvc.perform(get("/api/products?minPrice=1000&maxPrice=50000"))
                 .andExpect(status().isOk());
 
@@ -110,6 +119,7 @@ class ProductControllerTest {
         when(productService.getAllProducts(isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
+        // ?page=1&size=5 — Spring создаёт PageRequest.of(1, 5) из этих параметров
         mockMvc.perform(get("/api/products?page=1&size=5"))
                 .andExpect(status().isOk());
 
@@ -123,7 +133,7 @@ class ProductControllerTest {
         when(productService.getProductById(1L))
                 .thenReturn(makeResponse(1L, "Ноутбук", new BigDecimal("79999.99"), 10));
 
-        mockMvc.perform(get("/api/products/1"))
+        mockMvc.perform(get("/api/products/1")) // {id} = 1 из URL (@PathVariable)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.name").value("Ноутбук"))
@@ -137,6 +147,7 @@ class ProductControllerTest {
 
         mockMvc.perform(get("/api/products/99"))
                 .andExpect(status().isNotFound())
+                // GlobalExceptionHandler возвращает ErrorResponse с полями status и message
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Product not found with id: 99"));
     }

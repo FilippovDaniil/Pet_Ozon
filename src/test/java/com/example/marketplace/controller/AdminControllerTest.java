@@ -38,6 +38,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+// Тесты AdminController: CRUD товаров, управление заказами и счетами.
+// Все эндпоинты /api/admin/** требуют роли ADMIN.
 @WebMvcTest(
         value = AdminController.class,
         excludeFilters = {
@@ -50,10 +52,12 @@ class AdminControllerTest {
 
     @Autowired MockMvc mockMvc;
 
+    // AdminController использует три сервиса
     @MockitoBean ProductService productService;
     @MockitoBean OrderService   orderService;
     @MockitoBean InvoiceService invoiceService;
 
+    // Создаёт пользователя с ролью ADMIN для имитации авторизованного администратора
     private User mockAdminUser() {
         User u = new User();
         u.setId(2L);
@@ -96,19 +100,21 @@ class AdminControllerTest {
 
     @Test
     void createProduct_validRequest_returns201() throws Exception {
+        // any() — принять любой CreateProductRequest (не проверяем конкретные поля)
         when(productService.createProduct(any())).thenReturn(makeProductResponse(6L, "Планшет"));
 
         mockMvc.perform(post("/api/admin/products")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Планшет\",\"price\":29999.99,\"stockQuantity\":10}"))
-                .andExpect(status().isCreated())
+                .andExpect(status().isCreated()) // HTTP 201 Created
                 .andExpect(jsonPath("$.id").value(6))
                 .andExpect(jsonPath("$.name").value("Планшет"));
     }
 
     @Test
     void createProduct_unauthenticated_returns401() throws Exception {
+        // Без токена — 401 Unauthorized (не аутентифицирован)
         mockMvc.perform(post("/api/admin/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Планшет\",\"price\":29999.99,\"stockQuantity\":10}"))
@@ -117,6 +123,7 @@ class AdminControllerTest {
 
     @Test
     void createProduct_clientRole_returns403() throws Exception {
+        // CLIENT аутентифицирован, но не имеет роли ADMIN → 403 Forbidden
         User client = new User();
         client.setId(1L);
         client.setRole(Role.CLIENT);
@@ -125,13 +132,14 @@ class AdminControllerTest {
                         .with(user(client))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"Планшет\",\"price\":29999.99,\"stockQuantity\":10}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden()); // HTTP 403 Forbidden
     }
 
     // ── PUT /api/admin/products/{id} ──────────────────────────────────────────
 
     @Test
     void updateProduct_found_returns200() throws Exception {
+        // eq(1L) — productId должен быть именно 1, any() — тело запроса любое
         when(productService.updateProduct(eq(1L), any()))
                 .thenReturn(makeProductResponse(1L, "Ноутбук (обновлён)"));
 
@@ -163,7 +171,7 @@ class AdminControllerTest {
 
         mockMvc.perform(delete("/api/admin/products/6")
                         .with(user(mockAdminUser())))
-                .andExpect(status().isNoContent());
+                .andExpect(status().isNoContent()); // HTTP 204 No Content
     }
 
     @Test
@@ -199,6 +207,7 @@ class AdminControllerTest {
     void getAllOrders_withPagination_passesPageableToService() throws Exception {
         when(orderService.getAllOrders(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
+        // ?page=0&size=10 — Spring автоматически создаёт PageRequest из query-параметров
         mockMvc.perform(get("/api/admin/orders?page=0&size=10")
                         .with(user(mockAdminUser())))
                 .andExpect(status().isOk());
@@ -216,7 +225,7 @@ class AdminControllerTest {
         mockMvc.perform(put("/api/admin/orders/1/status")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\": \"DELIVERED\"}"))
+                        .content("{\"status\": \"DELIVERED\"}")) // строка → enum OrderStatus.DELIVERED
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DELIVERED"));
     }
@@ -250,6 +259,7 @@ class AdminControllerTest {
 
     @Test
     void getAllInvoices_returns200WithList() throws Exception {
+        // Список счетов возвращается как массив JSON (не Page), поэтому $.length() а не $.content.length()
         when(invoiceService.getAllInvoices()).thenReturn(List.of(
                 makeInvoiceResponse(1L, InvoiceStatus.UNPAID),
                 makeInvoiceResponse(2L, InvoiceStatus.PAID)
@@ -270,6 +280,6 @@ class AdminControllerTest {
         mockMvc.perform(get("/api/admin/invoices")
                         .with(user(mockAdminUser())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0));
+                .andExpect(jsonPath("$.length()").value(0)); // пустой массив []
     }
 }
