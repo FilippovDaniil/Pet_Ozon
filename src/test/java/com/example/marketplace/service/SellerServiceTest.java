@@ -17,6 +17,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -89,33 +93,36 @@ class SellerServiceTest {
         User seller = makeSeller(3L);
         Product p1 = makeProduct(1L, seller);
         Product p2 = makeProduct(2L, seller);
+        Pageable pageable = PageRequest.of(0, 20);
+        // PageImpl — реализация Page для тестов: содержит content + метаданные пагинации.
+        Page<Product> productPage = new PageImpl<>(List.of(p1, p2), pageable, 2);
         when(userRepository.findById(3L)).thenReturn(Optional.of(seller));
-        when(productRepository.findBySeller(seller)).thenReturn(List.of(p1, p2));
-        // Настраиваем мок: при вызове toResponse для конкретного продукта вернуть нужный DTO
+        when(productRepository.findBySeller(seller, pageable)).thenReturn(productPage);
         when(productService.toResponse(p1)).thenReturn(makeProductResponse(1L, "Product 1"));
         when(productService.toResponse(p2)).thenReturn(makeProductResponse(2L, "Product 2"));
 
-        List<ProductResponse> result = sellerService.getSellerProducts(3L);
+        Page<ProductResponse> result = sellerService.getSellerProducts(3L, pageable);
 
-        assertThat(result).hasSize(2);
-        // extracting — извлекает поле из каждого элемента списка для проверки
-        assertThat(result).extracting(ProductResponse::getId).containsExactly(1L, 2L);
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getContent()).extracting(ProductResponse::getId).containsExactly(1L, 2L);
+        assertThat(result.getTotalElements()).isEqualTo(2);
     }
 
     @Test
-    void getSellerProducts_emptyList_returnsEmpty() {
+    void getSellerProducts_emptyPage_returnsEmpty() {
         User seller = makeSeller(3L);
+        Pageable pageable = PageRequest.of(0, 20);
         when(userRepository.findById(3L)).thenReturn(Optional.of(seller));
-        when(productRepository.findBySeller(seller)).thenReturn(List.of()); // нет товаров
+        when(productRepository.findBySeller(seller, pageable)).thenReturn(Page.empty(pageable));
 
-        assertThat(sellerService.getSellerProducts(3L)).isEmpty();
+        assertThat(sellerService.getSellerProducts(3L, pageable).getContent()).isEmpty();
     }
 
     @Test
     void getSellerProducts_sellerNotFound_throwsException() {
         when(userRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> sellerService.getSellerProducts(99L))
+        assertThatThrownBy(() -> sellerService.getSellerProducts(99L, PageRequest.of(0, 20)))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("99");
     }
@@ -125,7 +132,7 @@ class SellerServiceTest {
         // Клиент пытается вызвать метод продавца — должен получить ошибку
         when(userRepository.findById(1L)).thenReturn(Optional.of(makeClient(1L)));
 
-        assertThatThrownBy(() -> sellerService.getSellerProducts(1L))
+        assertThatThrownBy(() -> sellerService.getSellerProducts(1L, PageRequest.of(0, 20)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not a seller");
     }

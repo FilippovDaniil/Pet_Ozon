@@ -12,13 +12,14 @@ import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.PaymentRepository;
 import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Сервис оплаты счетов.
@@ -42,10 +43,19 @@ public class InvoiceService {
     private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
 
-    public List<InvoiceResponse> getAllInvoices() {
-        return invoiceRepository.findAll().stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+    /**
+     * Возвращает все счета постранично.
+     *
+     * Page<T> — объект-обёртка: содержит текущую страницу, общее число записей,
+     * количество страниц. Клиент получает только нужный «срез» данных,
+     * а не весь список, который может быть очень большим.
+     *
+     * .map(this::toResponse) — трансформирует каждый Invoice в InvoiceResponse
+     * прямо внутри страницы, не распаковывая её в список.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    public Page<InvoiceResponse> getAllInvoices(Pageable pageable) {
+        return invoiceRepository.findAll(pageable).map(this::toResponse);
     }
 
     public InvoiceResponse getInvoiceById(Long id) {

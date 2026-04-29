@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,6 +39,7 @@ public class OrderService {
     private final InvoiceRepository invoiceRepository;
 
     /** Все заказы — только для Admin. Возвращает постранично. */
+    @PreAuthorize("hasRole('ADMIN')")
     public Page<OrderResponse> getAllOrders(Pageable pageable) {
         return orderRepository.findAll(pageable).map(this::toResponse);
     }
@@ -57,6 +59,7 @@ public class OrderService {
      * Смена статуса заказа — используется Admin-ом.
      * Например: PAID → DELIVERED или CREATED → CANCELLED.
      */
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
     public OrderResponse updateStatus(Long id, OrderStatus status) {
         Order order = findEntityById(id);

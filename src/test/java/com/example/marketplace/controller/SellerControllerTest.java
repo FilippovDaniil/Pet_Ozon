@@ -23,6 +23,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -97,16 +101,20 @@ class SellerControllerTest {
 
     @Test
     void getMyProducts_authenticated_returnsSellerProducts() throws Exception {
-        // Продавец id=3 запрашивает свои товары
-        when(sellerService.getSellerProducts(3L)).thenReturn(
+        // PageImpl — реализация Page с content + метаданными (totalElements, totalPages и т.д.).
+        // Используем any(Pageable.class): контроллер сам создаёт Pageable из параметров запроса,
+        // и мы не знаем точный объект — поэтому матчим любой Pageable.
+        Page<ProductResponse> page = new PageImpl<>(
                 List.of(makeProductResponse(1L, "Товар 1"), makeProductResponse(2L, "Товар 2"))
         );
+        when(sellerService.getSellerProducts(eq(3L), any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/seller/products").with(user(mockSellerUser(3L))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2)) // массив (не Page) → $.length()
-                .andExpect(jsonPath("$[0].id").value(1))
-                .andExpect(jsonPath("$[1].id").value(2));
+                // Page<T> сериализуется в JSON: { content: [...], totalElements: N, ... }
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[1].id").value(2));
     }
 
     @Test
@@ -128,7 +136,7 @@ class SellerControllerTest {
 
     @Test
     void getMyProducts_sellerNotFound_returns404() throws Exception {
-        when(sellerService.getSellerProducts(3L))
+        when(sellerService.getSellerProducts(eq(3L), any(Pageable.class)))
                 .thenThrow(new ResourceNotFoundException("Seller not found with id: 3"));
 
         mockMvc.perform(get("/api/seller/products").with(user(mockSellerUser(3L))))

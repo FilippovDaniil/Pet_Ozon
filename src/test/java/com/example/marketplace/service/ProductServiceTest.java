@@ -5,6 +5,7 @@ import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.entity.Product;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.ProductRepository;
+import com.example.marketplace.repository.ReviewRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -28,6 +29,9 @@ import static org.mockito.Mockito.*;
 class ProductServiceTest {
 
     @Mock ProductRepository productRepository;
+    // ReviewRepository нужен ProductService после добавления рейтингов.
+    // Mockito вернёт null для getAverageRatingByProduct (нет отзывов) и 0 для countByProduct.
+    @Mock ReviewRepository  reviewRepository;
 
     @InjectMocks ProductService productService;
 

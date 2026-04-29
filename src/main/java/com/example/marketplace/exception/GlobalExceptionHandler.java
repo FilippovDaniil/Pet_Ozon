@@ -3,6 +3,7 @@ package com.example.marketplace.exception;
 import com.example.marketplace.dto.response.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -67,6 +68,19 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ErrorResponse handleAuthentication(AuthenticationException ex) {
         return new ErrorResponse(LocalDateTime.now(), ex.getMessage(), 401);
+    }
+
+    /**
+     * Нет прав доступа — бросается @PreAuthorize при неудовлетворённом условии.
+     * Например: пользователь с ролью CLIENT вызывает метод с @PreAuthorize("hasRole('ADMIN')").
+     *
+     * Важно: AccessDeniedException должен быть обработан явно, иначе Spring Security
+     * перехватит его сам и вернёт свой HTML-ответ вместо нашего JSON ErrorResponse.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ErrorResponse handleAccessDenied(AccessDeniedException ex) {
+        return new ErrorResponse(LocalDateTime.now(), "Доступ запрещён: недостаточно прав", 403);
     }
 
     /**

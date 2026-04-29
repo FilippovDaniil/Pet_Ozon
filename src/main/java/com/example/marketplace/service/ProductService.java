@@ -5,11 +5,16 @@ import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.entity.Product;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.ProductRepository;
+import com.example.marketplace.repository.ReviewRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +36,7 @@ import java.math.BigDecimal;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final ReviewRepository  reviewRepository;
 
     /**
      * Возвращает постранично список товаров с опциональными фильтрами.
@@ -41,7 +47,17 @@ public class ProductService {
      * Лямбда (root, q, cb) → ... — это Predicate:
      *   root — ссылка на Product-класс в JPQL (аналог таблицы),
      *   cb   — CriteriaBuilder, фабрика условий (like, equal, lessThan и т.д.).
+     *
+     * @Cacheable — кэшировать результат.
+     * value = "productsCatalog" — имя кэша (из CacheConfig).
+     * key = "#name+'-'+#category+'-'+#minPrice+'-'+#maxPrice+'-'+#pageable" — уникальный ключ
+     * из всех фильтров и пагинации. Разные запросы хранятся в кэше по разным ключам.
+     *
+     * Когда кэш НЕ используется? Когда сработает @CacheEvict в методах записи.
+     * Это называется «инвалидация кэша» — устаревшие данные выбрасываются.
      */
+    @Cacheable(value = "productsCatalog",
+               key = "#name + '-' + #category + '-' + #minPrice + '-' + #maxPrice + '-' + #pageable")
     public Page<ProductResponse> getAllProducts(String name, String category,
                                                 BigDecimal minPrice, BigDecimal maxPrice,
                                                 Pageable pageable) {
@@ -67,11 +83,31 @@ public class ProductService {
         return productRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
+    /**
+     * @Cacheable(value = "products", key = "#id") — кэшировать по id товара.
+     * Первый вызов getProductById(1L) → SELECT к БД, результат сохраняется в кэш.
+     * Второй вызов getProductById(1L) → результат берётся из кэша, БД не трогается.
+     *
+     * Spring реализует это через AOP-прокси: перед вызовом метода проверяет кэш.
+     * Если ключ найден — возвращает закэшированное значение, не вызывая сам метод.
+     */
+    @Cacheable(value = "products", key = "#id")
     public ProductResponse getProductById(Long id) {
         return toResponse(findEntityById(id));
     }
 
+    /**
+     * @Caching — объединяет несколько кэш-аннотаций на одном методе.
+     * При создании товара очищаем "productsCatalog" полностью (allEntries = true):
+     * все страницы каталога стали устаревшими — нужно перечитать из БД.
+     */
+    // Второй уровень защиты: даже если запрос обошёл SecurityFilterChain,
+    // Spring AOP проверит роль непосредственно перед вызовом метода.
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "productsCatalog", allEntries = true)
+    })
     public ProductResponse createProduct(CreateProductRequest request) {
         Product product = new Product();
         product.setName(request.getName());
@@ -85,7 +121,17 @@ public class ProductService {
         return response;
     }
 
+    /**
+     * При обновлении товара:
+     *   - очищаем конкретную запись из "products" (этот товар обновился)
+     *   - очищаем весь "productsCatalog" (он мог быть на любой странице с любым фильтром)
+     */
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "products",        key = "#id"),
+            @CacheEvict(value = "productsCatalog", allEntries = true)
+    })
     public ProductResponse updateProduct(Long id, CreateProductRequest request) {
         Product product = findEntityById(id);
         product.setName(request.getName());
@@ -98,7 +144,16 @@ public class ProductService {
         return toResponse(productRepository.save(product));
     }
 
+    /**
+     * При удалении товара очищаем обе записи в кэшах.
+     * После удаления getProductById(id) должен бросать 404, а не возвращать старый результат.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
     @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "products",        key = "#id"),
+            @CacheEvict(value = "productsCatalog", allEntries = true)
+    })
     public void deleteProduct(Long id) {
         if (!productRepository.existsById(id)) {
             throw new ResourceNotFoundException("Product not found with id: " + id);
@@ -136,6 +191,12 @@ public class ProductService {
             r.setSellerName(product.getSeller().getFullName());
             r.setShopName(product.getSeller().getShopName());
         }
+
+        // Подгружаем средний рейтинг и количество отзывов из БД.
+        // getAverageRatingByProduct возвращает Double (null если отзывов нет).
+        // countByProduct — SELECT COUNT(*), без загрузки всех строк в память.
+        r.setAverageRating(reviewRepository.getAverageRatingByProduct(product));
+        r.setReviewCount((int) reviewRepository.countByProduct(product));
         return r;
     }
 }

@@ -9,6 +9,9 @@ import com.example.marketplace.service.OrderService;
 import com.example.marketplace.service.SellerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -42,9 +45,11 @@ public class SellerController {
     private final SellerService sellerService;
     private final OrderService orderService;
 
+    // @PageableDefault(size = 20) — если клиент не указал пагинацию, вернуть первые 20 товаров.
     @GetMapping("/products")
-    public List<ProductResponse> getMyProducts(@AuthenticationPrincipal User user) {
-        return sellerService.getSellerProducts(user.getId());
+    public Page<ProductResponse> getMyProducts(@AuthenticationPrincipal User user,
+                                                @PageableDefault(size = 20) Pageable pageable) {
+        return sellerService.getSellerProducts(user.getId(), pageable);
     }
 
     // ResponseEntity.status(201) — то же, что @ResponseStatus(CREATED), но через fluent API.

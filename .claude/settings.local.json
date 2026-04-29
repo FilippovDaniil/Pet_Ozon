@@ -20,7 +20,8 @@
       "Bash(curl -s http://localhost:8080/api/products?size=2)",
       "Bash(netstat -ano)",
       "Bash(findstr :8888)",
-      "Bash(./gradlew bootRun --args=\"--server.port=8666\")"
+      "Bash(./gradlew bootRun --args=\"--server.port=8666\")",
+      "Bash(./gradlew compileJava compileTestJava --no-daemon)"
     ]
   }
 }

@@ -313,6 +313,44 @@ class CartServiceTest {
     }
 
     @Test
+    void checkout_insufficientStock_throwsIllegalArgument() {
+        // Тест проверяет защиту от покупки большего количества, чем есть на складе.
+        // На складе 1 штука, покупаем 5 → должно быть исключение.
+        User user = makeUser(1L);
+        Cart cart = makeCart(1L, user);
+        Product product = makeProduct(1L, "Ноутбук", new BigDecimal("50000.00"));
+        product.setStockQuantity(1); // перезаписываем: только 1 штука доступна
+        cart.getItems().add(makeCartItem(1L, cart, product, 5)); // пытаемся купить 5
+        stubFindCart(user, cart);
+
+        assertThatThrownBy(() -> cartService.checkout(1L, "Москва"))
+                .isInstanceOf(IllegalArgumentException.class)
+                // Сообщение должно содержать название товара, чтобы пользователь понял, что именно закончилось
+                .hasMessageContaining("Недостаточно товара");
+    }
+
+    @Test
+    void checkout_deductsStockOnSuccess() {
+        // Тест проверяет, что после успешного оформления заказа
+        // остаток на складе уменьшается ровно на купленное количество.
+        User user = makeUser(1L);
+        Cart cart = makeCart(1L, user);
+        Product product = makeProduct(1L, "Ноутбук", new BigDecimal("50000.00"));
+        // makeProduct устанавливает stockQuantity = 100 по умолчанию
+        cart.getItems().add(makeCartItem(1L, cart, product, 3));
+        stubFindCart(user, cart);
+        when(orderItemRepository.save(any(OrderItem.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        cartService.checkout(1L, "Адрес");
+
+        // После оформления: 100 - 3 = 97
+        assertThat(product.getStockQuantity()).isEqualTo(97);
+        // Проверяем, что сохранение товара с новым остатком действительно произошло
+        verify(productRepository).save(product);
+    }
+
+    @Test
     void checkout_snapshotsPriceAtOrderTime() {
         // Тест проверяет «снимок» цены: в OrderItem должна сохраниться цена товара на момент заказа,
         // а не текущая цена (которая может измениться позже).

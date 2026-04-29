@@ -17,8 +17,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 /**
  * Административные эндпоинты — только для роли ADMIN.
  *
@@ -82,8 +80,14 @@ public class AdminController {
 
     // --- Просмотр счетов ---
 
+    /**
+     * GET /api/admin/invoices — список всех счетов с пагинацией.
+     *
+     * Аналогично GET /api/admin/orders: возвращает Page<T> вместо List<T>.
+     * Пример запроса: GET /api/admin/invoices?page=0&size=10&sort=createdAt,desc
+     */
     @GetMapping("/invoices")
-    public List<InvoiceResponse> getAllInvoices() {
-        return invoiceService.getAllInvoices();
+    public Page<InvoiceResponse> getAllInvoices(@PageableDefault(size = 20) Pageable pageable) {
+        return invoiceService.getAllInvoices(pageable);
     }
 }

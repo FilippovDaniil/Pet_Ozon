@@ -12,11 +12,13 @@ import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Бизнес-логика для продавца.
@@ -39,15 +41,21 @@ public class SellerService {
     private final OrderRepository orderRepository;
     private final ProductService productService;  // делегируем конвертацию в ProductService
 
-    /** Возвращает все товары данного продавца. */
-    public List<ProductResponse> getSellerProducts(Long sellerId) {
+    /**
+     * Возвращает товары данного продавца постранично.
+     *
+     * Page<T> — обёртка: content (элементы страницы), totalElements, totalPages, number.
+     * Клиент передаёт ?page=0&size=20&sort=price,asc — Spring собирает это в Pageable.
+     * .map() применяет toResponse к каждому Product внутри страницы без распаковки.
+     */
+    @PreAuthorize("hasRole('SELLER')")
+    public Page<ProductResponse> getSellerProducts(Long sellerId, Pageable pageable) {
         User seller = resolveSeller(sellerId);
-        return productRepository.findBySeller(seller).stream()
-                .map(productService::toResponse)
-                .collect(Collectors.toList());
+        return productRepository.findBySeller(seller, pageable).map(productService::toResponse);
     }
 
     /** Продавец создаёт новый товар — он автоматически привязывается к этому продавцу. */
+    @PreAuthorize("hasRole('SELLER')")
     @Transactional
     public ProductResponse createProduct(Long sellerId, CreateProductRequest request) {
         User seller = resolveSeller(sellerId);
@@ -61,6 +69,7 @@ public class SellerService {
         return productService.toResponse(productRepository.save(product));
     }
 
+    @PreAuthorize("hasRole('SELLER')")
     @Transactional
     public ProductResponse updateProduct(Long sellerId, Long productId, CreateProductRequest request) {
         // resolveSellerProduct проверяет: товар существует И принадлежит этому продавцу.
@@ -73,6 +82,7 @@ public class SellerService {
         return productService.toResponse(productRepository.save(product));
     }
 
+    @PreAuthorize("hasRole('SELLER')")
     @Transactional
     public void deleteProduct(Long sellerId, Long productId) {
         Product product = resolveSellerProduct(sellerId, productId);
@@ -80,6 +90,7 @@ public class SellerService {
     }
 
     /** Возвращает баланс продавца — сколько он заработал на продажах. */
+    @PreAuthorize("hasRole('SELLER')")
     public SellerResponse getBalance(Long sellerId) {
         User seller = resolveSeller(sellerId);
         SellerResponse r = new SellerResponse();
@@ -92,6 +103,7 @@ public class SellerService {
     }
 
     /** Возвращает заказы, содержащие товары этого продавца. */
+    @PreAuthorize("hasRole('SELLER')")
     public List<Order> getSellerOrders(Long sellerId) {
         resolveSeller(sellerId);
         return orderRepository.findBySellerId(sellerId);

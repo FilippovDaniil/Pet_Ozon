@@ -35,8 +35,45 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+
+    // Spring Cache — декларативное кэширование через аннотации @Cacheable/@CacheEvict.
+    // Базовая реализация: ConcurrentHashMap в памяти (без Redis — хватит для учёбы).
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+
+    // AOP (Aspect-Oriented Programming) — перехват вызовов методов.
+    // spring-boot-starter-aop включает spring-aop + aspectjweaver (движок аспектов).
+    implementation 'org.springframework.boot:spring-boot-starter-aop'
+
+    // Swagger UI — автоматически генерирует веб-интерфейс документации из кода.
+    // Открыть: http://localhost:8080/swagger-ui.html
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
+
+    // Testcontainers — запускает реальные Docker-контейнеры во время тестов.
+    // spring-boot-testcontainers: интеграция с Spring Boot (@ServiceConnection).
+    // junit-jupiter: аннотации @Testcontainers и @Container для JUnit 5.
+    // postgresql: готовый контейнер с PostgreSQL.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
 
+// Обычный запуск тестов — без Docker (быстро, без внешних зависимостей).
+// Исключаем тесты с тегом "integration": они требуют запущенный Docker Desktop.
 test {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'integration'
+    }
+}
+
+// Интеграционные тесты — только когда Docker запущен.
+// Запуск: ./gradlew integrationTest
+// Использует Testcontainers: сам запустит PostgreSQL в Docker, прогонит тесты, остановит контейнер.
+tasks.register('integrationTest', Test) {
+    description = 'Запускает интеграционные тесты (требует Docker Desktop)'
+    group       = 'verification'
+    useJUnitPlatform {
+        includeTags 'integration'
+    }
+    // Убеждаемся что код скомпилирован перед запуском
+    shouldRunAfter test
 }

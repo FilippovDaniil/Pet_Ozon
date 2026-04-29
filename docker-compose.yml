@@ -1,34 +1,53 @@
+# docker-compose.yml — запускает всё приложение одной командой: docker compose up
+#
+# Сервисы:
+#   postgres — база данных PostgreSQL 15 (как в продакшне).
+#   app      — Spring Boot приложение, собранное из Dockerfile.
+#
+# Запуск:   docker compose up --build
+# Остановка: docker compose down
+# С очисткой данных: docker compose down -v
+
 services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:15
-    container_name: marketplace-db
+    image: postgres:15-alpine         # Alpine — минимальный образ (~80 МБ)
+    container_name: marketplace_db
     environment:
-      POSTGRES_DB: marketplace
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: "1234"
+      POSTGRES_DB: marketplace        # имя базы данных
+      POSTGRES_USER: postgres         # пользователь (совпадает с application.properties)
+      POSTGRES_PASSWORD: "1234"       # пароль
     ports:
-      - "5432:5432"
+      - "5432:5432"                   # пробрасываем порт для подключения из IDE / DBeaver
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - postgres_data:/var/lib/postgresql/data  # данные сохраняются между перезапусками
     healthcheck:
+      # pg_isready — утилита PostgreSQL: возвращает 0 когда сервер готов принимать соединения.
       test: ["CMD-SHELL", "pg_isready -U postgres -d marketplace"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
+  # ── Spring Boot App ─────────────────────────────────────────────────────────
   app:
-    build: .
-    container_name: marketplace-app
+    build: .                          # собрать образ из Dockerfile в текущей директории
+    container_name: marketplace_app
     ports:
-      - "8667:8667"
+      - "8667:8667"                   # приложение доступно на localhost:8667 (server.port=8667)
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://marketplace-db:5432/marketplace
+      # Переопределяем настройки из application.properties для работы в Docker-сети.
+      # В Docker-сети хост БД — имя сервиса "postgres", не "localhost".
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/marketplace
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: "1234"
+      # Таблицы создаются/обновляются автоматически при старте приложения.
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_healthy    # ждём пока PostgreSQL полностью запустится
 
+# Именованный том: данные PostgreSQL хранятся вне контейнера.
+# docker compose down НЕ удаляет том. docker compose down -v — удаляет.
 volumes:
   postgres_data:

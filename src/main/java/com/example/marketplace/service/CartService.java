@@ -11,6 +11,7 @@ import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,7 +47,8 @@ public class CartService {
     private final OrderItemRepository orderItemRepository;
     private final InvoiceRepository invoiceRepository;
 
-    // readOnly = true: JPA не будет отслеживать изменения сущностей → чуть быстрее.
+    // isAuthenticated() — любой вошедший пользователь может работать с корзиной.
+    @PreAuthorize("isAuthenticated()")
     @Transactional(readOnly = true)
     public CartResponse getCartByUserId(Long userId) {
         Cart cart = findCartByUserId(userId);
@@ -57,6 +59,7 @@ public class CartService {
      * Добавляет товар в корзину.
      * Если товар уже есть — увеличивает quantity (не создаёт дублей).
      */
+    @PreAuthorize("isAuthenticated()")
     @Transactional
     public CartResponse addToCart(Long userId, Long productId, int quantity) {
         Cart cart = findCartByUserId(userId);
@@ -81,6 +84,7 @@ public class CartService {
         return toCartResponse(cart);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @Transactional
     public void removeFromCart(Long cartItemId) {
         CartItem item = cartItemRepository.findById(cartItemId)
@@ -88,6 +92,7 @@ public class CartService {
         cartItemRepository.delete(item);
     }
 
+    @PreAuthorize("isAuthenticated()")
     @Transactional
     public CartResponse updateQuantity(Long cartItemId, int quantity) {
         if (quantity <= 0) {
@@ -109,6 +114,7 @@ public class CartService {
      * Например, если при создании 5-го OrderItem произойдёт ошибка —
      * вся операция откатится, и stock не уменьшится, и Order не создастся.
      */
+    @PreAuthorize("isAuthenticated()")
     @Transactional
     public OrderResponse checkout(Long userId, String shippingAddress) {
         Cart cart = findCartByUserId(userId);

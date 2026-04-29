@@ -258,28 +258,43 @@ class AdminControllerTest {
     // ── GET /api/admin/invoices ───────────────────────────────────────────────
 
     @Test
-    void getAllInvoices_returns200WithList() throws Exception {
-        // Список счетов возвращается как массив JSON (не Page), поэтому $.length() а не $.content.length()
-        when(invoiceService.getAllInvoices()).thenReturn(List.of(
+    void getAllInvoices_returns200WithPage() throws Exception {
+        // Счета теперь возвращаются как Page (с пагинацией), аналогично заказам.
+        // Поэтому используем $.content.length() вместо $.length()
+        PageImpl<InvoiceResponse> page = new PageImpl<>(List.of(
                 makeInvoiceResponse(1L, InvoiceStatus.UNPAID),
                 makeInvoiceResponse(2L, InvoiceStatus.PAID)
         ));
+        when(invoiceService.getAllInvoices(any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/admin/invoices")
                         .with(user(mockAdminUser())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].status").value("UNPAID"))
-                .andExpect(jsonPath("$[1].status").value("PAID"));
+                .andExpect(jsonPath("$.content.length()").value(2))
+                .andExpect(jsonPath("$.content[0].status").value("UNPAID"))
+                .andExpect(jsonPath("$.content[1].status").value("PAID"))
+                .andExpect(jsonPath("$.totalElements").value(2));
     }
 
     @Test
-    void getAllInvoices_empty_returns200WithEmptyArray() throws Exception {
-        when(invoiceService.getAllInvoices()).thenReturn(List.of());
+    void getAllInvoices_withPagination_passesPageableToService() throws Exception {
+        when(invoiceService.getAllInvoices(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+
+        // ?page=0&size=5 — Spring передаёт Pageable в сервис
+        mockMvc.perform(get("/api/admin/invoices?page=0&size=5")
+                        .with(user(mockAdminUser())))
+                .andExpect(status().isOk());
+
+        verify(invoiceService).getAllInvoices(any(Pageable.class));
+    }
+
+    @Test
+    void getAllInvoices_empty_returns200WithEmptyPage() throws Exception {
+        when(invoiceService.getAllInvoices(any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/admin/invoices")
                         .with(user(mockAdminUser())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(0)); // пустой массив []
+                .andExpect(jsonPath("$.content.length()").value(0)); // пустая страница
     }
 }

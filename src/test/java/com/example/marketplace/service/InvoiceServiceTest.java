@@ -17,6 +17,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -77,16 +82,21 @@ class InvoiceServiceTest {
     // ── getAllInvoices ────────────────────────────────────────────────────────
 
     @Test
-    void getAllInvoices_returnsAll() {
-        // Мок возвращает список из двух счетов с разными статусами
-        when(invoiceRepository.findAll()).thenReturn(List.of(
+    void getAllInvoices_returnsPage() {
+        // getAllInvoices теперь принимает Pageable и возвращает Page<InvoiceResponse>.
+        // PageImpl — реализация Page для тестов: содержит список, pageable и totalElements.
+        PageImpl<Invoice> invoicePage = new PageImpl<>(List.of(
                 makeInvoice(1L, new BigDecimal("5000.00"), InvoiceStatus.UNPAID),
                 makeInvoice(2L, new BigDecimal("3000.00"), InvoiceStatus.PAID)
         ));
+        // findAll(Pageable) — перегрузка JpaRepository, которая поддерживает пагинацию.
+        // any(Pageable.class) матчит любую реализацию Pageable (PageRequest, SliceRequest и др.)
+        when(invoiceRepository.findAll(any(Pageable.class))).thenReturn(invoicePage);
 
-        List<InvoiceResponse> result = invoiceService.getAllInvoices();
+        Page<InvoiceResponse> result = invoiceService.getAllInvoices(PageRequest.of(0, 20));
 
-        assertThat(result).hasSize(2);
+        assertThat(result.getContent()).hasSize(2);
+        assertThat(result.getTotalElements()).isEqualTo(2);
     }
 
     // ── getInvoiceById ────────────────────────────────────────────────────────

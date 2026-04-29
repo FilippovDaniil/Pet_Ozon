@@ -31,6 +31,9 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     // Находит все товары конкретного продавца (используется в SellerService).
     List<Product> findBySeller(User seller);
 
+    // Постраничный вариант — для GET /api/seller/products?page=0&size=20.
+    Page<Product> findBySeller(User seller, Pageable pageable);
+
     // Стандартный findAll(Pageable) уже есть в JpaRepository,
     // но здесь он переопределён явно для ясности.
     Page<Product> findAll(Pageable pageable);

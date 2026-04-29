@@ -45,6 +45,8 @@
 | **Lombok** | BOM | Генерирует `getters/setters/constructors` через аннотации |
 | **jjwt** | 0.12.6 | Создание и валидация JWT-токенов |
 | **JUnit 5 + Mockito** | BOM | Юнит-тесты с мокированием зависимостей |
+| **Testcontainers** | BOM | Интеграционные тесты с реальной PostgreSQL в Docker |
+| **SpringDoc OpenAPI** | 2.8.6 | Автоматическая Swagger UI документация (`/swagger-ui.html`) |
 | **Docker / Compose** | любая | Контейнеризация приложения и базы данных |
 
 ### Что такое Spring Boot BOM
@@ -75,7 +77,7 @@ Docker соберёт JAR внутри контейнера и поднимет 
 docker compose up --build
 ```
 
-API доступен на `http://localhost:8888`.
+API доступен на `http://localhost:8667`.
 
 ```bash
 # Остановить и удалить контейнеры
@@ -102,6 +104,24 @@ CREATE DATABASE marketplace;
 Hibernate автоматически создаст все таблицы (`spring.jpa.hibernate.ddl-auto=update`).  
 `AppConfig` наполнит базу тестовыми данными при первом старте.
 
+### Swagger UI — документация API
+
+После запуска приложения документация доступна по адресу:
+
+```
+http://localhost:8667/swagger-ui.html
+```
+
+Чтобы тестировать защищённые эндпоинты прямо из браузера:
+1. Вызовите `POST /api/auth/login` → скопируйте значение поля `token` из ответа
+2. Нажмите кнопку **Authorize** вверху страницы
+3. Введите токен в поле `Value` → нажмите **Authorize**
+4. Теперь все запросы автоматически отправляются с заголовком `Authorization: Bearer <token>`
+
+JSON-спецификация (OpenAPI 3): `http://localhost:8667/v3/api-docs`
+
+---
+
 ### Настройки подключения
 
 Файл `src/main/resources/application.properties`:
@@ -121,7 +141,7 @@ spring.jpa.show-sql=true
 spring.jpa.properties.hibernate.format_sql=true
 
 # Порт сервера
-server.port=8888
+server.port=8667
 
 # JWT — секрет и время жизни токена (24 часа)
 jwt.secret=<base64-encoded-key>
@@ -606,6 +626,9 @@ public interface ProductRepository
 
     List<Product> findBySeller(User seller);
     // SELECT * FROM products WHERE seller_id = ?
+
+    Page<Product> findBySeller(User seller, Pageable pageable);
+    // постраничный вариант для GET /api/seller/products?page=0&size=20
 
     Page<Product> findAll(Pageable pageable);
     // SELECT * FROM products LIMIT ? OFFSET ?
@@ -1095,8 +1118,8 @@ public class AdminController {
     }
 
     @GetMapping("/invoices")
-    public ResponseEntity<List<InvoiceResponse>> getAllInvoices() {
-        return ResponseEntity.ok(invoiceService.getAllInvoices());
+    public Page<InvoiceResponse> getAllInvoices(@PageableDefault(size = 20) Pageable pageable) {
+        return invoiceService.getAllInvoices(pageable);
     }
 }
 ```
@@ -1339,6 +1362,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 ```java
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity  // включает @PreAuthorize / @PostAuthorize на методах сервисов
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -1432,6 +1456,13 @@ public class GlobalExceptionHandler {
             .body(new ErrorResponse(LocalDateTime.now(), ex.getMessage(), 401));
     }
 
+    // @PreAuthorize не выполнено — пользователь аутентифицирован, но прав не хватает
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(new ErrorResponse(LocalDateTime.now(), "Доступ запрещён: недостаточно прав", 403));
+    }
+
     // Все остальные ошибки
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
@@ -1507,7 +1538,7 @@ public class AppConfig {
 ### CorsConfig.java
 
 CORS (Cross-Origin Resource Sharing) — браузер блокирует запросы с одного домена на другой.  
-Если фронтенд на `localhost:3000` обращается к API на `localhost:8888` — это CORS.
+Если фронтенд на `localhost:3000` обращается к API на `localhost:8667` — это CORS.
 
 ```java
 @Configuration
@@ -1538,11 +1569,11 @@ public class CorsConfig {
 ```
 src/test/java/com/example/marketplace/
 ├── service/
-│   ├── CartServiceTest.java        8 тестов: addToCart, removeFromCart, checkout
+│   ├── CartServiceTest.java        10 тестов: addToCart, removeFromCart, checkout, нехватка товара
 │   ├── InvoiceServiceTest.java     — оплата, начисление баланса продавцу
 │   ├── OrderServiceTest.java       — getOrdersByUserId, updateStatus
 │   ├── ProductServiceTest.java     — CRUD, динамическая фильтрация
-│   ├── SellerServiceTest.java      18 тестов: CRUD товаров продавца, balance, sales
+│   ├── SellerServiceTest.java      20 тестов: CRUD товаров продавца, balance, sales
 │   └── UserServiceTest.java        — getById, registerClient
 └── controller/
     ├── AuthControllerTest.java     — login 200/401, register 201/400
@@ -1550,8 +1581,10 @@ src/test/java/com/example/marketplace/
     ├── InvoiceControllerTest.java  — getById, pay
     ├── OrderControllerTest.java    — getMyOrders, getById
     ├── ProductControllerTest.java  — getAll с фильтрами, getById
-    ├── SellerControllerTest.java   16 тестов: products, balance, sales
+    ├── SellerControllerTest.java   17 тестов: products, balance, sales
     └── AdminControllerTest.java    — products, orders, invoices
+└── integration/
+    └── ProductRepositoryIntegrationTest.java  — 5 тестов с реальной PostgreSQL (Testcontainers)
 ```
 
 ### Юнит-тесты сервисов
@@ -1739,7 +1772,7 @@ InvoiceService.pay(1, "CARD")  @Transactional
 
 ## API Reference
 
-Базовый URL: `http://localhost:8888`
+Базовый URL: `http://localhost:8667`
 
 **Аутентификация:** `Authorization: Bearer <JWT-token>`  
 Получить токен: `POST /api/auth/login`
@@ -1766,6 +1799,17 @@ InvoiceService.pay(1, "CARD")  @Transactional
 |---|---|---|---|---|
 | GET | `/api/products` | `name`, `category`, `minPrice`, `maxPrice`, `page`, `size`, `sort` | `Page<ProductResponse>` | Все |
 | GET | `/api/products/{id}` | — | `ProductResponse` | Все |
+
+---
+
+### Отзывы и рейтинги
+
+| Метод | URL | Тело | Ответ | Доступ |
+|---|---|---|---|---|
+| GET | `/api/products/{id}/reviews` | — | `List<ReviewResponse>` | Все |
+| POST | `/api/products/{id}/reviews` | `{rating, comment?}` | `ReviewResponse` 201 | Авторизованный |
+
+`ProductResponse` теперь содержит поля `averageRating` (Double, null если нет отзывов) и `reviewCount` (int).
 
 ---
 
@@ -1810,9 +1854,9 @@ InvoiceService.pay(1, "CARD")  @Transactional
 
 ### Продавец (требует роль SELLER)
 
-| Метод | URL | Тело | Ответ |
+| Метод | URL | Параметры / Тело | Ответ |
 |---|---|---|---|
-| GET | `/api/seller/products` | — | `List<ProductResponse>` |
+| GET | `/api/seller/products` | `page`, `size`, `sort` | `Page<ProductResponse>` |
 | POST | `/api/seller/products` | `CreateProductRequest` | `ProductResponse` 201 |
 | PUT | `/api/seller/products/{id}` | `CreateProductRequest` | `ProductResponse` |
 | DELETE | `/api/seller/products/{id}` | — | 204 |
@@ -1830,7 +1874,7 @@ InvoiceService.pay(1, "CARD")  @Transactional
 | DELETE | `/api/admin/products/{id}` | — | 204 |
 | GET | `/api/admin/orders` | `page`, `size` | `Page<OrderResponse>` |
 | PUT | `/api/admin/orders/{id}/status` | `{status}` | `OrderResponse` |
-| GET | `/api/admin/invoices` | — | `List<InvoiceResponse>` |
+| GET | `/api/admin/invoices` | `page`, `size` | `Page<InvoiceResponse>` |
 
 ---
 
@@ -1917,7 +1961,7 @@ CI/CD → Pipelines → выбрать запуск → Jobs → test → Browse
 docker pull registry.gitlab.com/YOUR_USERNAME/pet-ozon:latest
 
 # Запустить с внешней БД
-docker run -p 8888:8888 \
+docker run -p 8667:8667 \
   -e SPRING_DATASOURCE_URL=jdbc:postgresql://host.docker.internal:5432/marketplace \
   -e SPRING_DATASOURCE_USERNAME=postgres \
   -e SPRING_DATASOURCE_PASSWORD=1234 \
@@ -1932,13 +1976,20 @@ docker run -p 8888:8888 \
 
 ---
 
+## Что добавлено
+
+- [x] **Интеграционные тесты** — `@DataJpaTest` + Testcontainers, реальная PostgreSQL в Docker (`@Tag("integration")`)
+- [x] **Swagger UI / OpenAPI 3** — автодокументация, `http://localhost:8667/swagger-ui.html`
+- [x] **Пагинация везде** — товары, заказы, счета, товары продавца — все возвращают `Page<T>`
+- [x] **AOP-логирование** — `LoggingAspect` перехватывает все методы сервисов, логирует время выполнения
+- [x] **Spring Cache** — `@Cacheable`/`@CacheEvict` на методах каталога товаров (ConcurrentMap в памяти)
+- [x] **Рейтинги и отзывы** — сущность `Review`, средний рейтинг в `ProductResponse`, эндпоинты `/api/products/{id}/reviews`
+- [x] **`@PreAuthorize` на сервисах** — второй уровень авторизации поверх URL-правил SecurityConfig: `hasRole('ADMIN')`, `hasRole('SELLER')`, `isAuthenticated()`
+- [x] **Обработка `AccessDeniedException`** — `GlobalExceptionHandler` возвращает JSON 403 вместо HTML Spring Security
+- [x] **Docker Compose** — `docker-compose.yml` + многоэтапный `Dockerfile`; запуск одной командой `docker compose up --build`
+
 ## Что планируется добавить
 
-- [ ] **Интеграционные тесты** — Spring Boot Test + Testcontainers (реальная PostgreSQL в Docker)
 - [ ] **Refresh-токены** — JWT access (15 мин) + refresh (7 дней) с ротацией
-- [ ] **Категории как отдельная сущность** — вместо строки в поле `category`
-- [ ] **Рейтинги и отзывы** — `Review` сущность, средний рейтинг товара
-- [ ] **Поиск по полнотексту** — PostgreSQL `tsvector` или Elasticsearch
 - [ ] **Email-уведомления** — Spring Mail при смене статуса заказа
-- [ ] **Расширенный PaymentService** — интеграция с платёжным шлюзом
-- [ ] **Логирование запросов** — AOP-аспект `@Around` для замера времени выполнения
+- [ ] **Категории как отдельная сущность** — вместо строки в поле `category`

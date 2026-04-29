@@ -64,6 +64,10 @@ public class SecurityConfig {
                         // Регистрация и вход — без токена (очевидно).
                         .requestMatchers("/api/auth/**").permitAll()
 
+                        // Swagger UI и OpenAPI JSON-спецификация — публичный доступ.
+                        // Без этих строк Spring Security заблокирует страницу документации с 401.
+                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+
                         // Просмотр товаров — публичный доступ (не нужно логиниться).
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
 

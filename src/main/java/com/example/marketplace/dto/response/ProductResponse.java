@@ -25,4 +25,12 @@ public class ProductResponse {
     private Long sellerId;
     private String sellerName;
     private String shopName;
+
+    // Средний рейтинг из отзывов (null — если отзывов ещё нет).
+    // Double, а не double: примитив не может быть null, а здесь это важно
+    // чтобы клиент понял разницу между «рейтинг 0.0» и «отзывов нет».
+    private Double averageRating;
+
+    // Общее количество отзывов — чтобы клиент показал «★ 4.5 (12 отзывов)».
+    private int reviewCount;
 }

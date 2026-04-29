@@ -128,11 +128,28 @@ Content-Type: application/json
    (`"C:\Program Files\Java\jdk-21.0.10"` вместо `C:\Program Files\Java\jdk-21.0.10`).
    Решение: убрать кавычки через sysdm.cpl → Переменные среды.
 
+## Что добавлено (реализовано)
+
+- [x] `@Valid` + валидация входных DTO (`@NotBlank`, `@Min`, `@Positive`)
+- [x] Spring Security + JWT-аутентификация (SecurityConfig, JwtUtil, JwtAuthenticationFilter)
+- [x] Уменьшение `stockQuantity` при оформлении заказа (CartService.checkout)
+- [x] Пагинация в списках товаров, заказов и счетов (`Pageable`, `Page<T>`)
+- [x] Логирование (`@Slf4j` + `log.info` в сервисах)
+- [x] Юнит-тесты (Mockito) для всех сервисов и контроллеров
+- [x] Интеграционный тест с Testcontainers (ProductRepositoryIntegrationTest)
+- [x] Swagger UI / OpenAPI 3 — документация по адресу http://localhost:8080/swagger-ui.html
+- [x] Роль SELLER + SellerController, SellerService (продавец управляет своими товарами)
+- [x] ProfileController — просмотр и обновление профиля пользователя
+- [x] AuthController — регистрация (POST /api/auth/register) и вход (POST /api/auth/login)
+- [x] JPA Specification для фильтрации товаров (name, category, minPrice, maxPrice)
+
 ## Что добавить следующим (приоритет)
 
-- [ ] `@Valid` + валидация входных DTO (аннотации `@NotBlank`, `@Min`, `@Positive`)
-- [ ] Spring Security + JWT-аутентификация
-- [ ] Уменьшение `stockQuantity` при оформлении заказа
-- [ ] Пагинация в списках товаров и заказов (`Pageable`)
-- [ ] Логирование (SLF4J уже подключён через Lombok `@Slf4j`)
-- [ ] Тесты (Spring Boot Test + Testcontainers для PostgreSQL)
+- [x] AOP-логирование сервисного слоя (`LoggingAspect`, `@Around`)
+- [x] Spring Cache (`@Cacheable`/`@CacheEvict` в `ProductService`, `CacheConfig`)
+- [x] Рейтинги и отзывы (`Review`, `ReviewRepository`, `ReviewService`, `ReviewController`)
+- [x] Тесты для InvoiceController (@WebMvcTest, 10 тестов)
+- [x] `@PreAuthorize` на методах сервисов — дополнительный уровень авторизации
+- [x] Обработка ошибок валидации в GlobalExceptionHandler (`MethodArgumentNotValidException`, `AccessDeniedException`)
+- [x] Пагинация для списка товаров продавца в SellerService (`Page<ProductResponse>`)
+- [x] Docker Compose файл для запуска всего приложения (app + PostgreSQL)
