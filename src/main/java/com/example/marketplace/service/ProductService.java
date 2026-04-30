@@ -117,7 +117,8 @@ public class ProductService {
         product.setImageUrl(request.getImageUrl());
         product.setCategory(request.getCategory());
         ProductResponse response = toResponse(productRepository.save(product));
-        log.info("Создан товар id={} «{}» price={}", response.getId(), response.getName(), response.getPrice());
+        log.info("ACTION=ADMIN_CREATE_PRODUCT productId={} name=\"{}\" price={}",
+                response.getId(), response.getName(), response.getPrice());
         return response;
     }
 
@@ -140,7 +141,8 @@ public class ProductService {
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
         product.setCategory(request.getCategory());
-        log.info("Обновлён товар id={}", id);
+        log.info("ACTION=ADMIN_UPDATE_PRODUCT productId={} name=\"{}\" price={}",
+                id, product.getName(), product.getPrice());
         return toResponse(productRepository.save(product));
     }
 
@@ -159,7 +161,7 @@ public class ProductService {
             throw new ResourceNotFoundException("Product not found with id: " + id);
         }
         productRepository.deleteById(id);
-        log.info("Удалён товар id={}", id);
+        log.info("ACTION=ADMIN_DELETE_PRODUCT productId={}", id);
     }
 
     /** Возвращает JPA-сущность (а не DTO) — используется внутри приложения. */

@@ -1,0 +1,12 @@
+# Провайдер дашбордов — указывает Grafana, где искать JSON-файлы с дашбордами.
+apiVersion: 1
+
+providers:
+  - name: marketplace
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

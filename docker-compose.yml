@@ -43,11 +43,43 @@ services:
       SPRING_DATASOURCE_PASSWORD: "1234"
       # Таблицы создаются/обновляются автоматически при старте приложения.
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      # Профиль "docker" активирует Loki-аппендер в logback-spring.xml
+      SPRING_PROFILES_ACTIVE: docker
     depends_on:
       postgres:
         condition: service_healthy    # ждём пока PostgreSQL полностью запустится
+      loki:
+        condition: service_started
+
+  # ── Grafana Loki — агрегатор логов ──────────────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.10
+    container_name: marketplace_loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+
+  # ── Grafana — визуализация логов ─────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.3
+    container_name: marketplace_grafana
+    ports:
+      - "3000:3000"                   # UI: http://localhost:3000 (admin / admin)
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - loki
 
 # Именованный том: данные PostgreSQL хранятся вне контейнера.
 # docker compose down НЕ удаляет том. docker compose down -v — удаляет.
 volumes:
   postgres_data:
+  loki_data:
+  grafana_data:

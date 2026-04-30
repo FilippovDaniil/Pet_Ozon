@@ -63,8 +63,10 @@ public class OrderService {
     @Transactional
     public OrderResponse updateStatus(Long id, OrderStatus status) {
         Order order = findEntityById(id);
+        OrderStatus previous = order.getStatus();
         order.setStatus(status);
-        log.info("Статус заказа id={} изменён на {}", id, status);
+        log.info("ACTION=ADMIN_UPDATE_ORDER_STATUS orderId={} prevStatus={} newStatus={}",
+                id, previous, status);
         return toResponse(orderRepository.save(order));
     }
 

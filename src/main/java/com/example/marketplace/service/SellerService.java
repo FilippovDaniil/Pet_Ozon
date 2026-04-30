@@ -12,6 +12,7 @@ import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -32,6 +33,7 @@ import java.util.List;
  * productService.toResponse() и productService.findEntityById()
  * — не дублируем код конвертации.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SellerService {
@@ -66,7 +68,10 @@ public class SellerService {
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
         product.setSeller(seller);
-        return productService.toResponse(productRepository.save(product));
+        ProductResponse response = productService.toResponse(productRepository.save(product));
+        log.info("ACTION=SELLER_CREATE_PRODUCT sellerId={} productId={} name=\"{}\" price={}",
+                sellerId, response.getId(), response.getName(), response.getPrice());
+        return response;
     }
 
     @PreAuthorize("hasRole('SELLER')")
@@ -79,13 +84,18 @@ public class SellerService {
         product.setPrice(request.getPrice());
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
-        return productService.toResponse(productRepository.save(product));
+        ProductResponse response = productService.toResponse(productRepository.save(product));
+        log.info("ACTION=SELLER_UPDATE_PRODUCT sellerId={} productId={} name=\"{}\" price={}",
+                sellerId, productId, response.getName(), response.getPrice());
+        return response;
     }
 
     @PreAuthorize("hasRole('SELLER')")
     @Transactional
     public void deleteProduct(Long sellerId, Long productId) {
         Product product = resolveSellerProduct(sellerId, productId);
+        log.info("ACTION=SELLER_DELETE_PRODUCT sellerId={} productId={} name=\"{}\"",
+                sellerId, productId, product.getName());
         productRepository.delete(product);
     }
 

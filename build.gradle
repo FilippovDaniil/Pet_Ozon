@@ -44,6 +44,10 @@ dependencies {
     // spring-boot-starter-aop включает spring-aop + aspectjweaver (движок аспектов).
     implementation 'org.springframework.boot:spring-boot-starter-aop'
 
+    // Loki4j — отправляет логи из Logback напрямую в Grafana Loki (без Promtail).
+    // Активируется профилем "docker" в logback-spring.xml.
+    implementation 'com.github.loki4j:loki-logback-appender:1.5.2'
+
     // Swagger UI — автоматически генерирует веб-интерфейс документации из кода.
     // Открыть: http://localhost:8080/swagger-ui.html
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'

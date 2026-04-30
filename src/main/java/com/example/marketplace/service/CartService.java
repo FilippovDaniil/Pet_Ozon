@@ -81,6 +81,8 @@ public class CartService {
             cart.getItems().add(saved);
         }
 
+        log.info("ACTION=ADD_TO_CART userId={} productId={} qty={} product=\"{}\"",
+                userId, productId, quantity, product.getName());
         return toCartResponse(cart);
     }
 
@@ -90,6 +92,8 @@ public class CartService {
         CartItem item = cartItemRepository.findById(cartItemId)
                 .orElseThrow(() -> new ResourceNotFoundException("CartItem not found with id: " + cartItemId));
         cartItemRepository.delete(item);
+        log.info("ACTION=REMOVE_FROM_CART cartItemId={} product=\"{}\"",
+                cartItemId, item.getProduct().getName());
     }
 
     @PreAuthorize("isAuthenticated()")
@@ -175,7 +179,8 @@ public class CartService {
         cart.getItems().clear();
         cartRepository.save(cart);
 
-        log.info("Оформлен заказ id={} пользователь id={} сумма={}", order.getId(), userId, total);
+        log.info("ACTION=CHECKOUT userId={} orderId={} total={} itemCount={} address=\"{}\"",
+                userId, order.getId(), total, cartItems.size(), shippingAddress);
         return toOrderResponse(order);
     }
 

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logback конфигурация с MDC-полями и интеграцией Loki.
+
+  MDC (Mapped Diagnostic Context) — ThreadLocal-хранилище, куда AuditMdcFilter
+  кладёт userId, role, requestId перед каждым запросом. Logback подставляет их
+  в паттерн через %mdc{key:-default}.
+
+  Профили:
+    docker  — консоль + отправка логов в Loki (http://loki:3100)
+    !docker — только консоль (локальная разработка)
+-->
+<configuration>
+
+    <!-- Паттерн включает MDC-поля: userId, role, requestId -->
+    <property name="LOG_PATTERN"
+              value="%d{HH:mm:ss.SSS} %-5level [req=%mdc{requestId:-?}] [user=%mdc{userId:-?}@%mdc{role:-system}] %logger{30} - %msg%n"/>
+
+    <!-- ── Консольный вывод — всегда активен ─────────────────────────────── -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ── Профиль "docker": добавляем отправку логов в Loki ────────────── -->
+    <springProfile name="docker">
+
+        <!--
+          loki4j отправляет батчи логов в Loki по HTTP.
+          Labels — низкокардинальные поля (level, role): идут в индекс Loki.
+          Высококардинальные поля (userId, requestId) — только в тело сообщения.
+        -->
+        <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+            <http>
+                <url>http://loki:3100/loki/api/v1/push</url>
+            </http>
+            <format>
+                <label>
+                    <pattern>app=marketplace,level=%level,role=%mdc{role:-system}</pattern>
+                </label>
+                <message>
+                    <pattern>${LOG_PATTERN}</pattern>
+                </message>
+                <sortByTime>true</sortByTime>
+            </format>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="LOKI"/>
+        </root>
+
+        <logger name="com.example.marketplace" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="LOKI"/>
+        </logger>
+
+    </springProfile>
+
+    <!-- ── Локальная разработка: только консоль ─────────────────────────── -->
+    <springProfile name="!docker">
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+
+        <logger name="com.example.marketplace" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+
+    </springProfile>
+
+</configuration>

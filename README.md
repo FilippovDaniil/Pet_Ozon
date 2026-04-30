@@ -23,6 +23,7 @@
 - [DTO — объекты передачи данных](#dto--объекты-передачи-данных)
 - [Spring Security и JWT](#spring-security-и-jwt)
 - [Обработка ошибок](#обработка-ошибок)
+- [Логирование и мониторинг](#логирование-и-мониторинг)
 - [Конфигурация](#конфигурация)
 - [Тесты](#тесты)
 - [Полный сценарий покупки](#полный-сценарий-покупки)
@@ -48,6 +49,9 @@
 | **Testcontainers** | BOM | Интеграционные тесты с реальной PostgreSQL в Docker |
 | **SpringDoc OpenAPI** | 2.8.6 | Автоматическая Swagger UI документация (`/swagger-ui.html`) |
 | **Docker / Compose** | любая | Контейнеризация приложения и базы данных |
+| **Grafana Loki** | 2.9.10 | Агрегация логов — принимает и хранит лог-стримы |
+| **Grafana** | 10.4.3 | Визуализация логов, дашборды с LogQL-запросами |
+| **loki4j** | 1.5.2 | Logback-аппендер: отправляет логи из JVM в Loki по HTTP |
 
 ### Что такое Spring Boot BOM
 
@@ -77,7 +81,16 @@ Docker соберёт JAR внутри контейнера и поднимет 
 docker compose up --build
 ```
 
-API доступен на `http://localhost:8667`.
+После старта доступны:
+
+| Сервис | URL | Описание |
+|---|---|---|
+| API | `http://localhost:8667` | REST API приложения |
+| Swagger UI | `http://localhost:8667/swagger-ui.html` | Интерактивная документация |
+| Grafana | `http://localhost:3000` | Дашборды логов (логин: `admin` / `admin`) |
+| Loki | `http://localhost:3100` | HTTP API агрегатора логов |
+
+Grafana автоматически открывает дашборд **«Marketplace Audit Logs»** — он провизионируется при старте.
 
 ```bash
 # Остановить и удалить контейнеры
@@ -180,19 +193,28 @@ jwt.expiration=86400000
 HTTP-запрос
      │
      ▼
-[JwtAuthenticationFilter]   ← проверяет токен, устанавливает аутентификацию
+[JwtAuthenticationFilter]   ← проверяет токен, устанавливает User в SecurityContext
      │
+     ▼
+[AuditMdcFilter]            ← читает SecurityContext, кладёт userId/role/requestId в MDC
+     │                         теперь каждая строка лога содержит контекст пользователя
      ▼
 [Controller]                ← принимает HTTP, валидирует DTO, вызывает сервис
      │
      ▼
-[Service]                   ← бизнес-логика, @Transactional, оркестрация
+[Service]     [LoggingAspect] ← AOP: логирует время выполнения + ACTION=... события
      │
      ▼
 [Repository]                ← Spring Data JPA, SQL-запросы к БД
      │
      ▼
 [Entity / PostgreSQL]       ← таблицы базы данных
+
+     ↕ (Logback + loki4j)
+[Grafana Loki]              ← получает батчи логов, индексирует по labels
+     │
+     ▼
+[Grafana]                   ← дашборды: LogQL-фильтрация по роли, userId, action
 ```
 
 Каждый слой имеет одну ответственность:
@@ -263,6 +285,12 @@ com.example.marketplace
 │   ├── JwtUtil.java                ← генерация и валидация JWT
 │   ├── JwtAuthenticationFilter.java ← фильтр Spring Security
 │   └── UserDetailsServiceImpl.java  ← загрузка пользователя по email
+│
+├── filter/
+│   └── AuditMdcFilter.java         ← кладёт userId/role/requestId в MDC для каждого запроса
+│
+├── aspect/
+│   └── LoggingAspect.java          ← AOP: логирует все вызовы сервисов + время выполнения
 │
 └── exception/
     ├── ResourceNotFoundException   ← бросается когда сущность не найдена
@@ -1483,6 +1511,147 @@ public class GlobalExceptionHandler {
 
 ---
 
+## Логирование и мониторинг
+
+### Как устроена система логирования
+
+Логи в приложении проходят три уровня обогащения, прежде чем попасть в Grafana:
+
+```
+Бизнес-событие (CartService.checkout)
+         │ log.info("ACTION=CHECKOUT userId=…")
+         ▼
+   Logback (logback-spring.xml)
+         │ добавляет MDC-поля: [req=abc12345] [user=5@CLIENT]
+         ▼
+   loki4j appender (только профиль "docker")
+         │ отправляет батч в Loki по HTTP
+         ▼
+   Grafana Loki
+         │ индексирует по labels: app, level, role
+         ▼
+   Grafana дашборд
+         LogQL: {app="marketplace", role="CLIENT"} |= "ACTION="
+```
+
+---
+
+### AuditMdcFilter — контекст пользователя в каждом логе
+
+Файл: `src/main/java/com/example/marketplace/filter/AuditMdcFilter.java`
+
+```java
+// Запускается ПОСЛЕ JwtAuthenticationFilter (order=-100 < MAX_VALUE)
+// SecurityContext уже заполнен → можно читать текущего User
+Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+if (auth.getPrincipal() instanceof User user) {
+    MDC.put("userId",    String.valueOf(user.getId()));   // "5"
+    MDC.put("userEmail", user.getEmail());                // "client@example.com"
+    MDC.put("role",      user.getRole().name());          // "CLIENT"
+}
+MDC.put("requestId", UUID.randomUUID().toString().substring(0, 8));  // "a1b2c3d4"
+```
+
+После этого **каждая строка лога** в рамках запроса автоматически выглядит так:
+
+```
+12:34:56.789 INFO  [req=a1b2c3d4] [user=5@CLIENT] c.e.m.service.CartService - ACTION=ADD_TO_CART userId=5 productId=1 qty=2
+```
+
+---
+
+### Структура Loki labels
+
+Loki хранит лог-стримы по **labels** (низкокардинальные теги, идут в индекс).  
+Высококардинальные данные (userId, orderId) хранятся в теле сообщения — их ищут через `|=`.
+
+```
+Labels (индексируются):          Тело сообщения (полнотекстовый поиск):
+  app   = "marketplace"           "ACTION=CHECKOUT userId=5 orderId=12 total=179998"
+  level = "INFO"
+  role  = "CLIENT"
+```
+
+---
+
+### Бизнес-события (ACTION=...)
+
+Каждое ключевое действие логируется с префиксом `ACTION=`, что позволяет легко фильтровать в Grafana:
+
+| Актор | Событие | Пример строки лога |
+|---|---|---|
+| CLIENT | Добавил в корзину | `ACTION=ADD_TO_CART userId=1 productId=2 qty=3 product="Ноутбук"` |
+| CLIENT | Удалил из корзины | `ACTION=REMOVE_FROM_CART cartItemId=5 product="Мышь"` |
+| CLIENT | Оформил заказ | `ACTION=CHECKOUT userId=1 orderId=7 total=49999 itemCount=2` |
+| CLIENT | Оплатил счёт | `ACTION=PAY_INVOICE invoiceId=7 orderId=7 amount=49999 method=CARD` |
+| SELLER | Создал товар | `ACTION=SELLER_CREATE_PRODUCT sellerId=3 productId=20 name="Планшет" price=29999` |
+| SELLER | Обновил товар | `ACTION=SELLER_UPDATE_PRODUCT sellerId=3 productId=20 name="Планшет Pro"` |
+| SELLER | Удалил товар | `ACTION=SELLER_DELETE_PRODUCT sellerId=3 productId=20 name="Планшет"` |
+| ADMIN | Создал товар | `ACTION=ADMIN_CREATE_PRODUCT productId=21 name="Смарт-ТВ" price=59999` |
+| ADMIN | Обновил товар | `ACTION=ADMIN_UPDATE_PRODUCT productId=21 name="Смарт-ТВ 2"` |
+| ADMIN | Удалил товар | `ACTION=ADMIN_DELETE_PRODUCT productId=21` |
+| ADMIN | Сменил статус заказа | `ACTION=ADMIN_UPDATE_ORDER_STATUS orderId=7 prevStatus=PAID newStatus=DELIVERED` |
+| Любой | Ошибка в сервисе | `ACTION=SERVICE_ERROR service=CartService method=checkout error=IllegalArgumentException` |
+
+---
+
+### LogQL — запросы в Grafana
+
+После открытия Grafana (`http://localhost:3000`, admin/admin) перейдите в **Explore** и пробуйте:
+
+```logql
+# Все действия клиентов
+{app="marketplace", role="CLIENT"} |= "ACTION="
+
+# Только оформления заказов
+{app="marketplace"} |= "ACTION=CHECKOUT"
+
+# Конкретный пользователь
+{app="marketplace"} |= "user=5@"
+
+# Ошибки и предупреждения
+{app="marketplace", level="WARN"}
+
+# Объём логов по ролям (метрический запрос, вкладка Metrics)
+sum by(role) (rate({app="marketplace"}[1m]))
+```
+
+---
+
+### logback-spring.xml — профили
+
+Файл `src/main/resources/logback-spring.xml` использует Spring-профили:
+
+| Профиль | Аппендеры | Когда активен |
+|---|---|---|
+| `docker` | Консоль + Loki | `SPRING_PROFILES_ACTIVE=docker` в Docker Compose |
+| `!docker` (по умолчанию) | Только консоль | Локальный запуск через IDE / `./gradlew bootRun` |
+
+Паттерн лога:
+```
+%d{HH:mm:ss.SSS} %-5level [req=%mdc{requestId:-?}] [user=%mdc{userId:-?}@%mdc{role:-system}] %logger{30} - %msg%n
+```
+
+---
+
+### Структура файлов мониторинга
+
+```
+├── loki/
+│   └── loki-config.yml              ← конфигурация Loki (filesystem storage, schema v11)
+├── grafana/
+│   └── provisioning/
+│       ├── datasources/
+│       │   └── loki.yml             ← автоподключение Loki как datasource при старте
+│       └── dashboards/
+│           ├── dashboards.yml       ← провайдер: Grafana ищет JSON-файлы в этой папке
+│           └── marketplace.json     ← дашборд с 6 панелями (автозагружается)
+└── src/main/resources/
+    └── logback-spring.xml           ← Logback конфигурация с MDC и Loki-аппендером
+```
+
+---
+
 ## Конфигурация
 
 ### AppConfig.java — тестовые данные при старте
@@ -1987,6 +2156,10 @@ docker run -p 8667:8667 \
 - [x] **`@PreAuthorize` на сервисах** — второй уровень авторизации поверх URL-правил SecurityConfig: `hasRole('ADMIN')`, `hasRole('SELLER')`, `isAuthenticated()`
 - [x] **Обработка `AccessDeniedException`** — `GlobalExceptionHandler` возвращает JSON 403 вместо HTML Spring Security
 - [x] **Docker Compose** — `docker-compose.yml` + многоэтапный `Dockerfile`; запуск одной командой `docker compose up --build`
+- [x] **Grafana Loki + Grafana** — `docker-compose.yml` поднимает Loki (3100) и Grafana (3000); дашборд провизионируется автоматически
+- [x] **AuditMdcFilter** — Servlet-фильтр, запускающийся после JWT; кладёт `userId`, `role`, `requestId` в MDC — все логи запроса несут контекст актора
+- [x] **Структурированные бизнес-логи** — паттерн `ACTION=<имя>` во всех сервисах: ADD_TO_CART, CHECKOUT, PAY_INVOICE, SELLER_CREATE_PRODUCT, ADMIN_UPDATE_ORDER_STATUS и т.д.
+- [x] **logback-spring.xml** — профиль `docker` включает loki4j-аппендер; MDC-поля в каждой строке лога; локальная разработка использует только консоль
 
 ## Что планируется добавить
 

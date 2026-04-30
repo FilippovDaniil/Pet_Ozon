@@ -85,8 +85,8 @@ public class LoggingAspect {
 
         } catch (Throwable ex) {
             long duration = System.currentTimeMillis() - startTime;
-            // WARN-уровень: метод бросил исключение — логируем тип ошибки
-            log.warn("✗ {}.{}() ошибка за {} мс: {} — {}",
+            // userId и role из MDC (заполняются AuditMdcFilter) — для ошибок важен контекст актора
+            log.warn("ACTION=SERVICE_ERROR service={} method={} durationMs={} error={} message=\"{}\"",
                     className, methodName, duration,
                     ex.getClass().getSimpleName(), ex.getMessage());
             // Пробрасываем исключение дальше: аспект не должен проглатывать ошибки

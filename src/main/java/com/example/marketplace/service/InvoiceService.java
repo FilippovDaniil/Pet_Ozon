@@ -12,6 +12,7 @@ import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.PaymentRepository;
 import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -34,6 +35,7 @@ import java.time.LocalDateTime;
  * Если баланс продавца обновится, но Payment не запишется (например, ошибка БД),
  * откат транзакции гарантирует консистентность данных.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class InvoiceService {
@@ -106,6 +108,9 @@ public class InvoiceService {
         payment.setStatus(PaymentStatus.SUCCESS);
         payment.setTimestamp(LocalDateTime.now());
         paymentRepository.save(payment);
+
+        log.info("ACTION=PAY_INVOICE invoiceId={} orderId={} amount={} method={}",
+                invoiceId, order.getId(), invoice.getAmount(), payment.getPaymentMethod());
 
         PaymentResponse r = new PaymentResponse();
         r.setId(payment.getId());
