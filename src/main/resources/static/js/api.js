@@ -65,8 +65,10 @@ const api = {
         apiFetch(`/api/invoice/${invoiceId}/pay`, { method: 'POST', body: JSON.stringify({ paymentMethod }) }),
 
     // ── Продавец ──────────────────────────────────────────────────────────
-    getSellerProducts: () =>
-        apiFetch('/api/seller/products'),
+    getSellerProducts: async () => {
+        const page = await apiFetch('/api/seller/products?size=100');
+        return page ? page.content : [];
+    },
     createSellerProduct: (data) =>
         apiFetch('/api/seller/products', { method: 'POST', body: JSON.stringify(data) }),
     updateSellerProduct: (id, data) =>
@@ -94,9 +96,20 @@ const api = {
     updateOrderStatus: (id, status) =>
         apiFetch(`/api/admin/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
 
+    // ── Отзывы ────────────────────────────────────────────────────────────
+    getProductReviews: (productId) =>
+        apiFetch(`/api/products/${productId}/reviews`),
+    addReview: (productId, rating, comment) =>
+        apiFetch(`/api/products/${productId}/reviews`, {
+            method: 'POST',
+            body: JSON.stringify({ rating, comment: comment || null }),
+        }),
+
     // ── Админ: счета ──────────────────────────────────────────────────────
-    getAllInvoices: () =>
-        apiFetch('/api/admin/invoices'),
+    getAllInvoices: async () => {
+        const page = await apiFetch('/api/admin/invoices?size=100');
+        return page ? page.content : [];
+    },
 
     // ── Профиль ───────────────────────────────────────────────────────────
     getProfile: () =>

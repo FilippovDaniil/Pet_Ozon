@@ -241,6 +241,18 @@
                                       x-text="'🏪 ' + p.shopName"></span>
                             </div>
 
+                            <!-- Рейтинг + ссылка на отзывы -->
+                            <div class="flex items-center gap-1.5 mb-2">
+                                <span x-show="p.reviewCount > 0" class="text-yellow-400 text-sm leading-none">★</span>
+                                <span x-show="p.reviewCount > 0"
+                                      class="text-xs font-semibold text-gray-700"
+                                      x-text="p.averageRating?.toFixed(1)"></span>
+                                <button @click.stop="openReviews(p)"
+                                        class="text-xs text-gray-400 hover:text-indigo-600 transition underline-offset-2 hover:underline"
+                                        x-text="p.reviewCount > 0 ? `(${p.reviewCount} отз.)` : 'Нет отзывов'">
+                                </button>
+                            </div>
+
                             <div class="flex items-center justify-between mb-3 mt-auto">
                                 <span class="text-lg font-bold text-indigo-600" x-text="fmt(p.price)"></span>
                                 <span :class="p.stockQuantity > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'"
@@ -525,6 +537,107 @@
         </div>
     </div>
 
+    <!-- ═══════════════════════ МОДАЛ ОТЗЫВОВ ═══════════════════════════════ -->
+    <div x-show="showReviewsModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+         @click.self="showReviewsModal = false">
+
+        <div x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             class="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
+             style="max-height: 85vh">
+
+            <!-- Шапка -->
+            <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900" x-text="reviewsProduct?.name"></h3>
+                    <p class="text-xs text-gray-400 mt-0.5">
+                        <span x-show="reviewsProduct?.reviewCount > 0">
+                            ★ <span x-text="reviewsProduct?.averageRating?.toFixed(1)"></span>
+                            · <span x-text="reviewsProduct?.reviewCount"></span> отзывов
+                        </span>
+                        <span x-show="!reviewsProduct?.reviewCount">Нет отзывов</span>
+                    </p>
+                </div>
+                <button @click="showReviewsModal = false"
+                        class="text-gray-400 hover:text-gray-600 transition w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100">
+                    ✕
+                </button>
+            </div>
+
+            <!-- Список отзывов (скролл) -->
+            <div class="overflow-y-auto flex-1 px-6 py-4 space-y-3">
+                <!-- Загрузка -->
+                <div x-show="loadingReviews" class="flex justify-center py-8">
+                    <div class="animate-spin text-2xl text-gray-300">⏳</div>
+                </div>
+
+                <!-- Нет отзывов -->
+                <div x-show="!loadingReviews && reviews.length === 0"
+                     class="text-center py-8 text-gray-400">
+                    <div class="text-4xl mb-2">💬</div>
+                    <p class="text-sm">Пока никто не оставил отзыв</p>
+                    <p class="text-xs mt-1">Будьте первым!</p>
+                </div>
+
+                <!-- Карточки отзывов -->
+                <template x-for="r in reviews" :key="r.id">
+                    <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                        <div class="flex items-start justify-between gap-2 mb-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-sm font-semibold text-gray-900" x-text="r.userFullName"></span>
+                                <span class="text-yellow-400 text-sm tracking-tight"
+                                      x-text="'★'.repeat(r.rating) + '☆'.repeat(5 - r.rating)"></span>
+                            </div>
+                            <span class="text-xs text-gray-400 flex-shrink-0" x-text="fmtDate(r.createdAt)"></span>
+                        </div>
+                        <p x-show="r.comment" class="text-sm text-gray-600 leading-relaxed" x-text="r.comment"></p>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Форма нового отзыва -->
+            <div class="border-t border-gray-100 px-6 py-4 flex-shrink-0">
+                <p class="text-sm font-semibold text-gray-700 mb-3">Оставить отзыв</p>
+
+                <!-- Выбор звёзд -->
+                <div class="flex items-center gap-0.5 mb-3">
+                    <template x-for="star in [1,2,3,4,5]" :key="star">
+                        <button type="button" @click="reviewForm.rating = star"
+                                :class="star <= reviewForm.rating ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-300'"
+                                class="text-3xl transition leading-none focus:outline-none">★</button>
+                    </template>
+                    <span class="text-sm text-gray-500 ml-2"
+                          x-text="['','Ужасно','Плохо','Нормально','Хорошо','Отлично'][reviewForm.rating]"></span>
+                </div>
+
+                <!-- Комментарий -->
+                <textarea x-model="reviewForm.comment" rows="2"
+                          placeholder="Ваш комментарий (необязательно)..."
+                          class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none mb-3"></textarea>
+
+                <div class="flex gap-2">
+                    <button @click="showReviewsModal = false"
+                            class="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
+                        Закрыть
+                    </button>
+                    <button @click="submitReview()" :disabled="submittingReview"
+                            class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300
+                                   text-white font-semibold rounded-xl text-sm transition">
+                        <span x-text="submittingReview ? 'Отправка...' : 'Опубликовать'"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div><!-- end x-data -->
 
 <script>
@@ -560,6 +673,13 @@
             showPayModal: false,
             payInvoiceId: null,
             paymentMethod: 'CARD',
+
+            showReviewsModal: false,
+            reviewsProduct: null,
+            reviews: [],
+            loadingReviews: false,
+            reviewForm: { rating: 5, comment: '' },
+            submittingReview: false,
 
             toasts: [],
             _toastId: 0,
@@ -714,6 +834,51 @@
                     this.toast('Оплата прошла успешно!', 'success');
                     await this.loadOrders();
                 } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Отзывы ────────────────────────────────────────────
+            async openReviews(product) {
+                this.reviewsProduct = product;
+                this.reviews = [];
+                this.reviewForm = { rating: 5, comment: '' };
+                this.showReviewsModal = true;
+                await this.loadReviews(product.id);
+            },
+
+            async loadReviews(productId) {
+                this.loadingReviews = true;
+                try {
+                    this.reviews = await api.getProductReviews(productId) || [];
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingReviews = false; }
+            },
+
+            async submitReview() {
+                if (!this.reviewForm.rating) {
+                    this.toast('Выберите оценку', 'error');
+                    return;
+                }
+                this.submittingReview = true;
+                try {
+                    const review = await api.addReview(
+                        this.reviewsProduct.id,
+                        this.reviewForm.rating,
+                        this.reviewForm.comment
+                    );
+                    this.reviews = [review, ...this.reviews];
+                    this.reviewForm = { rating: 5, comment: '' };
+                    // Обновляем счётчик и рейтинг в карточке товара
+                    const p = this.products.find(p => p.id === this.reviewsProduct.id);
+                    if (p) {
+                        const newCount = (p.reviewCount || 0) + 1;
+                        const oldSum = (p.averageRating || 0) * (newCount - 1);
+                        p.averageRating = (oldSum + review.rating) / newCount;
+                        p.reviewCount = newCount;
+                        this.reviewsProduct = { ...p };
+                    }
+                    this.toast('Отзыв опубликован!', 'success');
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.submittingReview = false; }
             },
 
             // ── Утилиты ───────────────────────────────────────────
