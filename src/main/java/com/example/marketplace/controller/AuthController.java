@@ -7,6 +7,7 @@ import com.example.marketplace.entity.User;
 import com.example.marketplace.security.JwtUtil;
 import com.example.marketplace.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
  *   3. Генерируем JWT-токен через JwtUtil.
  *   4. Возвращаем токен в теле И в заголовке Authorization.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -54,6 +56,8 @@ public class AuthController {
         User user = (User) userDetailsService.loadUserByUsername(request.getEmail());
         String token = jwtUtil.generateToken(user);
 
+        log.info("ACTION=LOGIN userId={} email={} role={}", user.getId(), user.getEmail(), user.getRole());
+
         // Токен отдаём и в теле ответа (для удобства), и в заголовке (стандарт).
         return ResponseEntity.ok()
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
@@ -68,6 +72,8 @@ public class AuthController {
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         User user = userService.registerClient(request.getEmail(), request.getPassword(), request.getFullName());
         String token = jwtUtil.generateToken(user);
+
+        log.info("ACTION=REGISTER userId={} email={}", user.getId(), user.getEmail());
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)

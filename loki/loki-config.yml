@@ -1,48 +1,42 @@
-# Конфигурация Grafana Loki — агрегатор логов.
-# Режим: single-node, данные хранятся на диске (filesystem).
+# Конфигурация Grafana Loki для single-node Docker-деплоя.
+# Используем блок `common` — официально рекомендованный способ для 2.9.x.
+# Хранилище: filesystem (локальный диск), индекс: tsdb (стабильнее, чем boltdb-shipper).
 
 auth_enabled: false
 
 server:
   http_listen_port: 3100
+  grpc_listen_port: 9096
 
-ingester:
-  lifecycler:
-    address: 127.0.0.1
-    ring:
-      kvstore:
-        store: inmemory
-      replication_factor: 1
-    final_sleep: 0s
-  chunk_idle_period: 1m
-  max_chunk_age: 1m
-  chunk_target_size: 1048576
-  chunk_retain_period: 30s
+# common — задаёт общие настройки: путь к данным, репликацию, ring.
+# Упрощает конфиг: не нужно указывать пути отдельно для каждого компонента.
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory  # в памяти — достаточно для single-node
 
 schema_config:
   configs:
     - from: 2020-10-24
-      store: boltdb-shipper
+      store: tsdb          # tsdb — современный и стабильный индекс в Loki 2.9.x
       object_store: filesystem
-      schema: v11
+      schema: v13
       index:
         prefix: index_
         period: 24h
 
-storage_config:
-  boltdb_shipper:
-    active_index_directory: /loki/boltdb-shipper-active
-    cache_location: /loki/boltdb-shipper-cache
-    cache_ttl: 24h
-    shared_store: filesystem
-  filesystem:
-    directory: /loki/chunks
-
 limits_config:
-  enforce_metric_name: false
   reject_old_samples: true
-  reject_old_samples_max_age: 168h
+  reject_old_samples_max_age: 168h  # отбрасывать логи старше 7 дней
+  max_cache_freshness_per_query: 10m
 
-compactor:
-  working_directory: /loki/boltdb-shipper-compactor
-  shared_store: filesystem
+# Отключаем телеметрию Grafana (не нужна в учебном проекте)
+analytics:
+  reporting_enabled: false

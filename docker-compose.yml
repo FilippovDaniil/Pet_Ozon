@@ -49,18 +49,26 @@ services:
       postgres:
         condition: service_healthy    # ждём пока PostgreSQL полностью запустится
       loki:
-        condition: service_started
+        condition: service_healthy    # ждём пока Loki готов принимать логи
 
   # ── Grafana Loki — агрегатор логов ──────────────────────────────────────────
   loki:
     image: grafana/loki:2.9.10
     container_name: marketplace_loki
+    # Loki 2.x запускается как non-root (UID 10001) — именованный том создаётся
+    # с root-правами и Loki не может писать в него. user: "0" = запуск от root.
+    user: "0"
     ports:
       - "3100:3100"
     volumes:
       - ./loki/loki-config.yml:/etc/loki/local-config.yaml
       - loki_data:/loki
     command: -config.file=/etc/loki/local-config.yaml
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   # ── Grafana — визуализация логов ─────────────────────────────────────────────
   grafana:

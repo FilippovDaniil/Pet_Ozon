@@ -30,8 +30,15 @@
           loki4j отправляет батчи логов в Loki по HTTP.
           Labels — низкокардинальные поля (level, role): идут в индекс Loki.
           Высококардинальные поля (userId, requestId) — только в тело сообщения.
+
+          ВАЖНО: batchTimeoutMs — максимальное время ожидания перед отправкой батча.
+          Дефолт = 60000 мс (60 сек!) — при таком значении дашборд пустой первые 60 сек.
+          Ставим 5 сек для быстрой обратной связи в разработке.
         -->
         <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+            <!-- Отправлять батч каждые 5 сек ИЛИ при накоплении 100 сообщений -->
+            <batchMaxItems>100</batchMaxItems>
+            <batchTimeoutMs>5000</batchTimeoutMs>
             <http>
                 <url>http://loki:3100/loki/api/v1/push</url>
             </http>

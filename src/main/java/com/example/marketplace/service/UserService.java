@@ -73,7 +73,7 @@ public class UserService {
         cart.setUser(saved);
         cartRepository.save(cart);
 
-        log.info("Зарегистрирован новый клиент id={} email={}", saved.getId(), saved.getEmail());
+        log.info("ACTION=REGISTER userId={} email={}", saved.getId(), saved.getEmail());
         return saved;
     }
 
@@ -89,7 +89,7 @@ public class UserService {
         if (request.getFullName() != null) user.setFullName(request.getFullName());
         if (request.getAddress() != null) user.setAddress(request.getAddress());
         if (request.getShopName() != null) user.setShopName(request.getShopName());
-        log.info("Профиль пользователя id={} обновлён", id);
+        log.info("ACTION=UPDATE_PROFILE userId={}", id);
         return userRepository.save(user);
     }
 }

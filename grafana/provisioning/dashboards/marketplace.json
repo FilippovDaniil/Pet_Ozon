@@ -146,7 +146,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "loki-ds" },
-          "expr": "{app=\"marketplace\", level=\"WARN\"} or {app=\"marketplace\", level=\"ERROR\"}",
+          "expr": "{app=\"marketplace\", level=~\"WARN|ERROR\"}",
           "refId": "A"
         }
       ],

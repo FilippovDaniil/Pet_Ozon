@@ -77,7 +77,7 @@ public class ReviewService {
         review.setComment(comment);
         Review saved = reviewRepository.save(review);
 
-        log.info("Отзыв оставлен: productId={} userId={} rating={}", productId, author.getId(), rating);
+        log.info("ACTION=ADD_REVIEW userId={} productId={} rating={}", author.getId(), productId, rating);
         return toResponse(saved);
     }
 
