@@ -17,8 +17,11 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.Base64;
 
 /**
  * Бизнес-логика для работы с каталогом товаров.
@@ -164,6 +167,64 @@ public class ProductService {
         log.info("ACTION=ADMIN_DELETE_PRODUCT productId={}", id);
     }
 
+    // Максимальный допустимый размер изображения: 2 МБ в байтах (тот же лимит, что и у продавца).
+    private static final long MAX_IMAGE_SIZE_BYTES = 2L * 1024 * 1024;
+
+    /**
+     * Загружает изображение для любого товара — без проверки владельца.
+     * Доступно только администратору (@PreAuthorize на уровне сервиса).
+     *
+     * Логика та же, что в SellerService.uploadProductImage, но без проверки sellerId.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "products",        key = "#productId"),
+            @CacheEvict(value = "productsCatalog", allEntries = true)
+    })
+    public ProductResponse uploadProductImage(Long productId, MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Файл изображения не должен быть пустым");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new IllegalArgumentException("Разрешены только файлы изображений (image/jpeg, image/png и т.д.)");
+        }
+        if (file.getSize() > MAX_IMAGE_SIZE_BYTES) {
+            throw new IllegalArgumentException("Размер изображения не должен превышать 2 МБ");
+        }
+        Product product = findEntityById(productId);
+        try {
+            // Base64-кодирование байт файла → строка для хранения в TEXT-колонке PostgreSQL
+            product.setImageData(Base64.getEncoder().encodeToString(file.getBytes()));
+            product.setImageContentType(contentType);
+        } catch (IOException e) {
+            throw new RuntimeException("Не удалось прочитать файл изображения: " + e.getMessage(), e);
+        }
+        ProductResponse response = toResponse(productRepository.save(product));
+        log.info("ACTION=ADMIN_UPLOAD_IMAGE productId={} contentType={} sizeBytes={}",
+                productId, contentType, file.getSize());
+        return response;
+    }
+
+    /**
+     * Удаляет изображение товара — обнуляет оба поля.
+     * Доступно только администратору.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(value = "products",        key = "#productId"),
+            @CacheEvict(value = "productsCatalog", allEntries = true)
+    })
+    public void deleteProductImage(Long productId) {
+        Product product = findEntityById(productId);
+        product.setImageData(null);
+        product.setImageContentType(null);
+        productRepository.save(product);
+        log.info("ACTION=ADMIN_DELETE_IMAGE productId={}", productId);
+    }
+
     /** Возвращает JPA-сущность (а не DTO) — используется внутри приложения. */
     public Product findEntityById(Long id) {
         return productRepository.findById(id)
@@ -187,6 +248,9 @@ public class ProductService {
         r.setPrice(product.getPrice());
         r.setStockQuantity(product.getStockQuantity());
         r.setImageUrl(product.getImageUrl());
+        // Копируем Base64-данные изображения и его MIME-тип в ответ.
+        r.setImageData(product.getImageData());
+        r.setImageContentType(product.getImageContentType());
         r.setCategory(product.getCategory());
         if (product.getSeller() != null) {
             r.setSellerId(product.getSeller().getId());

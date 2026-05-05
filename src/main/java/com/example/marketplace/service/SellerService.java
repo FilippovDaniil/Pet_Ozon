@@ -18,7 +18,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -37,6 +40,10 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class SellerService {
+
+    // Максимальный допустимый размер изображения: 2 МБ в байтах.
+    // 1024 * 1024 = 1 МБ, умножаем на 2 → 2 МБ.
+    private static final long MAX_IMAGE_SIZE_BYTES = 2L * 1024 * 1024;
 
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
@@ -110,6 +117,77 @@ public class SellerService {
         r.setShopName(seller.getShopName());
         r.setBalance(seller.getBalance());
         return r;
+    }
+
+    /**
+     * Загружает изображение для товара продавца.
+     *
+     * Принимает файл из multipart/form-data, проверяет его,
+     * кодирует в Base64 и сохраняет в поле imageData сущности Product.
+     *
+     * Почему Base64? Это учебный проект. В реальном сервисе файлы хранят
+     * в объектном хранилище (S3, MinIO), а в БД — только URL.
+     * Base64 увеличивает размер файла примерно на 33%: 2 МБ → ~2.7 МБ в БД.
+     *
+     * @param file — файл из запроса (multipart/form-data, поле "file")
+     */
+    @PreAuthorize("hasRole('SELLER')")
+    @Transactional
+    public ProductResponse uploadProductImage(Long sellerId, Long productId, MultipartFile file) {
+        // Проверка 1: файл не должен быть пустым.
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Файл изображения не должен быть пустым");
+        }
+
+        // Проверка 2: разрешаем только файлы с MIME-типом image/*.
+        // getContentType() возвращает заголовок Content-Type из multipart-части.
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new IllegalArgumentException("Разрешены только файлы изображений (image/jpeg, image/png и т.д.)");
+        }
+
+        // Проверка 3: ограничение по размеру (2 МБ).
+        // Spring также ограничивает через spring.servlet.multipart.max-file-size,
+        // но здесь проверяем ещё раз на уровне бизнес-логики.
+        if (file.getSize() > MAX_IMAGE_SIZE_BYTES) {
+            throw new IllegalArgumentException("Размер изображения не должен превышать 2 МБ");
+        }
+
+        // Проверяем владение товаром — продавец может менять только свои товары.
+        Product product = resolveSellerProduct(sellerId, productId);
+
+        try {
+            // file.getBytes() — читает содержимое файла в массив байт.
+            // Base64.getEncoder().encodeToString() — преобразует байты в строку Base64.
+            // Именно эту строку клиент подставит в тег: <img src="data:image/jpeg;base64,...">
+            byte[] bytes = file.getBytes();
+            String base64 = Base64.getEncoder().encodeToString(bytes);
+            product.setImageData(base64);
+            product.setImageContentType(contentType);
+        } catch (IOException e) {
+            // IOException может возникнуть при чтении тела multipart-запроса.
+            throw new RuntimeException("Не удалось прочитать файл изображения: " + e.getMessage(), e);
+        }
+
+        ProductResponse response = productService.toResponse(productRepository.save(product));
+        log.info("ACTION=SELLER_UPLOAD_IMAGE sellerId={} productId={} contentType={} sizeBytes={}",
+                sellerId, productId, contentType, file.getSize());
+        return response;
+    }
+
+    /**
+     * Удаляет изображение товара, обнуляя поля imageData и imageContentType.
+     * После этого product.getImageData() вернёт null.
+     */
+    @PreAuthorize("hasRole('SELLER')")
+    @Transactional
+    public void deleteProductImage(Long sellerId, Long productId) {
+        Product product = resolveSellerProduct(sellerId, productId);
+        // Обнуляем оба поля — в БД запишется NULL.
+        product.setImageData(null);
+        product.setImageContentType(null);
+        productRepository.save(product);
+        log.info("ACTION=SELLER_DELETE_IMAGE sellerId={} productId={}", sellerId, productId);
     }
 
     /** Возвращает заказы, содержащие товары этого продавца. */

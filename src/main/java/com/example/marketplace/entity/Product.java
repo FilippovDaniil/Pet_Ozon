@@ -41,6 +41,17 @@ public class Product {
     // URL изображения товара (необязательное поле).
     private String imageUrl;
 
+    // Изображение товара в кодировке Base64, хранится прямо в БД.
+    // @Column(columnDefinition = "TEXT") — явно указываем PostgreSQL-тип TEXT.
+    // По умолчанию JPA использует VARCHAR(255), которого не хватит для Base64 изображения.
+    // TEXT в PostgreSQL: до 1 ГБ, без дополнительной структуры хранения.
+    @Column(columnDefinition = "TEXT")
+    private String imageData;
+
+    // MIME-тип загруженного файла: "image/jpeg", "image/png", "image/webp" и т.д.
+    // Нужен клиенту, чтобы собрать data-URL: data:<contentType>;base64,<imageData>
+    private String imageContentType;
+
     // Категория: "Ноутбуки", "Периферия", "Аудио" и т.д.
     private String category;
 

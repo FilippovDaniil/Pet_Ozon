@@ -220,10 +220,21 @@
                 <template x-for="p in products" :key="p.id">
                     <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow flex flex-col overflow-hidden border border-gray-100">
 
-                        <!-- Цветная шапка-аватарка -->
-                        <div class="h-32 flex items-center justify-center text-4xl font-bold text-white"
-                             :style="`background: ${productColor(p.id)}`">
-                            <span x-text="p.name ? p.name[0].toUpperCase() : '?'"></span>
+                        <!-- Шапка карточки: фото товара или цветная заглушка.
+                             h-32 + object-cover = все изображения одной высоты (128 px),
+                             лишние края кадрируются, пропорции не нарушаются. -->
+                        <div class="h-32 relative overflow-hidden flex-shrink-0 bg-gray-100">
+                            <template x-if="p.imageData">
+                                <img :src="`data:${p.imageContentType || 'image/jpeg'};base64,${p.imageData}`"
+                                     :alt="p.name"
+                                     class="w-full h-full object-cover object-center">
+                            </template>
+                            <template x-if="!p.imageData">
+                                <div class="w-full h-full flex items-center justify-center text-4xl font-bold text-white"
+                                     :style="`background: ${productColor(p.id)}`">
+                                    <span x-text="p.name ? p.name[0].toUpperCase() : '?'"></span>
+                                </div>
+                            </template>
                         </div>
 
                         <!-- Тело карточки -->

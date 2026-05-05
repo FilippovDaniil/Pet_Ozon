@@ -80,6 +80,33 @@ const api = {
     getSellerSales: () =>
         apiFetch('/api/seller/sales'),
 
+    // Загрузка изображения товара (multipart/form-data).
+    // Нельзя использовать apiFetch — он принудительно ставит Content-Type: application/json.
+    // При использовании FormData браузер сам выставляет Content-Type: multipart/form-data
+    // с уникальным boundary (разделитель частей формы), поэтому заголовок НЕ нужно указывать.
+    uploadProductImage: async (productId, file) => {
+        const formData = new FormData();
+        formData.append('file', file);  // 'file' совпадает с @RequestParam("file") на бэке
+        const headers = {};
+        const token = getToken();
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+        // Намеренно НЕ указываем Content-Type — браузер добавит его сам с boundary
+        const res = await fetch(API_BASE + `/api/seller/products/${productId}/image`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        if (res.status === 401 || res.status === 403) { logout(); return null; }
+        const text = await res.text();
+        if (!text || !text.trim()) return null;
+        let json;
+        try { json = JSON.parse(text); } catch { return null; }
+        if (!res.ok) throw new Error(json?.message || `Ошибка загрузки фото: HTTP ${res.status}`);
+        return json;
+    },
+    deleteProductImage: (productId) =>
+        apiFetch(`/api/seller/products/${productId}/image`, { method: 'DELETE' }),
+
     // ── Админ: товары ─────────────────────────────────────────────────────
     createProduct: (data) =>
         apiFetch('/api/admin/products', { method: 'POST', body: JSON.stringify(data) }),
@@ -87,6 +114,30 @@ const api = {
         apiFetch(`/api/admin/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deleteProduct: (id) =>
         apiFetch(`/api/admin/products/${id}`, { method: 'DELETE' }),
+
+    // Загрузка/удаление изображения товара администратором.
+    // Аналогично uploadProductImage у продавца — FormData без явного Content-Type.
+    uploadAdminProductImage: async (productId, file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const headers = {};
+        const token = getToken();
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+        const res = await fetch(API_BASE + `/api/admin/products/${productId}/image`, {
+            method: 'POST',
+            headers,
+            body: formData,
+        });
+        if (res.status === 401 || res.status === 403) { logout(); return null; }
+        const text = await res.text();
+        if (!text || !text.trim()) return null;
+        let json;
+        try { json = JSON.parse(text); } catch { return null; }
+        if (!res.ok) throw new Error(json?.message || `Ошибка загрузки фото: HTTP ${res.status}`);
+        return json;
+    },
+    deleteAdminProductImage: (productId) =>
+        apiFetch(`/api/admin/products/${productId}/image`, { method: 'DELETE' }),
 
     // ── Админ: заказы ─────────────────────────────────────────────────────
     getAllOrders: async () => {

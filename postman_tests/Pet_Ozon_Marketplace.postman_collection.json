@@ -1,32 +1,32 @@
 {
   "info": {
     "name": "Pet_Ozon Marketplace",
-    "description": "REST API маркетплейса с JWT-аутентификацией.\n\n**Workflow:**\n1. Выполни **Auth / Вход** (client@example.com / pass) — токен сохранится в `clientToken`\n2. Для продавца выполни **Auth / Вход (продавец)** — токен сохранится в `sellerToken`\n3. Для администратора выполни **Auth / Вход (admin)** — токен сохранится в `adminToken`\n4. Все остальные запросы используют заголовок `Authorization: Bearer {{clientToken}}`\n\n**Типичный сценарий клиента:**\nAuth / Вход → Products / Список → Cart / Добавить → Cart / Checkout → Invoice / Оплатить",
+    "description": "REST API маркетплейса с JWT-аутентификацией.\n\n**Workflow:**\n1. Выполни **Auth / Вход (клиент)** — токен сохранится в `clientToken`\n2. Для продавца выполни **Auth / Вход (продавец)** — токен сохранится в `sellerToken`\n3. Для администратора выполни **Auth / Вход (admin)** — токен сохранится в `adminToken`\n4. Все остальные запросы используют соответствующий токен в заголовке `Authorization: Bearer {{токен}}`\n\n**Типичный сценарий клиента:**\nAuth / Вход → Products / Список → Reviews / Отзывы → Cart / Добавить → Cart / Checkout → Invoice / Оплатить\n\n**Загрузка изображения товара (продавец):**\nSeller / Создать товар → Seller / Загрузить фото → (при необходимости) Seller / Удалить фото\n\n**Загрузка изображения товара (администратор):**\nAdmin — Products / Создать товар → Admin — Products / Загрузить фото → (при необходимости) Admin — Products / Удалить фото\n\nИзображение хранится в PostgreSQL как Base64 (TEXT-колонка). Максимальный размер файла — 2 МБ.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:8888",
+      "value": "http://localhost:8667",
       "type": "string"
     },
     {
       "key": "clientToken",
       "value": "",
       "type": "string",
-      "description": "JWT-токен клиента. Заполняется автоматически при выполнении запроса Auth/Вход."
+      "description": "JWT-токен клиента. Заполняется автоматически при выполнении запроса Auth/Вход (клиент)."
     },
     {
       "key": "adminToken",
       "value": "",
       "type": "string",
-      "description": "JWT-токен администратора."
+      "description": "JWT-токен администратора. Заполняется при Auth/Вход (admin)."
     },
     {
       "key": "sellerToken",
       "value": "",
       "type": "string",
-      "description": "JWT-токен продавца."
+      "description": "JWT-токен продавца. Заполняется при Auth/Вход (продавец)."
     }
   ],
   "item": [
@@ -368,6 +368,74 @@
       ]
     },
     {
+      "name": "Reviews",
+      "description": "Отзывы на товары. Просмотр — публичный. Добавление отзыва — требует JWT-токен клиента (`{{clientToken}}`). Один пользователь может оставить только один отзыв на товар.",
+      "item": [
+        {
+          "name": "Отзывы о товаре",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1/reviews",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "1", "reviews"]
+            },
+            "description": "Возвращает список всех отзывов на товар с ID=1. Каждый отзыв содержит rating (1–5), comment, authorName, createdAt."
+          }
+        },
+        {
+          "name": "Добавить отзыв",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Review has rating\", () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('rating');",
+                  "    pm.expect(json.rating).to.be.within(1, 5);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 5,\n  \"comment\": \"Отличный товар, рекомендую!\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/products/1/reviews",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "1", "reviews"]
+            },
+            "description": "Добавляет отзыв на товар. rating: 1–5 (обязательно), comment: текст отзыва (опционально). Нельзя оставить два отзыва на один товар."
+          }
+        }
+      ]
+    },
+    {
       "name": "Cart",
       "description": "Корзина. Требует JWT-токен (`{{clientToken}}`).",
       "item": [
@@ -663,7 +731,12 @@
               "script": {
                 "exec": [
                   "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Response is a Page\", () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('content');",
+                  "    pm.expect(json.content).to.be.an('array');",
+                  "    pm.expect(json).to.have.property('totalElements');",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -675,11 +748,15 @@
               {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/seller/products",
+              "raw": "{{baseUrl}}/api/seller/products?page=0&size=20",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "products"]
+              "path": ["api", "seller", "products"],
+              "query": [
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "20"}
+              ]
             },
-            "description": "Возвращает список товаров текущего продавца."
+            "description": "Возвращает страницу товаров текущего продавца. Ответ — объект Page с полем `content`."
           }
         },
         {
@@ -749,6 +826,74 @@
               "path": ["api", "seller", "products", "1"]
             },
             "description": "Удаляет товар продавца. Возвращает 204. Нельзя удалить чужой товар."
+          }
+        },
+        {
+          "name": "Загрузить фото товара",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Product has imageData\", () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('imageData');",
+                  "    pm.expect(json.imageData).to.be.a('string').and.not.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Файл изображения (JPEG, PNG и др.). Максимальный размер — 2 МБ."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/seller/products/1/image",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "seller", "products", "1", "image"]
+            },
+            "description": "Загружает изображение для товара продавца. Тип запроса — multipart/form-data (браузер добавляет Content-Type автоматически). Изображение хранится как Base64 в PostgreSQL. Ограничения: только image/*, не более 2 МБ. При превышении лимита — 413 Payload Too Large."
+          }
+        },
+        {
+          "name": "Удалить фото товара",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/seller/products/1/image",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "seller", "products", "1", "image"]
+            },
+            "description": "Удаляет изображение товара продавца. Обнуляет поля imageData и imageContentType. Возвращает 204."
           }
         },
         {
@@ -879,6 +1024,74 @@
             },
             "description": "Удаляет товар по ID. Возвращает 204. Используй ID нового товара."
           }
+        },
+        {
+          "name": "Загрузить фото товара",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Product has imageData\", () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('imageData');",
+                  "    pm.expect(json.imageData).to.be.a('string').and.not.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{adminToken}}"}
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Файл изображения (JPEG, PNG и др.). Максимальный размер — 2 МБ."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/products/1/image",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "products", "1", "image"]
+            },
+            "description": "Загружает изображение для любого товара (без ограничения по владельцу). Тип запроса — multipart/form-data. Изображение хранится как Base64 в PostgreSQL. Ограничения: только image/*, не более 2 МБ. При превышении лимита — 413 Payload Too Large."
+          }
+        },
+        {
+          "name": "Удалить фото товара",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{adminToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/products/1/image",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "products", "1", "image"]
+            },
+            "description": "Удаляет изображение любого товара. Обнуляет поля imageData и imageContentType. Возвращает 204."
+          }
         }
       ]
     },
@@ -959,7 +1172,7 @@
     },
     {
       "name": "Admin — Invoices",
-      "description": "Просмотр всех счетов. Требует роль ADMIN.",
+      "description": "Просмотр всех счетов. Требует роль ADMIN. Ответ пагинирован (поле `content`).",
       "item": [
         {
           "name": "Все счета",
@@ -969,7 +1182,12 @@
               "script": {
                 "exec": [
                   "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Response is a Page\", () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('content');",
+                  "    pm.expect(json.content).to.be.an('array');",
+                  "    pm.expect(json).to.have.property('totalElements');",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -981,11 +1199,15 @@
               {"key": "Authorization", "value": "Bearer {{adminToken}}"}
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/admin/invoices",
+              "raw": "{{baseUrl}}/api/admin/invoices?page=0&size=20",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "invoices"]
+              "path": ["api", "admin", "invoices"],
+              "query": [
+                {"key": "page", "value": "0"},
+                {"key": "size", "value": "20"}
+              ]
             },
-            "description": "Возвращает все счета на оплату."
+            "description": "Возвращает страницу всех счетов на оплату. Поддерживает page, size, sort."
           }
         }
       ]

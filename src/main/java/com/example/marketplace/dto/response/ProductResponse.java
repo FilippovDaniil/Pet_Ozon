@@ -21,6 +21,13 @@ public class ProductResponse {
     private int stockQuantity;
     private String imageUrl;
     private String category;
+    // Base64-строка изображения. null — если продавец ещё не загрузил фото.
+    // Использование на фронте: <img src="data:<imageContentType>;base64,<imageData>" />
+    private String imageData;
+
+    // MIME-тип изображения: "image/jpeg", "image/png" и т.д.
+    private String imageContentType;
+
     // Данные продавца — заполняются только если у товара есть seller.
     private Long sellerId;
     private String sellerName;

@@ -12,9 +12,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -71,6 +73,40 @@ public class SellerController {
     public ResponseEntity<Void> deleteProduct(@AuthenticationPrincipal User user,
                                                @PathVariable Long id) {
         sellerService.deleteProduct(user.getId(), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Загрузить изображение для товара.
+     *
+     * consumes = MULTIPART_FORM_DATA_VALUE — метод принимает только multipart/form-data
+     * (не JSON). Это стандартный способ передачи файлов через HTTP.
+     *
+     * @RequestParam("file") MultipartFile file — Spring извлекает часть формы с именем "file".
+     * MultipartFile — обёртка Spring над загруженным файлом: даёт доступ к байтам,
+     * имени, размеру и Content-Type файла.
+     *
+     * Пример запроса через curl:
+     *   curl -X POST http://localhost:8667/api/seller/products/1/image \
+     *     -H "Authorization: Bearer <токен>" \
+     *     -F "file=@/path/to/photo.jpg"
+     */
+    @PostMapping(value = "/products/{id}/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ProductResponse uploadProductImage(@AuthenticationPrincipal User user,
+                                               @PathVariable Long id,
+                                               @RequestParam("file") MultipartFile file) {
+        return sellerService.uploadProductImage(user.getId(), id, file);
+    }
+
+    /**
+     * Удалить изображение товара.
+     * После вызова поля imageData и imageContentType станут null.
+     * Возвращает 204 No Content — стандарт для DELETE без тела ответа.
+     */
+    @DeleteMapping("/products/{id}/image")
+    public ResponseEntity<Void> deleteProductImage(@AuthenticationPrincipal User user,
+                                                    @PathVariable Long id) {
+        sellerService.deleteProductImage(user.getId(), id);
         return ResponseEntity.noContent().build();
     }
 

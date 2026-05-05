@@ -10,6 +10,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.LocalDateTime;
 import java.util.stream.Collectors;
@@ -101,6 +102,17 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleUnreadableBody(HttpMessageNotReadableException ex) {
         return new ErrorResponse(LocalDateTime.now(), "Malformed JSON request", 400);
+    }
+
+    /**
+     * Файл в multipart-запросе превысил лимит spring.servlet.multipart.max-file-size.
+     * MaxUploadSizeExceededException бросается Spring ещё до попадания в контроллер.
+     * HTTP 413 Payload Too Large — стандартный статус для «тело запроса слишком большое».
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    @ResponseStatus(HttpStatus.PAYLOAD_TOO_LARGE)
+    public ErrorResponse handleFileTooLarge(MaxUploadSizeExceededException ex) {
+        return new ErrorResponse(LocalDateTime.now(), "Файл слишком большой. Максимальный размер — 2 МБ", 413);
     }
 
     /**

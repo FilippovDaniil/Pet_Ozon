@@ -15,7 +15,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Административные эндпоинты — только для роли ADMIN.
@@ -61,6 +63,29 @@ public class AdminController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteProduct(@PathVariable Long id) {
         productService.deleteProduct(id);
+    }
+
+    /**
+     * Загрузить изображение для любого товара.
+     * Администратор не ограничен владельцем товара — может загружать фото для любого.
+     *
+     * consumes = MULTIPART_FORM_DATA_VALUE — принимает файл из multipart/form-data.
+     * @RequestParam("file") — поле формы с именем "file".
+     */
+    @PostMapping(value = "/products/{id}/image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ProductResponse uploadProductImage(@PathVariable Long id,
+                                               @RequestParam("file") MultipartFile file) {
+        return productService.uploadProductImage(id, file);
+    }
+
+    /**
+     * Удалить изображение товара.
+     * После вызова поля imageData и imageContentType обнуляются в БД.
+     */
+    @DeleteMapping("/products/{id}/image")
+    public ResponseEntity<Void> deleteProductImage(@PathVariable Long id) {
+        productService.deleteProductImage(id);
+        return ResponseEntity.noContent().build();
     }
 
     // --- Управление заказами ---
