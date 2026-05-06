@@ -1,8 +1,10 @@
 package com.example.marketplace.repository;
 
 import com.example.marketplace.entity.User;
+import com.example.marketplace.entity.enums.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -24,4 +26,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     // Используется в UserService.registerClient() для проверки уникальности email.
     boolean existsByEmail(String email);
+
+    // Выбрать всех пользователей с заданной ролью (например, всех продавцов для выпадающего списка).
+    List<User> findByRole(Role role);
 }

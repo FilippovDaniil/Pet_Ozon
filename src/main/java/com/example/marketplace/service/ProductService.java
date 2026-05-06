@@ -3,9 +3,12 @@ package com.example.marketplace.service;
 import com.example.marketplace.dto.request.CreateProductRequest;
 import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.entity.Product;
+import com.example.marketplace.entity.User;
+import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.ReviewRepository;
+import com.example.marketplace.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -40,6 +43,7 @@ public class ProductService {
 
     private final ProductRepository productRepository;
     private final ReviewRepository  reviewRepository;
+    private final UserRepository    userRepository;
 
     /**
      * Возвращает постранично список товаров с опциональными фильтрами.
@@ -112,6 +116,14 @@ public class ProductService {
             @CacheEvict(value = "productsCatalog", allEntries = true)
     })
     public ProductResponse createProduct(CreateProductRequest request) {
+        if (request.getSellerId() == null) {
+            throw new IllegalArgumentException("При создании товара необходимо указать продавца");
+        }
+        User seller = userRepository.findById(request.getSellerId())
+                .filter(u -> u.getRole() == Role.SELLER)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Seller not found with id: " + request.getSellerId()));
+
         Product product = new Product();
         product.setName(request.getName());
         product.setDescription(request.getDescription());
@@ -119,9 +131,10 @@ public class ProductService {
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
         product.setCategory(request.getCategory());
+        product.setSeller(seller);
         ProductResponse response = toResponse(productRepository.save(product));
-        log.info("ACTION=ADMIN_CREATE_PRODUCT productId={} name=\"{}\" price={}",
-                response.getId(), response.getName(), response.getPrice());
+        log.info("ACTION=ADMIN_CREATE_PRODUCT productId={} name=\"{}\" price={} sellerId={}",
+                response.getId(), response.getName(), response.getPrice(), seller.getId());
         return response;
     }
 

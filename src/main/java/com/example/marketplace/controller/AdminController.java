@@ -5,9 +5,11 @@ import com.example.marketplace.dto.request.UpdateOrderStatusRequest;
 import com.example.marketplace.dto.response.InvoiceResponse;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.dto.response.ProductResponse;
+import com.example.marketplace.dto.response.SellerInfoResponse;
 import com.example.marketplace.service.InvoiceService;
 import com.example.marketplace.service.OrderService;
 import com.example.marketplace.service.ProductService;
+import com.example.marketplace.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -18,6 +20,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 /**
  * Административные эндпоинты — только для роли ADMIN.
@@ -40,6 +44,15 @@ public class AdminController {
     private final ProductService productService;
     private final OrderService orderService;
     private final InvoiceService invoiceService;
+    private final UserService userService;
+
+    // --- Список продавцов (для выпадающего списка при создании товара) ---
+
+    /** Возвращает всех пользователей с ролью SELLER для выбора в форме создания товара. */
+    @GetMapping("/sellers")
+    public List<SellerInfoResponse> getAllSellers() {
+        return userService.getAllSellers();
+    }
 
     // --- Управление товарами ---
 

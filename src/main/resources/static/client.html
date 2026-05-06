@@ -57,6 +57,16 @@
                     class="px-4 py-2 rounded-lg text-sm transition">
                     Мои заказы
                 </button>
+                <button @click="setTab('chat')"
+                    :class="activeTab === 'chat'
+                        ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm transition relative">
+                    Чат
+                    <span x-show="totalChatUnread > 0"
+                        class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center"
+                        x-text="totalChatUnread"></span>
+                </button>
             </div>
 
             <!-- Пользователь -->
@@ -502,6 +512,104 @@
                 </template>
             </div>
         </div>
+
+        <!-- ─────────────────── TAB: ЧАТ ─────────────────────────── -->
+        <div x-show="activeTab === 'chat'">
+
+            <!-- Список диалогов -->
+            <div x-show="!activeChatConversation">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-gray-900">Мои диалоги</h2>
+                    <button @click="openNewChatModal()"
+                            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition flex items-center gap-2">
+                        + Написать продавцу
+                    </button>
+                </div>
+
+                <div x-show="loadingChatConversations" class="text-center py-12 text-gray-400">
+                    <div class="animate-spin text-3xl mb-2">⏳</div> Загрузка...
+                </div>
+                <div x-show="!loadingChatConversations && chatConversations.length === 0"
+                     class="text-center py-16 text-gray-400">
+                    <div class="text-5xl mb-3">💬</div>
+                    <p class="text-lg">Диалогов пока нет</p>
+                    <p class="text-sm mt-1">Напишите продавцу прямо с карточки товара или нажмите «Написать продавцу»</p>
+                </div>
+
+                <div class="space-y-3">
+                    <template x-for="conv in chatConversations" :key="conv.id">
+                        <div @click="openChatConversation(conv)"
+                             class="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 cursor-pointer hover:border-indigo-300 hover:shadow-sm transition">
+                            <div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-lg"
+                                 style="background: linear-gradient(135deg,#6366f1,#8b5cf6)">
+                                <span x-text="(conv.shopName || conv.sellerName || '?')[0].toUpperCase()"></span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between mb-0.5">
+                                    <span class="font-semibold text-gray-900 text-sm"
+                                          x-text="conv.shopName || conv.sellerName"></span>
+                                    <span class="text-xs text-gray-400" x-text="fmtDate(conv.updatedAt)"></span>
+                                </div>
+                                <p class="text-sm text-gray-500 truncate"
+                                   x-text="conv.lastMessage || 'Нет сообщений'"></p>
+                            </div>
+                            <div x-show="conv.unreadCount > 0"
+                                 class="w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center flex-shrink-0"
+                                 x-text="conv.unreadCount"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Переписка -->
+            <div x-show="activeChatConversation">
+                <div class="flex items-center gap-3 mb-5">
+                    <button @click="closeChatConversation()"
+                            class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition text-sm font-medium">
+                        ← Назад
+                    </button>
+                    <div>
+                        <h2 class="text-lg font-bold text-gray-900"
+                            x-text="activeChatConversation?.shopName || activeChatConversation?.sellerName"></h2>
+                        <p class="text-xs text-gray-400" x-text="activeChatConversation?.sellerName"></p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 overflow-y-auto space-y-3"
+                     style="min-height:300px;max-height:480px" x-ref="chatMsgs">
+                    <div x-show="loadingChatMessages" class="text-center py-10 text-gray-400">
+                        <div class="animate-spin text-2xl mb-1">⏳</div> Загрузка...
+                    </div>
+                    <div x-show="!loadingChatMessages && chatMessages.length === 0"
+                         class="text-center py-10 text-gray-400 text-sm">Нет сообщений</div>
+                    <template x-for="msg in chatMessages" :key="msg.id">
+                        <div class="flex" :class="msg.mine ? 'justify-end' : 'justify-start'">
+                            <div class="max-w-xs lg:max-w-md px-4 py-2.5 rounded-2xl text-sm"
+                                 :class="msg.mine
+                                     ? 'bg-indigo-600 text-white rounded-br-sm'
+                                     : 'bg-gray-100 text-gray-800 rounded-bl-sm'">
+                                <p class="leading-relaxed break-words" x-text="msg.content"></p>
+                                <p class="text-xs mt-1 opacity-70 text-right" x-text="fmtDate(msg.sentAt)"></p>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex gap-3">
+                    <textarea x-model="chatInput"
+                              @keydown.enter.exact.prevent="sendChat()"
+                              placeholder="Напишите сообщение... (Enter — отправить)"
+                              rows="2"
+                              class="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                    <button @click="sendChat()"
+                            :disabled="!chatInput.trim() || sendingChat"
+                            class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition self-end">
+                        <span x-show="!sendingChat">Отправить</span>
+                        <span x-show="sendingChat">⏳</span>
+                    </button>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- ═══════════════════════ МОДАЛ ОПЛАТЫ ═════════════════════════════ -->
@@ -649,6 +757,53 @@
         </div>
     </div>
 
+    <!-- ═══════════════════ МОДАЛ: НОВЫЙ ДИАЛОГ ════════════════════════════ -->
+    <div x-show="showNewChatModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+         @click.self="showNewChatModal = false">
+        <div x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 scale-95"
+             x-transition:enter-end="opacity-100 scale-100"
+             class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h3 class="text-lg font-bold text-gray-900 mb-5">Написать продавцу</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Продавец <span class="text-red-500">*</span></label>
+                    <div x-show="loadingChatSellers" class="text-sm text-gray-400 py-2">Загрузка...</div>
+                    <select x-show="!loadingChatSellers"
+                            x-model.number="newChatSellerId"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
+                        <option :value="null">— Выберите продавца —</option>
+                        <template x-for="s in chatSellers" :key="s.id">
+                            <option :value="s.id"
+                                    x-text="(s.shopName ? s.shopName + ' · ' : '') + s.fullName"></option>
+                        </template>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Сообщение <span class="text-red-500">*</span></label>
+                    <textarea x-model="newChatMessage" rows="3"
+                              placeholder="Здравствуйте! Хотел уточнить..."
+                              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-5">
+                <button @click="showNewChatModal = false"
+                        class="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
+                    Отмена
+                </button>
+                <button @click="startNewChat()"
+                        :disabled="!newChatSellerId || !newChatMessage.trim()"
+                        class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition">
+                    Начать диалог
+                </button>
+            </div>
+        </div>
+    </div>
+
 </div><!-- end x-data -->
 
 <script>
@@ -692,6 +847,20 @@
             reviewForm: { rating: 5, comment: '' },
             submittingReview: false,
 
+            // Чат
+            chatConversations: [],
+            loadingChatConversations: false,
+            activeChatConversation: null,
+            chatMessages: [],
+            loadingChatMessages: false,
+            chatInput: '',
+            sendingChat: false,
+            showNewChatModal: false,
+            newChatSellerId: null,
+            newChatMessage: '',
+            chatSellers: [],
+            loadingChatSellers: false,
+
             toasts: [],
             _toastId: 0,
 
@@ -706,11 +875,16 @@
                 } catch {}
             },
 
+            get totalChatUnread() {
+                return this.chatConversations.reduce((s, c) => s + (c.unreadCount || 0), 0);
+            },
+
             async setTab(tab) {
                 this.activeTab = tab;
                 if (tab === 'products' && this.products.length === 0) await this.loadProducts();
                 if (tab === 'cart')   await this.loadCart();
                 if (tab === 'orders') await this.loadOrders();
+                if (tab === 'chat')   await this.loadChatConversations();
             },
 
             // ── Товары ────────────────────────────────────────────
@@ -890,6 +1064,80 @@
                     this.toast('Отзыв опубликован!', 'success');
                 } catch (e) { this.toast(e.message, 'error'); }
                 finally { this.submittingReview = false; }
+            },
+
+            // ── Чат ──────────────────────────────────────────────
+            async loadChatConversations() {
+                this.loadingChatConversations = true;
+                try {
+                    this.chatConversations = await api.getChatConversations() || [];
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingChatConversations = false; }
+            },
+
+            async openChatConversation(conv) {
+                this.activeChatConversation = conv;
+                this.chatMessages = [];
+                this.chatInput = '';
+                this.loadingChatMessages = true;
+                try {
+                    this.chatMessages = await api.getChatMessages(conv.id) || [];
+                    // Обнуляем счётчик непрочитанных в списке
+                    conv.unreadCount = 0;
+                    this.$nextTick(() => {
+                        const el = this.$refs.chatMsgs;
+                        if (el) el.scrollTop = el.scrollHeight;
+                    });
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingChatMessages = false; }
+            },
+
+            closeChatConversation() {
+                this.activeChatConversation = null;
+                this.loadChatConversations();
+            },
+
+            async sendChat() {
+                if (!this.chatInput.trim() || !this.activeChatConversation) return;
+                this.sendingChat = true;
+                try {
+                    const msg = await api.sendChatMessage(this.activeChatConversation.id, this.chatInput.trim());
+                    if (msg) {
+                        this.chatMessages.push(msg);
+                        this.chatInput = '';
+                        this.$nextTick(() => {
+                            const el = this.$refs.chatMsgs;
+                            if (el) el.scrollTop = el.scrollHeight;
+                        });
+                    }
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.sendingChat = false; }
+            },
+
+            async openNewChatModal() {
+                this.newChatSellerId = null;
+                this.newChatMessage = '';
+                this.showNewChatModal = true;
+                if (!this.chatSellers.length) {
+                    this.loadingChatSellers = true;
+                    try {
+                        this.chatSellers = await api.getSellers() || [];
+                    } catch (e) { this.toast('Не удалось загрузить список продавцов', 'error'); }
+                    finally { this.loadingChatSellers = false; }
+                }
+            },
+
+            async startNewChat() {
+                if (!this.newChatSellerId || !this.newChatMessage.trim()) return;
+                try {
+                    const conv = await api.startChatConversation(this.newChatSellerId, this.newChatMessage.trim());
+                    this.showNewChatModal = false;
+                    this.newChatSellerId = null;
+                    this.newChatMessage = '';
+                    this.activeTab = 'chat';
+                    await this.loadChatConversations();
+                    if (conv) await this.openChatConversation(conv);
+                } catch (e) { this.toast(e.message, 'error'); }
             },
 
             // ── Утилиты ───────────────────────────────────────────

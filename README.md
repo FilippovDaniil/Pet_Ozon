@@ -28,6 +28,7 @@
 - [Тесты](#тесты)
 - [Полный сценарий покупки](#полный-сценарий-покупки)
 - [API Reference](#api-reference)
+- [Чат между клиентом и продавцом](#чат-между-клиентом-и-продавцом)
 - [Запуск в GitLab CI/CD](#запуск-в-gitlab-cicd)
 
 ---
@@ -245,36 +246,42 @@ com.example.marketplace
 │   ├── InvoiceController           GET  /api/invoice/{id}; POST /{id}/pay
 │   ├── ProfileController           GET/PATCH /api/profile/me
 │   ├── SellerController            /api/seller/products, /balance, /sales
-│   └── AdminController             /api/admin/products, /orders, /invoices
+│   ├── AdminController             /api/admin/products, /orders, /invoices, /sellers
+│   └── ChatController              /api/chat/conversations, /{id}/messages
 │
 ├── service/
-│   ├── UserService                 ← CRUD пользователей, регистрация
+│   ├── UserService                 ← CRUD пользователей, регистрация, список продавцов
 │   ├── ProductService              ← каталог товаров, фильтрация
 │   ├── CartService                 ← корзина, checkout (самый сложный сервис)
 │   ├── OrderService                ← чтение и управление заказами
 │   ├── InvoiceService              ← оплата, начисление выручки продавцам
 │   ├── SellerService               ← операции продавца (CRUD его товаров)
+│   ├── ChatService                 ← диалоги и сообщения между клиентами и продавцами
 │   └── PaymentService              ← заглушка (делегирует в InvoiceService)
 │
-├── repository/                     ← 8 JpaRepository-интерфейсов
-│   ├── UserRepository
+├── repository/                     ← 10 JpaRepository-интерфейсов
+│   ├── UserRepository              ← + findByRole(Role) для выборки продавцов
 │   ├── ProductRepository           ← + JpaSpecificationExecutor (динамические запросы)
 │   ├── CartRepository
 │   ├── CartItemRepository
 │   ├── OrderRepository             ← кастомный @Query для запросов продавца
 │   ├── OrderItemRepository
 │   ├── InvoiceRepository
-│   └── PaymentRepository
+│   ├── PaymentRepository
+│   ├── ConversationRepository      ← findByClient, findBySeller, findByClientAndSeller
+│   └── MessageRepository           ← findByConversationOrderBySentAtAsc
 │
 ├── entity/
 │   ├── User.java                   ← таблица users, implements UserDetails
-│   ├── Product.java                ← таблица products
+│   ├── Product.java                ← таблица products (seller_id — обязательное поле)
 │   ├── Cart.java                   ← таблица carts (1:1 с User)
 │   ├── CartItem.java               ← таблица cart_items (N:1 Cart, N:1 Product)
 │   ├── Order.java                  ← таблица orders
 │   ├── OrderItem.java              ← таблица order_items (snapshot цены)
 │   ├── Invoice.java                ← таблица invoices (1:1 с Order)
 │   ├── Payment.java                ← таблица payments
+│   ├── Conversation.java           ← таблица conversations (UNIQUE client_id+seller_id)
+│   ├── Message.java                ← таблица messages (content TEXT, is_read)
 │   └── enums/
 │       ├── Role                    CLIENT | SELLER | ADMIN
 │       ├── OrderStatus             CREATED | PAID | DELIVERED | CANCELLED
@@ -310,7 +317,11 @@ User ──1:1──► Cart ──1:N──► CartItem ──N:1──► Prod
                 │
                 └──1:1──► Invoice ──1:N──► Payment
 
-Product ──N:1──► User (seller)
+Product ──N:1──► User (seller)   ← каждый товар обязательно принадлежит продавцу
+
+User (CLIENT) ──N:M──► User (SELLER)
+         реализуется через Conversation (client_id, seller_id) UNIQUE
+              └──1:N──► Message (sender_id, content, is_read)
 ```
 
 Объяснение:
@@ -319,7 +330,9 @@ Product ──N:1──► User (seller)
 - Из корзины создаётся **заказ** с позициями (snapshot цен)
 - К каждому заказу создаётся **один счёт** (1:1)
 - Счёт может иметь **несколько попыток оплаты** (1:N)
-- Каждый товар принадлежит **одному продавцу** (N:1)
+- Каждый товар обязательно принадлежит **одному продавцу** (N:1) — `seller_id NOT NULL`
+- Между клиентом и продавцом существует **не более одного диалога** (UNIQUE constraint)
+- В диалоге может быть **много сообщений** (1:N); флаг `is_read` показывает непрочитанные
 
 ---
 
@@ -1765,17 +1778,27 @@ public class CorsConfig {
 src/test/java/com/example/marketplace/
 ├── service/
 │   ├── CartServiceTest.java        10 тестов: addToCart, removeFromCart, checkout, нехватка товара
+│   ├── ChatServiceTest.java        14 тестов: startConversation (новый/существующий), не найден продавец,
+│   │                                          неверная роль, список клиента/продавца, unreadCount,
+│   │                                          lastMessage, пометка прочитанным, своё сообщение,
+│   │                                          403 не участник, 404 диалог, отправка клиентом/продавцом
 │   ├── InvoiceServiceTest.java     — оплата, начисление баланса продавцу
 │   ├── OrderServiceTest.java       — getOrdersByUserId, updateStatus
 │   ├── ProductServiceTest.java     — CRUD, динамическая фильтрация
+│   ├── ReviewServiceTest.java      — добавление отзыва, средний рейтинг
 │   ├── SellerServiceTest.java      20 тестов: CRUD товаров продавца, balance, sales
 │   └── UserServiceTest.java        — getById, registerClient
 └── controller/
     ├── AuthControllerTest.java     — login 200/401, register 201/400
     ├── CartControllerTest.java     — все эндпоинты корзины
+    ├── ChatControllerTest.java     15 тестов: POST /conversations (201/400/401/404),
+    │                                          GET /conversations (200/401),
+    │                                          GET /messages (200/403/404/401),
+    │                                          POST /messages (201/400/403/401/415)
     ├── InvoiceControllerTest.java  — getById, pay
     ├── OrderControllerTest.java    — getMyOrders, getById
     ├── ProductControllerTest.java  — getAll с фильтрами, getById
+    ├── ReviewControllerTest.java   — getReviews, addReview
     ├── SellerControllerTest.java   17 тестов: products, balance, sales
     └── AdminControllerTest.java    — products, orders, invoices
 └── integration/
@@ -1965,6 +1988,108 @@ InvoiceService.pay(1, "CARD")  @Transactional
 
 ---
 
+## Чат между клиентом и продавцом
+
+### Архитектура чата
+
+```
+Client (покупатель)                    Seller (продавец)
+       │                                      │
+       │  POST /api/chat/conversations         │
+       │  {sellerId: 3, message: "Привет!"}    │
+       ▼                                      │
+  ChatService.startConversation()             │
+       │  findByClientAndSeller → пусто       │
+       │  conversationRepository.save()       │
+       │  messageRepository.save(msg)         │
+       │                                      │
+       │  GET /api/chat/conversations         ◄── продавец видит новый диалог
+       │                                      │   с флагом unreadCount=1
+       │                                      │
+       │                              GET /api/chat/conversations/{id}/messages
+       │                                      │   входящие помечаются is_read=true
+       │                                      │
+       │                              POST /api/chat/conversations/{id}/messages
+       │                                      │   {content: "Есть в наличии!"}
+       │                                      │
+       │  GET /api/chat/conversations/{id}/messages
+       │  ← список сообщений с полем mine=true/false
+```
+
+### Сущности
+
+#### Conversation.java
+
+```java
+@Entity
+@Table(name = "conversations",
+       uniqueConstraints = @UniqueConstraint(columnNames = {"client_id", "seller_id"}))
+public class Conversation {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "client_id", nullable = false) private User client;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "seller_id", nullable = false) private User seller;
+
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+
+    @PrePersist protected void onCreate() { createdAt = updatedAt = LocalDateTime.now(); }
+    // @PreUpdate здесь НЕ используется — мы вручную вызываем setUpdatedAt() перед save(),
+    // чтобы Hibernate точно увидел «грязный» объект и выдал UPDATE.
+}
+```
+
+**Зачем UNIQUE constraint?** Гарантирует, что между одной парой (client, seller) существует ровно один диалог — даже если клиент нажмёт «Написать» дважды. Сервис проверяет `findByClientAndSeller` и переиспользует существующий диалог.
+
+#### Message.java
+
+```java
+@Entity
+@Table(name = "messages")
+public class Message {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "conversation_id", nullable = false) private Conversation conversation;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sender_id", nullable = false) private User sender;
+
+    @Column(nullable = false, columnDefinition = "TEXT") private String content;
+    private LocalDateTime sentAt;
+
+    @Column(name = "is_read") private boolean read = false;
+
+    @PrePersist protected void onCreate() { sentAt = LocalDateTime.now(); }
+}
+```
+
+**Флаг `is_read`** — при `GET /messages` сервис находит все сообщения от другой стороны с `read=false`, устанавливает `read=true` и вызывает `messageRepository.saveAll()`. Это позволяет считать `unreadCount` для каждого диалога в списке.
+
+### Поле `mine` в MessageResponse
+
+```java
+// В ChatService.toMessageResponse():
+response.setMine(message.getSender().getId().equals(viewer.getId()));
+```
+
+Каждый участник получает одинаковые данные из БД, но видит своё `mine=true` для своих сообщений — фронтенд использует это для выравнивания пузырьков вправо/влево.
+
+### Фронтенд
+
+| Страница | Что добавлено |
+|---|---|
+| `client.html` | Вкладка «Чат»: список диалогов с продавцами + просмотр переписки + отправка. Кнопка «Новый диалог» с выбором продавца. |
+| `seller.html` | Вкладка «Чат»: список диалогов с покупателями + просмотр + ответ. |
+| `api.js` | Методы `getChatConversations`, `startChatConversation`, `getChatMessages`, `sendChatMessage` |
+
+Значок с числом непрочитанных сообщений появляется на вкладке «Чат» в навбаре — обновляется при каждой загрузке списка диалогов.
+
+---
+
 ## API Reference
 
 Базовый URL: `http://localhost:8667`
@@ -2071,7 +2196,7 @@ InvoiceService.pay(1, "CARD")  @Transactional
 
 | Метод | URL | Тело | Ответ |
 |---|---|---|---|
-| POST | `/api/admin/products` | `CreateProductRequest` (JSON) | `ProductResponse` 201 |
+| POST | `/api/admin/products` | `CreateProductRequest` (JSON, поле `sellerId` обязательно) | `ProductResponse` 201 |
 | PUT | `/api/admin/products/{id}` | `CreateProductRequest` (JSON) | `ProductResponse` |
 | DELETE | `/api/admin/products/{id}` | — | 204 |
 | POST | `/api/admin/products/{id}/image` | `multipart/form-data`, поле `file` | `ProductResponse` |
@@ -2079,10 +2204,34 @@ InvoiceService.pay(1, "CARD")  @Transactional
 | GET | `/api/admin/orders` | `page`, `size` | `Page<OrderResponse>` |
 | PUT | `/api/admin/orders/{id}/status` | `{status}` | `OrderResponse` |
 | GET | `/api/admin/invoices` | `page`, `size` | `Page<InvoiceResponse>` |
+| GET | `/api/admin/sellers` | — | `List<SellerInfoResponse>` |
 
 Администратор может загружать и удалять фото **любого** товара — без проверки владельца.  
 При загрузке также инвалидируются оба кэша (`products` и `productsCatalog`).  
 Ограничения те же: только `image/*`, максимум **2 МБ**.
+
+**Обязательный продавец при создании товара:** поле `sellerId` проверяется на сервере — если не указано или пользователь не имеет роли SELLER, возвращается 400. Это гарантирует, что у каждого товара есть владелец для начисления выручки.
+
+---
+
+### Чат (требует аутентификации)
+
+| Метод | URL | Тело | Ответ | Доступ |
+|---|---|---|---|---|
+| POST | `/api/chat/conversations` | `{sellerId, message}` | `ConversationResponse` 201 | CLIENT, SELLER |
+| GET | `/api/chat/conversations` | — | `List<ConversationResponse>` | CLIENT, SELLER |
+| GET | `/api/chat/conversations/{id}/messages` | — | `List<MessageResponse>` | Участник диалога |
+| POST | `/api/chat/conversations/{id}/messages` | `{content}` | `MessageResponse` 201 | Участник диалога |
+
+**ConversationResponse** содержит: `id`, `clientId`, `clientName`, `sellerId`, `sellerName`, `shopName`, `lastMessage`, `updatedAt`, `unreadCount`.
+
+**MessageResponse** содержит: `id`, `senderId`, `senderName`, `content`, `sentAt`, `read`, `mine` (true — если сообщение отправлено текущим пользователем).
+
+**Поведение:**
+- `POST /conversations` — если диалог между этим клиентом и продавцом уже существует, он переиспользуется (повторное создание не ломает историю). Уникальный индекс `(client_id, seller_id)` на уровне БД.
+- `GET /conversations` — клиент видит свои диалоги, продавец — диалоги с его покупателями. Сортировка по дате последнего сообщения (новые вверху).
+- `GET /messages` — при загрузке все входящие непрочитанные сообщения автоматически помечаются прочитанными (`is_read = true`). Попытка чужого пользователя прочитать диалог → 403.
+- `POST /messages` — доступно обоим участникам. После отправки `updatedAt` диалога обновляется — диалог поднимается вверх в списке.
 
 ---
 
@@ -2199,6 +2348,8 @@ docker run -p 8667:8667 \
 - [x] **AuditMdcFilter** — Servlet-фильтр, запускающийся после JWT; кладёт `userId`, `role`, `requestId` в MDC — все логи запроса несут контекст актора
 - [x] **Структурированные бизнес-логи** — паттерн `ACTION=<имя>` во всех сервисах: ADD_TO_CART, CHECKOUT, PAY_INVOICE, SELLER_CREATE_PRODUCT, ADMIN_UPDATE_ORDER_STATUS и т.д.
 - [x] **logback-spring.xml** — профиль `docker` включает loki4j-аппендер; MDC-поля в каждой строке лога; локальная разработка использует только консоль
+- [x] **Чат между клиентом и продавцом** — сущности `Conversation` и `Message`; клиент инициирует диалог, продавец отвечает; флаг `is_read` + счётчик непрочитанных; UNIQUE-ограничение на пару (client, seller); полный фронтенд в client.html и seller.html; 14 юнит-тестов сервиса + 15 тестов контроллера
+- [x] **Обязательный продавец при создании товара (admin)** — поле `sellerId` стало обязательным в `CreateProductRequest`; бэкенд проверяет, что пользователь с таким id имеет роль SELLER; эндпоинт `GET /api/admin/sellers` возвращает список продавцов для выпадающего списка в панели администратора
 
 ## Что планируется добавить
 

@@ -167,4 +167,24 @@ const api = {
         apiFetch('/api/profile/me'),
     updateProfile: (data) =>
         apiFetch('/api/profile/me', { method: 'PATCH', body: JSON.stringify(data) }),
+
+    // ── Список продавцов (для выпадающего списка у администратора) ────────────
+    getSellers: () =>
+        apiFetch('/api/admin/sellers'),
+
+    // ── Чат: диалоги и сообщения ──────────────────────────────────────────────
+    getChatConversations: () =>
+        apiFetch('/api/chat/conversations'),
+    startChatConversation: (sellerId, message) =>
+        apiFetch('/api/chat/conversations', {
+            method: 'POST',
+            body: JSON.stringify({ sellerId, message }),
+        }),
+    getChatMessages: (conversationId) =>
+        apiFetch(`/api/chat/conversations/${conversationId}/messages`),
+    sendChatMessage: (conversationId, content) =>
+        apiFetch(`/api/chat/conversations/${conversationId}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+        }),
 };

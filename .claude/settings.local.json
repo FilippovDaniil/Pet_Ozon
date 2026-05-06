@@ -25,7 +25,10 @@
       "Bash(git remote *)",
       "Bash(Get-ChildItem -Recurse -Filter \"*.java\")",
       "Bash(Select-Object FullName)",
-      "PowerShell(head *)"
+      "PowerShell(head *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(ConvertTo-Json -Depth 10)"
     ]
   }
 }

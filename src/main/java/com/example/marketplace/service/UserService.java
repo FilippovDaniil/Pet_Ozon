@@ -1,6 +1,7 @@
 package com.example.marketplace.service;
 
 import com.example.marketplace.dto.request.UpdateProfileRequest;
+import com.example.marketplace.dto.response.SellerInfoResponse;
 import com.example.marketplace.entity.Cart;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * Бизнес-логика для работы с пользователями.
@@ -82,6 +84,20 @@ public class UserService {
      * Null-поля в запросе пропускаются — обновляются только переданные данные.
      * Это паттерн «частичного обновления» (PATCH-семантика).
      */
+    /** Список всех продавцов для выпадающего списка в форме создания товара (административный интерфейс). */
+    public List<SellerInfoResponse> getAllSellers() {
+        return userRepository.findByRole(Role.SELLER).stream()
+                .map(u -> {
+                    SellerInfoResponse r = new SellerInfoResponse();
+                    r.setId(u.getId());
+                    r.setFullName(u.getFullName());
+                    r.setShopName(u.getShopName());
+                    r.setEmail(u.getEmail());
+                    return r;
+                })
+                .toList();
+    }
+
     @Transactional
     public User updateProfile(Long id, UpdateProfileRequest request) {
         User user = userRepository.findById(id)

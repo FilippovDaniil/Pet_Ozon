@@ -40,4 +40,7 @@ public class CreateProductRequest {
     private String imageUrl;
 
     private String category;
+
+    /** Идентификатор продавца — обязателен при создании товара администратором. */
+    private Long sellerId;
 }

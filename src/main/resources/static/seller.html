@@ -49,6 +49,14 @@
                     class="px-4 py-2 rounded-lg text-sm transition">
                     Баланс
                 </button>
+                <button @click="setTab('chat')"
+                    :class="activeTab === 'chat' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm transition relative">
+                    Чат
+                    <span x-show="totalChatUnread > 0"
+                        class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center"
+                        x-text="totalChatUnread"></span>
+                </button>
             </div>
 
             <div class="flex items-center gap-3">
@@ -277,6 +285,102 @@
                 </div>
             </div>
         </div>
+
+        <!-- ─────────────────── TAB: ЧАТ ─────────────────────────── -->
+        <div x-show="activeTab === 'chat'">
+
+            <!-- Список диалогов -->
+            <div x-show="!activeChatConversation">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-gray-900">Диалоги с покупателями</h2>
+                    <button @click="loadChatConversations()"
+                            class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition">
+                        ↻ Обновить
+                    </button>
+                </div>
+
+                <div x-show="loadingChatConversations" class="text-center py-12 text-gray-400">
+                    <div class="animate-spin text-3xl mb-2">⏳</div> Загрузка...
+                </div>
+                <div x-show="!loadingChatConversations && chatConversations.length === 0"
+                     class="text-center py-16 text-gray-400">
+                    <div class="text-5xl mb-3">💬</div>
+                    <p class="text-lg">Диалогов пока нет</p>
+                    <p class="text-sm mt-1">Покупатели смогут написать вам с карточки товара</p>
+                </div>
+
+                <div class="space-y-3">
+                    <template x-for="conv in chatConversations" :key="conv.id">
+                        <div @click="openChatConversation(conv)"
+                             class="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 cursor-pointer hover:border-emerald-300 hover:shadow-sm transition">
+                            <div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-lg"
+                                 style="background: linear-gradient(135deg,#10b981,#0d9488)">
+                                <span x-text="(conv.clientName || '?')[0].toUpperCase()"></span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between mb-0.5">
+                                    <span class="font-semibold text-gray-900 text-sm" x-text="conv.clientName"></span>
+                                    <span class="text-xs text-gray-400" x-text="fmtDate(conv.updatedAt)"></span>
+                                </div>
+                                <p class="text-sm text-gray-500 truncate"
+                                   x-text="conv.lastMessage || 'Нет сообщений'"></p>
+                            </div>
+                            <div x-show="conv.unreadCount > 0"
+                                 class="w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center flex-shrink-0"
+                                 x-text="conv.unreadCount"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Переписка -->
+            <div x-show="activeChatConversation">
+                <div class="flex items-center gap-3 mb-5">
+                    <button @click="closeChatConversation()"
+                            class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition text-sm font-medium">
+                        ← Назад
+                    </button>
+                    <div>
+                        <h2 class="text-lg font-bold text-gray-900" x-text="activeChatConversation?.clientName"></h2>
+                        <p class="text-xs text-gray-400">Покупатель</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 overflow-y-auto space-y-3"
+                     style="min-height:300px;max-height:480px" x-ref="sellerChatMsgs">
+                    <div x-show="loadingChatMessages" class="text-center py-10 text-gray-400">
+                        <div class="animate-spin text-2xl mb-1">⏳</div> Загрузка...
+                    </div>
+                    <div x-show="!loadingChatMessages && chatMessages.length === 0"
+                         class="text-center py-10 text-gray-400 text-sm">Нет сообщений</div>
+                    <template x-for="msg in chatMessages" :key="msg.id">
+                        <div class="flex" :class="msg.mine ? 'justify-end' : 'justify-start'">
+                            <div class="max-w-xs lg:max-w-md px-4 py-2.5 rounded-2xl text-sm"
+                                 :class="msg.mine
+                                     ? 'bg-emerald-600 text-white rounded-br-sm'
+                                     : 'bg-gray-100 text-gray-800 rounded-bl-sm'">
+                                <p class="leading-relaxed break-words" x-text="msg.content"></p>
+                                <p class="text-xs mt-1 opacity-70 text-right" x-text="fmtDate(msg.sentAt)"></p>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex gap-3">
+                    <textarea x-model="chatReply"
+                              @keydown.enter.exact.prevent="sendChatReply()"
+                              placeholder="Напишите ответ... (Enter — отправить)"
+                              rows="2"
+                              class="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"></textarea>
+                    <button @click="sendChatReply()"
+                            :disabled="!chatReply.trim() || sendingChatReply"
+                            class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition self-end">
+                        <span x-show="!sendingChatReply">Ответить</span>
+                        <span x-show="sendingChatReply">⏳</span>
+                    </button>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- ══════════════════════ МОДАЛ ТОВАРА ══════════════════════════════ -->
@@ -492,6 +596,14 @@
             reviews: [],
             loadingReviews: false,
 
+            chatConversations: [],
+            loadingChatConversations: false,
+            activeChatConversation: null,
+            chatMessages: [],
+            loadingChatMessages: false,
+            chatReply: '',
+            sendingChatReply: false,
+
             toasts: [],
             _toastId: 0,
 
@@ -501,11 +613,16 @@
                 await this.loadProducts();
             },
 
+            get totalChatUnread() {
+                return this.chatConversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
+            },
+
             async setTab(tab) {
                 this.activeTab = tab;
                 if (tab === 'products' && this.products.length === 0) await this.loadProducts();
                 if (tab === 'sales')   await this.loadSales();
                 if (tab === 'balance') await this.loadBalance();
+                if (tab === 'chat')    await this.loadChatConversations();
             },
 
             // ── Товары ────────────────────────────────────────────
@@ -696,6 +813,51 @@
                     'linear-gradient(135deg,#14b8a6,#0d9488)',
                 ];
                 return palette[(id - 1) % palette.length];
+            },
+
+            // ── Чат ──────────────────────────────────────────────
+            async loadChatConversations() {
+                this.loadingChatConversations = true;
+                try { this.chatConversations = await api.getChatConversations() || []; }
+                catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingChatConversations = false; }
+            },
+
+            async openChatConversation(conv) {
+                this.activeChatConversation = conv;
+                this.chatReply = '';
+                this.loadingChatMessages = true;
+                try {
+                    this.chatMessages = await api.getChatMessages(conv.id) || [];
+                    conv.unreadCount = 0;
+                    await this.$nextTick();
+                    const el = this.$refs.sellerChatMsgs;
+                    if (el) el.scrollTop = el.scrollHeight;
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingChatMessages = false; }
+            },
+
+            closeChatConversation() {
+                this.activeChatConversation = null;
+                this.chatMessages = [];
+                this.chatReply = '';
+            },
+
+            async sendChatReply() {
+                const text = this.chatReply.trim();
+                if (!text || this.sendingChatReply || !this.activeChatConversation) return;
+                this.sendingChatReply = true;
+                try {
+                    const msg = await api.sendChatMessage(this.activeChatConversation.id, text);
+                    if (msg) {
+                        this.chatMessages.push(msg);
+                        this.chatReply = '';
+                        await this.$nextTick();
+                        const el = this.$refs.sellerChatMsgs;
+                        if (el) el.scrollTop = el.scrollHeight;
+                    }
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.sendingChatReply = false; }
             },
 
             toast(message, type = 'info') {
