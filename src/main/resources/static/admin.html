@@ -32,8 +32,8 @@
                 <span class="text-gray-500 text-sm hidden sm:block">Marketplace</span>
             </div>
 
-            <!-- Табы -->
-            <div class="flex items-center gap-1">
+            <!-- Табы (только десктоп — на мобильном заменены нижней навигацией) -->
+            <div class="hidden md:flex items-center gap-1">
                 <button @click="setTab('products')"
                     :class="activeTab === 'products'
                         ? 'bg-gray-700 text-white font-semibold'
@@ -74,9 +74,9 @@
                 </button>
             </div>
 
-            <!-- Пользователь -->
+            <!-- Пользователь (имя скрыто на мобильном) -->
             <div class="flex items-center gap-3">
-                <span class="text-gray-400 text-sm" x-text="user?.name"></span>
+                <span class="text-gray-400 text-sm hidden md:inline" x-text="user?.name"></span>
                 <button @click="logout()"
                         class="text-xs text-gray-400 hover:text-red-400 transition px-3 py-1.5 rounded-lg hover:bg-gray-800">
                     Выйти
@@ -102,7 +102,7 @@
     </div>
 
     <!-- ═══════════════════════ MAIN CONTENT ═════════════════════════════ -->
-    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-20 md:pb-8">
 
         <!-- ─────────────────── TAB: ТОВАРЫ ─────────────────────────── -->
         <div x-show="activeTab === 'products'">
@@ -473,6 +473,45 @@
             </div>
         </div>
     </main>
+
+    <!-- ═══════════ МОБИЛЬНАЯ НИЖНЯЯ НАВИГАЦИЯ (скрыта на md+) ═══════════ -->
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 z-40">
+        <div class="flex items-center justify-around h-16">
+            <button @click="setTab('products')"
+                    :class="activeTab === 'products' ? 'text-white' : 'text-gray-500'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">📦</span>
+                <span class="text-xs font-medium">Товары</span>
+            </button>
+            <button @click="setTab('orders')"
+                    :class="activeTab === 'orders' ? 'text-white' : 'text-gray-500'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">🧾</span>
+                <span class="text-xs font-medium">Заказы</span>
+            </button>
+            <button @click="setTab('invoices')"
+                    :class="activeTab === 'invoices' ? 'text-white' : 'text-gray-500'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">💰</span>
+                <span class="text-xs font-medium">Счета</span>
+            </button>
+            <button @click="setTab('support')"
+                    :class="activeTab === 'support' ? 'text-white' : 'text-gray-500'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition relative">
+                <span class="text-2xl leading-none">🎧</span>
+                <span class="text-xs font-medium">Поддержка</span>
+                <span x-show="totalSupportUnread > 0"
+                      class="absolute top-1 right-4 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none"
+                      x-text="totalSupportUnread"></span>
+            </button>
+            <button @click="setTab('email')"
+                    :class="activeTab === 'email' ? 'text-white' : 'text-gray-500'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">✉️</span>
+                <span class="text-xs font-medium">Почта</span>
+            </button>
+        </div>
+    </nav>
 
     <!-- ═══════════════════ МОДАЛ: СОЗДАТЬ / РЕДАКТИРОВАТЬ ТОВАР ════════ -->
     <div x-show="showProductModal"

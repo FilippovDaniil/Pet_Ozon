@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Pet_Ozon Marketplace",
-    "description": "REST API маркетплейса с JWT-аутентификацией.\n\n**Workflow:**\n1. Выполни **Auth / Вход (клиент)** — токен сохранится в `clientToken`\n2. Для продавца выполни **Auth / Вход (продавец)** — токен сохранится в `sellerToken`\n3. Для администратора выполни **Auth / Вход (admin)** — токен сохранится в `adminToken`\n4. Все остальные запросы используют соответствующий токен в заголовке `Authorization: Bearer {{токен}}`\n\n**Типичный сценарий клиента:**\nAuth / Вход → Products / Список → Reviews / Отзывы → Cart / Добавить → Cart / Checkout → Invoice / Оплатить\n\n**Загрузка изображения товара (продавец):**\nSeller / Создать товар → Seller / Загрузить фото → (при необходимости) Seller / Удалить фото\n\n**Загрузка изображения товара (администратор):**\nAdmin — Products / Создать товар → Admin — Products / Загрузить фото → (при необходимости) Admin — Products / Удалить фото\n\nИзображение хранится в PostgreSQL как Base64 (TEXT-колонка). Максимальный размер файла — 2 МБ.",
+    "description": "REST API маркетплейса с JWT-аутентификацией.\n\n**Переменные коллекции (заполняются автоматически):**\n- `clientToken` — при Auth/Вход (клиент)\n- `adminToken` — при Auth/Вход (admin)\n- `sellerToken` — при Auth/Вход (продавец)\n- `accountantToken` — при Auth/Вход (бухгалтер)\n- `conversationId` — при Chat/Начать диалог\n\n**Типичный сценарий клиента:**\nAuth/Вход → Products/Список → Cart/Добавить → Cart/Checkout → Invoice/Оплатить → (получить чек на email)\n\n**Чат:**\nAuth/Вход (клиент) → Chat/Начать диалог → Chat/Отправить сообщение\n\n**Бухгалтер:**\nAuth/Вход (бухгалтер) → Accountant/Сводный дашборд → Accountant/Отчёт по заказам и т.д.\n\n**Email от администратора:**\nAuth/Вход (admin) → Admin—Email/Отправить письмо\n\n**Загрузка фото товара (продавец):**\nSeller/Создать товар → Seller/Загрузить фото\n\nИзображение хранится в PostgreSQL как Base64. Максимальный размер — 2 МБ.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -27,6 +27,18 @@
       "value": "",
       "type": "string",
       "description": "JWT-токен продавца. Заполняется при Auth/Вход (продавец)."
+    },
+    {
+      "key": "accountantToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT-токен бухгалтера. Заполняется при Auth/Вход (бухгалтер)."
+    },
+    {
+      "key": "conversationId",
+      "value": "",
+      "type": "string",
+      "description": "ID диалога. Заполняется при Chat/Начать диалог с продавцом."
     }
   ],
   "item": [
@@ -177,6 +189,43 @@
               "path": ["api", "auth", "register"]
             },
             "description": "Регистрация нового клиента. Возвращает 201 + JWT-токен. Токен сохраняется в `clientToken`."
+          }
+        },
+        {
+          "name": "Вход (бухгалтер)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Token is present\", () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.token).to.be.a('string').and.not.be.empty;",
+                  "    pm.collectionVariables.set('accountantToken', json.token);",
+                  "});",
+                  "pm.test(\"Role is ACCOUNTANT\", () => pm.expect(pm.response.json().role).to.eql('ACCOUNTANT'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"accountant@example.com\",\n  \"password\": \"pass\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Вход бухгалтера. Токен сохраняется в переменную `accountantToken`."
           }
         }
       ]
@@ -1208,6 +1257,343 @@
               ]
             },
             "description": "Возвращает страницу всех счетов на оплату. Поддерживает page, size, sort."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "description": "Чат между клиентом и продавцом. Требует JWT-токен (CLIENT или SELLER).",
+      "item": [
+        {
+          "name": "Список диалогов",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/chat/conversations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "chat", "conversations"]
+            },
+            "description": "Клиент видит свои диалоги; продавец — диалоги с покупателями. Сортировка: новые вверху."
+          }
+        },
+        {
+          "name": "Начать диалог с продавцом",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200 or 201\", () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "pm.test(\"Response has id\", () => pm.expect(pm.response.json().id).to.be.a('number'));",
+                  "pm.collectionVariables.set('conversationId', pm.response.json().id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sellerId\": 3,\n  \"message\": \"Здравствуйте! Интересует ноутбук Dell.\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/chat/conversations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "chat", "conversations"]
+            },
+            "description": "Создаёт диалог с продавцом (sellerId=3 — TechShop). Если диалог уже есть — возвращает существующий."
+          }
+        },
+        {
+          "name": "Сообщения диалога",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/chat/conversations/{{conversationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "chat", "conversations", "{{conversationId}}", "messages"]
+            },
+            "description": "Загружает историю сообщений диалога. При загрузке все входящие помечаются прочитанными."
+          }
+        },
+        {
+          "name": "Отправить сообщение",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Message has content\", () => pm.expect(pm.response.json().content).to.be.a('string'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Есть ли в наличии XPS 15 с 32 ГБ RAM?\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/chat/conversations/{{conversationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "chat", "conversations", "{{conversationId}}", "messages"]
+            },
+            "description": "Отправляет сообщение в диалог. Доступно обоим участникам диалога."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin — Email",
+      "description": "Отправка произвольного письма администратором. Требует роль ADMIN.",
+      "item": [
+        {
+          "name": "Отправить письмо",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"client@example.com\",\n  \"subject\": \"Важное сообщение от маркетплейса\",\n  \"text\": \"Уважаемый клиент! Спасибо за использование нашего сервиса.\"\n}",
+              "options": {"raw": {"language": "json"}}
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/email/send",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "admin", "email", "send"]
+            },
+            "description": "Отправляет письмо через Яндекс SMTP. Валидация: to (@Email), subject и text (@NotBlank). При ошибке SMTP возвращает 500."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Accountant",
+      "description": "Бухгалтерские отчёты. Все эндпоинты требуют роль ACCOUNTANT.",
+      "item": [
+        {
+          "name": "Сводный дашборд",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Has required KPI fields\", () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.all.keys('totalOrders','paidOrders','totalRevenue','totalClients','cartItemsCount','potentialRevenue','emailsSent','emailsSuccess');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/accountant/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accountant", "summary"]
+            },
+            "description": "Возвращает 8 KPI: заказы, выручка, клиенты, корзины, письма."
+          }
+        },
+        {
+          "name": "Отчёт по заказам",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/accountant/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accountant", "orders"]
+            },
+            "description": "Все заказы с деталями покупателей. Сортировка: новые вверху."
+          }
+        },
+        {
+          "name": "Отчёт по корзинам",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/accountant/carts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accountant", "carts"]
+            },
+            "description": "Текущее содержимое всех корзин: товар, покупатель, количество, цена, сумма позиции."
+          }
+        },
+        {
+          "name": "Отчёт по клиентам",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/accountant/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accountant", "customers"]
+            },
+            "description": "Список покупателей с количеством заказов и суммой потраченных средств (только PAID)."
+          }
+        },
+        {
+          "name": "История писем",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/accountant/emails",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accountant", "emails"]
+            },
+            "description": "История всех попыток отправки писем (успешные и неуспешные). Сортировка: свежие вверху."
+          }
+        },
+        {
+          "name": "Доступ запрещён (для клиента)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status is 403\", () => pm.response.to.have.status(403));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/accountant/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "accountant", "summary"]
+            },
+            "description": "Проверка защиты: CLIENT не имеет доступа к /api/accountant/** → 403."
           }
         }
       ]

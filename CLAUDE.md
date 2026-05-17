@@ -2,20 +2,29 @@
 
 ## Что это
 
-Учебный pet-проект: REST API маркетплейса на Spring Boot 3.x.
-Цель — освоить Spring Boot, JPA, REST. Автор — начинающий Java-разработчик.
+Учебный pet-проект: REST API маркетплейса на Spring Boot 3.x с полноценным фронтендом.
+Цель — освоить Spring Boot, JPA, REST, Spring Security, Spring Mail. Автор — начинающий Java-разработчик.
 
 ## Стек
 
-| Компонент | Версия |
-|-----------|--------|
+| Компонент | Версия / Примечание |
+|-----------|---------------------|
 | Java | 21 (Oracle HotSpot) |
 | Gradle | 9.1.0 |
 | Spring Boot | 3.4.4 |
 | Spring Data JPA | (управляется BOM) |
+| Spring Security + JWT | JWT-фильтр, JwtUtil, SecurityConfig |
+| Spring Mail | Яндекс SMTP, порт 465 (SMTPS) |
 | PostgreSQL | 15+ (localhost:5432) |
 | Lombok | (управляется BOM) |
-| Spring Validation | (управляется BOM, для будущих валидаций) |
+| Spring Validation | Bean Validation 3.x |
+| Spring AOP | LoggingAspect (@Around) |
+| Spring Cache | CacheConfig, @Cacheable / @CacheEvict |
+| SpringDoc / Swagger UI | http://localhost:8080/swagger-ui.html |
+| Testcontainers | интеграционный тест ProductRepository |
+| Frontend | Alpine.js 3.14.1 + Tailwind CSS (CDN) |
+| SheetJS | xlsx.js 0.18.5 — Excel-выгрузка у бухгалтера |
+| Docker Compose | app + PostgreSQL, файл docker-compose.yml |
 
 ## Подключение к БД
 
@@ -28,36 +37,83 @@ password: 1234
 База создаётся вручную: `CREATE DATABASE marketplace;`
 Таблицы создаются автоматически через `ddl-auto=update`.
 
+## Аутентификация — JWT (реализована)
+
+Используется Bearer-токен в заголовке `Authorization`.
+Spring Security настроен в `SecurityConfig`; токен проверяется `JwtAuthenticationFilter`.
+Регистрация: `POST /api/auth/register`, вход: `POST /api/auth/login`.
+
+```http
+Authorization: Bearer <jwt-token>
+```
+
+## Email — Яндекс SMTP (ВАЖНО: безопасность учётных данных)
+
+Пароль приложения Яндекс хранится **только** в `.env` (добавлен в `.gitignore`).
+В `application.properties` используется `${MAIL_PASSWORD:}` (env var с пустым fallback).
+В `docker-compose.yml` передаётся `MAIL_PASSWORD: "${MAIL_PASSWORD}"`.
+
+```
+Отправитель: vorobyshek2015@yandex.ru
+SMTP host:   smtp.yandex.ru
+Port:        465 (SMTPS / SSL)
+```
+
+Пример файла `.env.example` (в гит): `MAIL_PASSWORD=your_yandex_app_password_here`
+Никогда не коммитить реальный пароль!
+
 ## Структура пакетов
 
 ```
 com.example.marketplace
-├── MarketplaceApplication.java          ← точка входа
-├── config/AppConfig.java                ← CommandLineRunner (тестовые данные)
+├── MarketplaceApplication.java
+├── config/
+│   ├── AppConfig.java               ← CommandLineRunner: тест-данные + fixRoleConstraint()
+│   ├── CacheConfig.java             ← Spring Cache (Caffeine / ConcurrentMap)
+│   └── SecurityConfig.java          ← HTTP Security + JWT + CORS
+├── aspect/
+│   └── LoggingAspect.java           ← AOP @Around: логирует все вызовы сервисов
 ├── controller/
-│   ├── ProductController                GET /api/products, /api/products/{id}
-│   ├── CartController                   GET /api/cart, POST /add /remove /update /checkout
-│   ├── OrderController                  GET /api/orders/my, /api/orders/{id}
-│   ├── InvoiceController                GET /api/invoice/{id}, POST /{id}/pay
-│   └── AdminController                  /api/admin/products, /orders, /invoices
+│   ├── AuthController               POST /api/auth/register, /login
+│   ├── ProductController            GET /api/products (+ фильтры, пагинация)
+│   ├── CartController               /api/cart (add, remove, update, checkout)
+│   ├── OrderController              /api/orders/my, /{id}
+│   ├── InvoiceController            /api/invoice/{id}, /{id}/pay
+│   ├── ReviewController             /api/products/{id}/reviews
+│   ├── ProfileController            /api/profile
+│   ├── AdminController              /api/admin/** (продукты, заказы, счета)
+│   ├── EmailController              POST /api/admin/email/send
+│   ├── SellerController             /api/seller/** (свои товары, продажи, баланс)
+│   ├── ChatController               /api/chat/** (переписка клиент↔продавец, поддержка)
+│   └── AccountantController         /api/accountant/** (отчёты: summary, orders, carts, customers, emails)
 ├── service/
 │   ├── UserService, ProductService
-│   ├── CartService                      ← checkout создаёт Order + Invoice
-│   ├── OrderService, InvoiceService     ← pay() меняет статус, создаёт Payment
-│   └── PaymentService                   ← заглушка, расширить позже
-├── repository/                          ← 8 JpaRepository-интерфейсов
+│   ├── CartService                  ← checkout: Order + Invoice + уменьшение stock
+│   ├── OrderService, InvoiceService ← pay(): Payment + отправка чека на email
+│   ├── SellerService                ← товары продавца (Page<ProductResponse>), продажи, баланс
+│   ├── ReviewService                ← CRUD отзывов, пересчёт среднего рейтинга
+│   ├── EmailService                 ← sendOrderReceipt (не бросает), sendCustomEmail (бросает), saveLog
+│   ├── ChatService                  ← создание/получение переписок и сообщений
+│   ├── AccountantService            ← @PreAuthorize("hasRole('ACCOUNTANT')"), 5 методов отчётов
+│   └── PaymentService               ← заглушка
+├── repository/                      ← JpaRepository-интерфейсы для каждой сущности
 ├── entity/
 │   ├── User, Product, Cart, CartItem
 │   ├── Order, OrderItem, Invoice, Payment
-│   └── enums/ Role, OrderStatus, InvoiceStatus, PaymentStatus
+│   ├── Review                       ← рейтинг + текст + связь User ↔ Product
+│   ├── EmailLog                     ← история отправок (recipient, subject, sentAt, success, errorMessage)
+│   ├── Conversation, Message        ← чат
+│   └── enums/ Role (CLIENT|SELLER|ADMIN|ACCOUNTANT), OrderStatus, InvoiceStatus, PaymentStatus
 ├── dto/
 │   ├── request/  AddToCartRequest, CheckoutRequest, CreateProductRequest,
-│   │             UpdateCartItemRequest, PaymentRequest, UpdateOrderStatusRequest
-│   └── response/ CartResponse, CartItemResponse, OrderResponse, OrderItemResponse,
-│                 ProductResponse, InvoiceResponse, PaymentResponse, ErrorResponse
+│   │             UpdateCartItemRequest, PaymentRequest, UpdateOrderStatusRequest,
+│   │             AdminEmailRequest, ReviewRequest, ...
+│   └── response/ CartResponse, OrderResponse, ProductResponse, InvoiceResponse,
+│                 PaymentResponse, ErrorResponse, AccountantSummaryResponse,
+│                 OrderReportDto, CartReportDto, CustomerReportDto, EmailLogDto, ...
 └── exception/
     ├── ResourceNotFoundException
-    └── GlobalExceptionHandler           ← @RestControllerAdvice, возвращает ErrorResponse
+    └── GlobalExceptionHandler        ← @RestControllerAdvice: ErrorResponse, 400/403/404/500
 ```
 
 ## Связи между сущностями
@@ -66,90 +122,143 @@ com.example.marketplace
 User ──1:1──► Cart ──1:N──► CartItem ──N:1──► Product
 User ──1:N──► Order ──1:N──► OrderItem ──N:1──► Product
              Order ──1:1──► Invoice ──1:N──► Payment
+User ──1:N──► Review ──N:1──► Product
+User ──1:N──► Conversation ──1:N──► Message
+             (Conversation: buyer ↔ seller; поддержка: buyer ↔ ADMIN)
+EmailLog     (отдельная таблица email_logs, не связана FK с User)
 ```
 
-## Аутентификация (временная заглушка)
+## Тестовые пользователи (создаются автоматически при старте)
 
-Spring Security **не подключён** — добавить позже.
-Текущий пользователь определяется по заголовку `X-User-Id`.
-Если заголовок не передан — используется userId=1 (первый пользователь из БД).
+| Email | Пароль | Роль | Примечание |
+|---|---|---|---|
+| `client@example.com` | `pass` | CLIENT | Иван Клиентов |
+| `admin@example.com` | `pass` | ADMIN | Администратор |
+| `seller1@example.com` | `pass` | SELLER | TechShop (электроника) |
+| `seller2@example.com` | `pass` | SELLER | AudioWorld (аудиотехника) |
+| `accountant@example.com` | `pass` | ACCOUNTANT | Елена Бухгалтер |
 
-```http
-X-User-Id: 1
+**Товары:** ~250 штук по 12 категориям (создаются при `productRepository.count() < 250`).
+
+## Правила безопасности (SecurityConfig)
+
+```
+/api/auth/**          → permitAll (регистрация, вход)
+GET /api/products/**  → permitAll (каталог публичный)
+/api/admin/**         → hasRole('ADMIN')
+/api/seller/**        → hasRole('SELLER')
+/api/accountant/**    → hasRole('ACCOUNTANT')
+всё остальное         → authenticated
 ```
 
-## Тестовые данные (создаются автоматически при старте)
+Дополнительный уровень: `@PreAuthorize` на методах AccountantService и некоторых других сервисах.
 
-**Пользователи:**
-- `client@example.com` / `pass` — роль CLIENT, id=1
-- `admin@example.com` / `pass` — роль ADMIN, id=2
+## Фронтенд (Alpine.js + Tailwind CSS)
 
-**Товары (5 штук):** ноутбук, мышь, клавиатура, монитор, наушники
+Статические файлы в `src/main/resources/static/`:
 
-## Быстрая проверка API
+| Файл | Описание |
+|------|----------|
+| `login.html` | Страница входа (уже мобильная) |
+| `register.html` | Регистрация |
+| `client.html` | Покупатель: каталог, корзина, заказы, чат |
+| `admin.html` | Администратор: товары, заказы, счета, поддержка, почта |
+| `seller.html` | Продавец: товары, продажи, баланс, чат |
+| `accountant.html` | Бухгалтер: дашборд, отчёты, Excel-выгрузка |
+| `profile.html` | Профиль пользователя |
+| `js/api.js` | Все HTTP-вызовы к REST API |
+| `js/auth.js` | requireAuth(), roleHome(), login(), logout() |
 
-```bash
-# Список товаров
-GET http://localhost:8080/api/products
+**Мобильная адаптация:** все страницы имеют `meta viewport`, на мобильных (< md = 768px) десктопные
+табы скрыты (`hidden md:flex`), вместо них — фиксированная нижняя навигация (`md:hidden fixed bottom-0`).
 
-# Добавить в корзину
-POST http://localhost:8080/api/cart/add
-X-User-Id: 1
-Content-Type: application/json
-{"productId": 1, "quantity": 2}
-
-# Посмотреть корзину
-GET http://localhost:8080/api/cart
-X-User-Id: 1
-
-# Оформить заказ
-POST http://localhost:8080/api/cart/checkout
-X-User-Id: 1
-Content-Type: application/json
-{"shippingAddress": "Москва, ул. Примерная, 1"}
-
-# Оплатить счёт
-POST http://localhost:8080/api/invoice/1/pay
-Content-Type: application/json
-{"paymentMethod": "CARD"}
-
-# Создать товар (админ)
-POST http://localhost:8080/api/admin/products
-Content-Type: application/json
-{"name": "Планшет", "price": 29999.99, "stockQuantity": 10}
+Роутинг после логина:
+```javascript
+function roleHome(role) {
+    if (role === 'ADMIN')      return 'admin.html';
+    if (role === 'SELLER')     return 'seller.html';
+    if (role === 'ACCOUNTANT') return 'accountant.html';
+    return 'client.html';
+}
 ```
+
+## Критические технические детали
+
+### fixRoleConstraint() в AppConfig
+`ddl-auto=update` **не обновляет** существующие CHECK constraints — только создаёт при первом `CREATE TABLE`.
+При добавлении нового значения в enum `Role` нужно обновлять constraint вручную.
+Решение: `AppConfig.fixRoleConstraint()` — дропает и пересоздаёт `users_role_check` через JdbcTemplate
+при каждом старте. Идемпотентен (IF EXISTS).
+
+### Контракт EmailService
+- `sendOrderReceipt()` → вызывает `sendHtml()` → при ошибке SMTP **не бросает** исключение.
+  Сбой почты не должен откатывать транзакцию оплаты.
+- `sendCustomEmail()` → при ошибке SMTP **бросает** RuntimeException.
+  Администратор должен видеть ошибку (GlobalExceptionHandler → 500).
+- В обоих случаях вызывается `saveLog()` — запись в `email_logs`.
+
+### @Value в тестах
+Поле `@Value("${spring.mail.username}") private String from` не инжектируется Mockito.
+Решение: `ReflectionTestUtils.setField(emailService, "from", "noreply@marketplace.ru")` в `@BeforeEach`.
+
+## Покрытие тестами
+
+| Тест-класс | Тип | Кол-во тестов |
+|---|---|---|
+| `EmailServiceTest` | Unit (MockitoExtension) | 8 |
+| `EmailControllerTest` | @WebMvcTest | 7 |
+| `AccountantServiceTest` | Unit (MockitoExtension) | 12 |
+| `AccountantControllerTest` | @WebMvcTest | 10 |
+| `InvoiceControllerTest` | @WebMvcTest | 10 |
+| `ProductRepositoryIntegrationTest` | Testcontainers | 3+ |
+
+Все `@WebMvcTest` используют `TestSecurityConfig` (@TestConfiguration) вместо реального `SecurityConfig`.
+JWT-фильтр исключён через `excludeFilters`. Аутентификация подставляется через `.with(user(...))`.
 
 ## Решённые проблемы
 
 1. **Gradle 9.x + Spring Boot 3.2.x** — несовместимы (удалён API `LenientConfiguration.getArtifacts`).
    Решение: обновить плагин до `3.4.4` и `dependency-management` до `1.1.7`.
 
-2. **JAVA_HOME с кавычками** — Windows-переменная `JAVA_HOME` содержала кавычки в значении
-   (`"C:\Program Files\Java\jdk-21.0.10"` вместо `C:\Program Files\Java\jdk-21.0.10`).
+2. **JAVA_HOME с кавычками** — Windows-переменная содержала кавычки в значении.
    Решение: убрать кавычки через sysdm.cpl → Переменные среды.
 
-## Что добавлено (реализовано)
+3. **users_role_check constraint** — при добавлении ACCOUNTANT в enum `Role` старый constraint
+   (без ACCOUNTANT) блокировал INSERT нового пользователя.
+   Решение: `fixRoleConstraint()` в AppConfig через JdbcTemplate (DROP + ADD CONSTRAINT).
 
-- [x] `@Valid` + валидация входных DTO (`@NotBlank`, `@Min`, `@Positive`)
-- [x] Spring Security + JWT-аутентификация (SecurityConfig, JwtUtil, JwtAuthenticationFilter)
-- [x] Уменьшение `stockQuantity` при оформлении заказа (CartService.checkout)
-- [x] Пагинация в списках товаров, заказов и счетов (`Pageable`, `Page<T>`)
-- [x] Логирование (`@Slf4j` + `log.info` в сервисах)
-- [x] Юнит-тесты (Mockito) для всех сервисов и контроллеров
-- [x] Интеграционный тест с Testcontainers (ProductRepositoryIntegrationTest)
-- [x] Swagger UI / OpenAPI 3 — документация по адресу http://localhost:8080/swagger-ui.html
-- [x] Роль SELLER + SellerController, SellerService (продавец управляет своими товарами)
-- [x] ProfileController — просмотр и обновление профиля пользователя
-- [x] AuthController — регистрация (POST /api/auth/register) и вход (POST /api/auth/login)
-- [x] JPA Specification для фильтрации товаров (name, category, minPrice, maxPrice)
+4. **Бесконечный редирект ACCOUNTANT** — `roleHome()` не имел case для ACCOUNTANT,
+   возвращал `client.html`, а там `requireAuth('CLIENT')` видел неверную роль и редиректил снова.
+   Решение: добавлен case в `roleHome()` в `auth.js`.
 
-## Что добавить следующим (приоритет)
+5. **LazyInitializationException** при отправке чека — `order.getUser()` вызывался вне транзакции.
+   Решение: доступ к user происходит внутри `@Transactional` в `InvoiceService.pay()`.
 
-- [x] AOP-логирование сервисного слоя (`LoggingAspect`, `@Around`)
-- [x] Spring Cache (`@Cacheable`/`@CacheEvict` в `ProductService`, `CacheConfig`)
-- [x] Рейтинги и отзывы (`Review`, `ReviewRepository`, `ReviewService`, `ReviewController`)
-- [x] Тесты для InvoiceController (@WebMvcTest, 10 тестов)
-- [x] `@PreAuthorize` на методах сервисов — дополнительный уровень авторизации
-- [x] Обработка ошибок валидации в GlobalExceptionHandler (`MethodArgumentNotValidException`, `AccessDeniedException`)
-- [x] Пагинация для списка товаров продавца в SellerService (`Page<ProductResponse>`)
-- [x] Docker Compose файл для запуска всего приложения (app + PostgreSQL)
+## Что реализовано
+
+- [x] Spring Security + JWT (SecurityConfig, JwtUtil, JwtAuthenticationFilter)
+- [x] Роли: CLIENT, SELLER, ADMIN, ACCOUNTANT
+- [x] `@Valid` + валидация DTO (`@NotBlank`, `@Email`, `@Min`, `@Positive`)
+- [x] `@PreAuthorize` на методах сервисов (двойная защита)
+- [x] GlobalExceptionHandler: 400 / 403 / 404 / 500 с ErrorResponse
+- [x] Уменьшение `stockQuantity` при оформлении заказа
+- [x] Пагинация (`Pageable`, `Page<T>`) для товаров, заказов, счетов
+- [x] Логирование: `@Slf4j` + `LoggingAspect` (@Around на все сервисы)
+- [x] Spring Cache (`@Cacheable` / `@CacheEvict` в ProductService)
+- [x] Рейтинги и отзывы (Review, ReviewService, ReviewController)
+- [x] Профиль пользователя (ProfileController)
+- [x] Роль SELLER: SellerController, SellerService (Page<ProductResponse>)
+- [x] Роль ACCOUNTANT: AccountantController, AccountantService (5 отчётов)
+- [x] Чат клиент ↔ продавец + чат с поддержкой (AdminController)
+- [x] Email-уведомления: чек после оплаты + произвольное письмо от Admin
+- [x] EmailLog: история отправок в таблице email_logs
+- [x] Юнит-тесты (Mockito) + @WebMvcTest для всех контроллеров
+- [x] Интеграционный тест Testcontainers (ProductRepositoryIntegrationTest)
+- [x] Swagger UI / OpenAPI 3 (SpringDoc)
+- [x] Docker Compose (app + PostgreSQL)
+- [x] Фронтенд: Alpine.js + Tailwind CSS, 7 статических страниц
+- [x] Мобильный фронтенд: нижняя навигация для client/admin/seller/accountant
+- [x] Excel-выгрузка в бухгалтерии (SheetJS / xlsx.js)
+- [x] Загрузка фото товаров (продавец + админ)
+- [x] Расширенный каталог: ~250 товаров по 12 категориям
+- [x] Построчные комментарии на русском во всех новых файлах (учебный формат)

@@ -33,7 +33,8 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-1">
+            <!-- Табы (только десктоп — на мобильном заменены нижней навигацией) -->
+            <div class="hidden md:flex items-center gap-1">
                 <button @click="setTab('products')"
                     :class="activeTab === 'products' ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'"
                     class="px-4 py-2 rounded-lg text-sm transition">
@@ -59,10 +60,11 @@
                 </button>
             </div>
 
+            <!-- Имя и профиль скрыты на мобильном -->
             <div class="flex items-center gap-3">
-                <span class="text-sm text-gray-600" x-text="user?.name"></span>
+                <span class="text-sm text-gray-600 hidden md:inline" x-text="user?.name"></span>
                 <a href="profile.html"
-                   class="text-sm text-gray-500 hover:text-emerald-600 transition px-3 py-1.5 rounded-lg hover:bg-emerald-50">
+                   class="text-sm text-gray-500 hover:text-emerald-600 transition px-3 py-1.5 rounded-lg hover:bg-emerald-50 hidden md:inline">
                     Профиль
                 </a>
                 <button @click="logout()" class="text-sm text-gray-500 hover:text-red-600 transition px-3 py-1.5 rounded-lg hover:bg-red-50">
@@ -90,7 +92,7 @@
     </div>
 
     <!-- ══════════════════════════ MAIN ═══════════════════════════════════ -->
-    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-20 md:pb-8">
 
         <!-- ──────────────────── TAB: МОИ ТОВАРЫ ──────────────────────── -->
         <div x-show="activeTab === 'products'">
@@ -382,6 +384,39 @@
             </div>
         </div>
     </main>
+
+    <!-- ═══════════ МОБИЛЬНАЯ НИЖНЯЯ НАВИГАЦИЯ (скрыта на md+) ═══════════ -->
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40">
+        <div class="flex items-center justify-around h-16">
+            <button @click="setTab('products')"
+                    :class="activeTab === 'products' ? 'text-emerald-600' : 'text-gray-400'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">📋</span>
+                <span class="text-xs font-medium">Товары</span>
+            </button>
+            <button @click="setTab('sales')"
+                    :class="activeTab === 'sales' ? 'text-emerald-600' : 'text-gray-400'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">📈</span>
+                <span class="text-xs font-medium">Продажи</span>
+            </button>
+            <button @click="setTab('balance')"
+                    :class="activeTab === 'balance' ? 'text-emerald-600' : 'text-gray-400'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">💵</span>
+                <span class="text-xs font-medium">Баланс</span>
+            </button>
+            <button @click="setTab('chat')"
+                    :class="activeTab === 'chat' ? 'text-emerald-600' : 'text-gray-400'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition relative">
+                <span class="text-2xl leading-none">💬</span>
+                <span class="text-xs font-medium">Чат</span>
+                <span x-show="totalChatUnread > 0"
+                      class="absolute top-1 right-5 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center leading-none"
+                      x-text="totalChatUnread"></span>
+            </button>
+        </div>
+    </nav>
 
     <!-- ══════════════════════ МОДАЛ ТОВАРА ══════════════════════════════ -->
     <div x-show="showModal"

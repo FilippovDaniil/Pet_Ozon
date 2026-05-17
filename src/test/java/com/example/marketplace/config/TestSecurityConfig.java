@@ -31,9 +31,10 @@ public class TestSecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()               // без токена
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll() // каталог публичный
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")          // только ADMIN
-                        .requestMatchers("/api/seller/**").hasRole("SELLER")        // только SELLER
-                        .anyRequest().authenticated()                               // остальное — авторизованные
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")              // только ADMIN
+                        .requestMatchers("/api/seller/**").hasRole("SELLER")            // только SELLER
+                        .requestMatchers("/api/accountant/**").hasRole("ACCOUNTANT")    // только ACCOUNTANT
+                        .anyRequest().authenticated()                                   // остальное — авторизованные
                 )
                 // Если запрос без аутентификации к защищённому ресурсу — вернуть 401 (не редирект)
                 .exceptionHandling(ex -> ex

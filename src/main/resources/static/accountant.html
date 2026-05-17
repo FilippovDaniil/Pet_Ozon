@@ -34,7 +34,8 @@
                 <span class="text-emerald-400 text-sm hidden sm:block">Marketplace</span>
             </div>
 
-            <div class="flex items-center gap-1">
+            <!-- Табы (только десктоп — на мобильном заменены нижней навигацией) -->
+            <div class="hidden md:flex items-center gap-1">
                 <template x-for="tab in tabs" :key="tab.id">
                     <button @click="setTab(tab.id)"
                         :class="activeTab === tab.id
@@ -47,8 +48,9 @@
                 </template>
             </div>
 
+            <!-- Имя скрыто на мобильном -->
             <div class="flex items-center gap-3">
-                <span class="text-emerald-300 text-sm" x-text="user?.name"></span>
+                <span class="text-emerald-300 text-sm hidden md:inline" x-text="user?.name"></span>
                 <button @click="logout()"
                         class="text-xs text-emerald-300 hover:text-red-400 transition px-3 py-1.5 rounded-lg hover:bg-emerald-800">
                     Выйти
@@ -74,7 +76,7 @@
     </div>
 
     <!-- ════════════════════════ MAIN ══════════════════════════════════ -->
-    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+    <main class="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 pb-20 md:pb-8">
 
         <!-- ────────────────── TAB: ОБЗОР ───────────────────────────── -->
         <div x-show="activeTab === 'overview'">
@@ -478,6 +480,21 @@
         </div>
 
     </main>
+
+    <!-- ═══════════ МОБИЛЬНАЯ НИЖНЯЯ НАВИГАЦИЯ (скрыта на md+) ═══════════ -->
+    <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-emerald-900 border-t border-emerald-700 z-40">
+        <div class="flex items-center justify-around h-16">
+            <template x-for="tab in tabs" :key="tab.id">
+                <button @click="setTab(tab.id)"
+                        :class="activeTab === tab.id ? 'text-white' : 'text-emerald-400'"
+                        class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                    <span class="text-2xl leading-none" x-text="tab.icon"></span>
+                    <span class="text-xs font-medium" x-text="tab.label"></span>
+                </button>
+            </template>
+        </div>
+    </nav>
+
 </div><!-- end x-data -->
 
 <script>
