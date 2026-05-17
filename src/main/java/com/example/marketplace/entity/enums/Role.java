@@ -12,7 +12,8 @@ package com.example.marketplace.entity.enums;
  * Поэтому в SecurityConfig правило .hasRole("ADMIN") соответствует "ROLE_ADMIN".
  */
 public enum Role {
-    CLIENT,  // обычный покупатель
-    SELLER,  // продавец, управляет своими товарами
-    ADMIN    // администратор, полный доступ
+    CLIENT,      // обычный покупатель
+    SELLER,      // продавец, управляет своими товарами
+    ADMIN,       // администратор, полный доступ
+    ACCOUNTANT   // бухгалтер, доступ к отчётам
 }

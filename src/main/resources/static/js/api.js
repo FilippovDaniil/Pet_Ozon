@@ -211,4 +211,11 @@ const api = {
             method: 'POST',
             body: JSON.stringify({ to, subject, text }),
         }),
+
+    // ── Бухгалтер: отчёты ─────────────────────────────────────────────────
+    getAccountantSummary:   () => apiFetch('/api/accountant/summary'),
+    getAccountantOrders:    () => apiFetch('/api/accountant/orders'),
+    getAccountantCarts:     () => apiFetch('/api/accountant/carts'),
+    getAccountantCustomers: () => apiFetch('/api/accountant/customers'),
+    getAccountantEmails:    () => apiFetch('/api/accountant/emails'),
 };

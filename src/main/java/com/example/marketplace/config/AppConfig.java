@@ -31,10 +31,11 @@ public class AppConfig {
         return args -> {
             log.info("=== Initialising test data ===");
 
-            User client  = ensureUser("client@example.com",  "pass", "Иван Клиентов",    Role.CLIENT,  null);
-            User admin   = ensureUser("admin@example.com",   "pass", "Администратор",    Role.ADMIN,   null);
-            User seller1 = ensureUser("seller1@example.com", "pass", "Алексей Технов",   Role.SELLER,  "TechShop");
-            User seller2 = ensureUser("seller2@example.com", "pass", "Мария Звукова",    Role.SELLER,  "AudioWorld");
+            User client     = ensureUser("client@example.com",     "pass", "Иван Клиентов",    Role.CLIENT,     null);
+            User admin      = ensureUser("admin@example.com",      "pass", "Администратор",    Role.ADMIN,      null);
+            User seller1    = ensureUser("seller1@example.com",    "pass", "Алексей Технов",   Role.SELLER,     "TechShop");
+            User seller2    = ensureUser("seller2@example.com",    "pass", "Мария Звукова",    Role.SELLER,     "AudioWorld");
+                             ensureUser("accountant@example.com", "pass", "Елена Бухгалтер", Role.ACCOUNTANT, null);
 
             for (User u : new User[]{client, admin, seller1, seller2}) {
                 if (cartRepository.findByUser(u).isEmpty()) {

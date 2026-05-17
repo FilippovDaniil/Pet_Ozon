@@ -81,6 +81,9 @@ public class SecurityConfig {
                         // Эндпоинты продавца — только для роли SELLER.
                         .requestMatchers("/api/seller/**").hasRole("SELLER")
 
+                        // Эндпоинты бухгалтера — только для роли ACCOUNTANT.
+                        .requestMatchers("/api/accountant/**").hasRole("ACCOUNTANT")
+
                         // Все остальные запросы требуют любой аутентификации.
                         .anyRequest().authenticated()
                 )

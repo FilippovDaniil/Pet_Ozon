@@ -1,8 +1,10 @@
 package com.example.marketplace.service;
 
+import com.example.marketplace.entity.EmailLog;
 import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.OrderItem;
 import com.example.marketplace.entity.User;
+import com.example.marketplace.repository.EmailLogRepository;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ import java.util.Locale;
 public class EmailService {
 
     private final JavaMailSender mailSender;
+    private final EmailLogRepository emailLogRepository;
 
     @Value("${spring.mail.username}")
     private String from;
@@ -46,8 +49,10 @@ public class EmailService {
             h.setText(text, false);
             mailSender.send(msg);
             log.info("ACTION=EMAIL_SENT to={} subject=\"{}\"", to, subject);
+            saveLog(to, subject, true, null);
         } catch (MailException | MessagingException e) {
             log.error("Email send failed to={}: {}", to, e.getMessage());
+            saveLog(to, subject, false, e.getMessage());
             throw new RuntimeException("Ошибка отправки письма: " + e.getMessage(), e);
         }
     }
@@ -64,9 +69,25 @@ public class EmailService {
             h.setText(html, true);
             mailSender.send(msg);
             log.info("ACTION=RECEIPT_SENT to={}", to);
+            saveLog(to, subject, true, null);
         } catch (MailException | MessagingException e) {
             // Email failure must NOT roll back payment — just log
             log.warn("Receipt email failed for to={}: {}", to, e.getMessage());
+            saveLog(to, subject, false, e.getMessage());
+        }
+    }
+
+    private void saveLog(String to, String subject, boolean success, String error) {
+        try {
+            EmailLog entry = new EmailLog();
+            entry.setRecipient(to);
+            entry.setSubject(subject);
+            entry.setSentAt(java.time.LocalDateTime.now());
+            entry.setSuccess(success);
+            if (error != null) entry.setErrorMessage(error.length() > 500 ? error.substring(0, 500) : error);
+            emailLogRepository.save(entry);
+        } catch (Exception ex) {
+            log.warn("Failed to persist email log: {}", ex.getMessage());
         }
     }
 
