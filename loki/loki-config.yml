@@ -7,6 +7,7 @@ auth_enabled: false
 server:
   http_listen_port: 3100
   grpc_listen_port: 9096
+  log_level: warn          # подавляем info-шум (uploading table, cleaning up indexes...)
 
 # common — задаёт общие настройки: путь к данным, репликацию, ring.
 # Упрощает конфиг: не нужно указывать пути отдельно для каждого компонента.
@@ -32,10 +33,17 @@ schema_config:
         prefix: index_
         period: 24h
 
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true       # удалять чанки и индексы старше retention_period
+  retention_delete_delay: 1h
+
 limits_config:
   reject_old_samples: true
   reject_old_samples_max_age: 168h  # отбрасывать логи старше 7 дней
   max_cache_freshness_per_query: 10m
+  retention_period: 168h            # хранить данные 7 дней, остальное удалять
 
 # Отключаем телеметрию Grafana (не нужна в учебном проекте)
 analytics:

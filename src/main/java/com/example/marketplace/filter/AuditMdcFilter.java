@@ -38,6 +38,13 @@ import java.util.UUID;
 public class AuditMdcFilter extends OncePerRequestFilter {
 
     @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // Actuator-эндпоинты (health, prometheus) не нужно логировать — это технический трафик.
+        // Prometheus scrape раз в 15 сек иначе засорял бы лог ~8 строками в минуту.
+        return request.getRequestURI().startsWith("/actuator");
+    }
+
+    @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
