@@ -21,7 +21,8 @@
 <body class="bg-gray-50 min-h-screen">
 
 <!-- ═══════════════════════════════ NAVBAR ═══════════════════════════════ -->
-<div x-data="clientApp()" class="min-h-screen flex flex-col" x-cloak>
+<div x-data="clientApp()" class="min-h-screen flex flex-col" x-cloak
+     @select-category.window="selectCategory($event.detail)">
 
     <nav class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -113,23 +114,34 @@
                  x-data="{
                      slide: 0,
                      slides: [
-                         { icon: '💻', title: 'Ноутбуки и ПК', sub: 'Dell XPS, ASUS ROG и другие', grad: 'from-indigo-600 to-violet-700' },
-                         { icon: '🎧', title: 'Аудиотехника', sub: 'Sony, Bose, Sennheiser, JBL', grad: 'from-teal-500 to-cyan-700' },
-                         { icon: '🖱️', title: 'Периферия', sub: 'Мыши, клавиатуры, хабы', grad: 'from-rose-500 to-pink-700' },
-                         { icon: '🖥️', title: 'Мониторы', sub: '4K, 144 Гц, IPS панели', grad: 'from-amber-500 to-orange-600' },
-                         { icon: '🎙️', title: 'Звукозапись', sub: 'Микрофоны и аудиоинтерфейсы', grad: 'from-emerald-500 to-green-700' },
+                         { icon: '📱', title: 'Смартфоны',     sub: 'iPhone, Samsung, Google Pixel, Xiaomi',       grad: 'from-blue-500 to-violet-600',   cat: 'Смартфоны' },
+                         { icon: '💻', title: 'Ноутбуки и ПК', sub: 'Dell XPS, MacBook, ASUS ROG и другие',        grad: 'from-indigo-600 to-violet-700',  cat: 'Ноутбуки' },
+                         { icon: '🗒️', title: 'Планшеты',      sub: 'iPad, Galaxy Tab, Surface Pro',               grad: 'from-sky-400 to-blue-600',       cat: 'Планшеты' },
+                         { icon: '🖥️', title: 'Мониторы',      sub: '4K, OLED, 144–240 Гц, IPS панели',           grad: 'from-amber-500 to-orange-600',   cat: 'Мониторы' },
+                         { icon: '🖱️', title: 'Периферия',     sub: 'Мыши, клавиатуры, веб-камеры, хабы',        grad: 'from-rose-500 to-pink-700',      cat: 'Периферия' },
+                         { icon: '💾', title: 'Накопители',    sub: 'SSD NVMe, внешние диски, флешки, NAS',        grad: 'from-orange-500 to-red-600',     cat: 'Накопители' },
+                         { icon: '⚙️', title: 'Комплектующие', sub: 'Процессоры, видеокарты, ОЗУ, материнки',     grad: 'from-slate-600 to-gray-800',     cat: 'Комплектующие' },
+                         { icon: '🎧', title: 'Аудиотехника',  sub: 'Sony, Bose, Sennheiser, JBL, Sonos',         grad: 'from-teal-500 to-cyan-700',      cat: 'Аудио' },
+                         { icon: '🌐', title: 'Сетевое',       sub: 'Роутеры Wi-Fi 7, коммутаторы, точки доступа', grad: 'from-cyan-500 to-sky-700',       cat: 'Сетевое' },
+                         { icon: '🏠', title: 'Умный дом',     sub: 'Ассистенты, роботы-пылесосы, IoT',           grad: 'from-green-500 to-emerald-700',  cat: 'Умный дом' },
+                         { icon: '🎮', title: 'Игровые',       sub: 'Геймпады, VR-гарнитуры, игровые столы',      grad: 'from-purple-600 to-violet-800',  cat: 'Игровые' },
+                         { icon: '📷', title: 'Фото и видео',  sub: 'Камеры, экшн-камеры, дроны, стабилизаторы',  grad: 'from-pink-500 to-rose-600',      cat: 'Фото/Видео' },
                      ]
                  }"
                  x-init="setInterval(() => slide = (slide + 1) % slides.length, 4000)">
 
                 <!-- Slides -->
                 <template x-for="(s, i) in slides" :key="i">
-                    <div class="absolute inset-0 flex items-center justify-between px-10 bg-gradient-to-r transition-opacity duration-700"
-                         :class="[`${s.grad}`, slide === i ? 'opacity-100 z-10' : 'opacity-0 z-0']">
+                    <div class="absolute inset-0 flex items-center justify-between px-10 bg-gradient-to-r transition-opacity duration-700 cursor-pointer"
+                         :class="[`${s.grad}`, slide === i ? 'opacity-100 z-10' : 'opacity-0 z-0']"
+                         @click="$dispatch('select-category', s.cat)">
                         <div class="text-white">
                             <p class="text-xs font-semibold uppercase tracking-widest text-white/70 mb-1">Marketplace</p>
                             <h2 class="text-3xl font-extrabold leading-tight" x-text="s.title"></h2>
                             <p class="text-white/80 text-sm mt-1" x-text="s.sub"></p>
+                            <p class="text-white/50 text-xs mt-3 flex items-center gap-1">
+                                <span>→</span> Нажмите для перехода в категорию
+                            </p>
                         </div>
                         <div class="text-8xl leading-none opacity-90" x-text="s.icon"></div>
                     </div>
