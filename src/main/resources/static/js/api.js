@@ -189,4 +189,19 @@ const api = {
             method: 'POST',
             body: JSON.stringify({ content }),
         }),
+
+    // ── Техподдержка ──────────────────────────────────────────────────────
+    startSupportConversation: () =>
+        apiFetch('/api/support/conversations', { method: 'POST' }),
+    getSupportConversations: () =>
+        apiFetch('/api/support/conversations'),
+    getSupportMessages: (id) =>
+        apiFetch(`/api/support/conversations/${id}/messages`),
+    pollSupportMessages: (id, afterId) =>
+        apiFetch(`/api/support/conversations/${id}/messages/poll?after=${afterId}`),
+    sendSupportMessage: (id, content) =>
+        apiFetch(`/api/support/conversations/${id}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+        }),
 };

@@ -55,6 +55,16 @@
                     class="px-4 py-2 rounded-lg text-sm transition">
                     Счета
                 </button>
+                <button @click="setTab('support')"
+                    :class="activeTab === 'support'
+                        ? 'bg-gray-700 text-white font-semibold'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'"
+                    class="px-4 py-2 rounded-lg text-sm transition relative">
+                    Поддержка
+                    <span x-show="totalSupportUnread > 0"
+                          class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center"
+                          x-text="totalSupportUnread"></span>
+                </button>
             </div>
 
             <!-- Пользователь -->
@@ -263,6 +273,108 @@
             </div>
         </div>
 
+        <!-- ─────────────────── TAB: ПОДДЕРЖКА ──────────────────────── -->
+        <div x-show="activeTab === 'support'">
+
+            <!-- Список обращений -->
+            <div x-show="!activeSupportConv">
+                <div class="flex items-center justify-between mb-6">
+                    <h2 class="text-xl font-bold text-gray-900">Обращения в поддержку</h2>
+                    <button @click="loadSupportConversations()"
+                            class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition flex items-center gap-1.5">
+                        ↻ Обновить
+                    </button>
+                </div>
+
+                <div x-show="loadingSupportConversations" class="bg-white rounded-xl p-8 text-center text-gray-400">
+                    <div class="animate-spin text-3xl mb-2">⏳</div>
+                    Загрузка...
+                </div>
+
+                <div x-show="!loadingSupportConversations && supportConversations.length === 0"
+                     class="text-center py-20 text-gray-400">
+                    <div class="text-5xl mb-3">💬</div>
+                    <p class="text-lg">Обращений пока нет</p>
+                </div>
+
+                <div class="space-y-3">
+                    <template x-for="conv in supportConversations" :key="conv.id">
+                        <div @click="openSupportConv(conv)"
+                             class="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 cursor-pointer hover:border-indigo-300 hover:shadow-sm transition">
+                            <div class="w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-lg"
+                                 style="background: linear-gradient(135deg,#6366f1,#8b5cf6)">
+                                <span x-text="(conv.clientName || '?')[0].toUpperCase()"></span>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between mb-0.5">
+                                    <span class="font-semibold text-gray-900 text-sm" x-text="conv.clientName"></span>
+                                    <span class="text-xs text-gray-400" x-text="fmtDate(conv.updatedAt)"></span>
+                                </div>
+                                <p class="text-sm text-gray-500 truncate" x-text="conv.lastMessage || 'Нет сообщений'"></p>
+                            </div>
+                            <div x-show="conv.unreadCount > 0"
+                                 class="w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center flex-shrink-0"
+                                 x-text="conv.unreadCount"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Переписка с клиентом -->
+            <div x-show="activeSupportConv">
+                <div class="flex items-center gap-3 mb-5">
+                    <button @click="closeSupportConv()"
+                            class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-200 rounded-lg transition text-sm font-medium">
+                        ← Назад
+                    </button>
+                    <div class="w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-lg"
+                         style="background: linear-gradient(135deg,#6366f1,#8b5cf6)">
+                        <span x-text="(activeSupportConv?.clientName || '?')[0].toUpperCase()"></span>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-bold text-gray-900" x-text="activeSupportConv?.clientName"></h2>
+                        <p class="text-xs text-gray-400">Обращение в поддержку</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-gray-200 p-4 mb-4 overflow-y-auto space-y-3"
+                     style="min-height:300px;max-height:480px" x-ref="adminSupportMsgs">
+                    <div x-show="loadingSupportMessages" class="text-center py-10 text-gray-400">
+                        <div class="animate-spin text-2xl mb-1">⏳</div> Загрузка...
+                    </div>
+                    <div x-show="!loadingSupportMessages && supportMessages.length === 0"
+                         class="text-center py-10 text-gray-400 text-sm">Нет сообщений</div>
+                    <template x-for="msg in supportMessages" :key="msg.id">
+                        <div class="flex" :class="msg.mine ? 'justify-end' : 'justify-start'">
+                            <div class="max-w-xs lg:max-w-md px-4 py-2.5 rounded-2xl text-sm"
+                                 :class="msg.mine
+                                     ? 'bg-indigo-600 text-white rounded-br-sm'
+                                     : 'bg-gray-100 text-gray-800 rounded-bl-sm'">
+                                <p x-show="!msg.mine"
+                                   class="text-xs font-medium mb-1 opacity-60" x-text="msg.senderName"></p>
+                                <p class="leading-relaxed break-words" x-text="msg.content"></p>
+                                <p class="text-xs mt-1 opacity-70 text-right" x-text="fmtDate(msg.sentAt)"></p>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex gap-3">
+                    <textarea x-model="supportInput"
+                              @keydown.enter.exact.prevent="sendSupportMsg()"
+                              placeholder="Ответить клиенту... (Enter — отправить)"
+                              rows="2"
+                              class="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                    <button @click="sendSupportMsg()"
+                            :disabled="!supportInput.trim() || sendingSupport"
+                            class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition self-end">
+                        <span x-show="!sendingSupport">Отправить</span>
+                        <span x-show="sendingSupport">⏳</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- ─────────────────── TAB: СЧЕТА ──────────────────────────── -->
         <div x-show="activeTab === 'invoices'">
             <div class="flex items-center justify-between mb-6">
@@ -396,11 +508,18 @@
                     <select x-model="productForm.category"
                             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
                         <option value="">— Выбрать —</option>
+                        <option>Смартфоны</option>
                         <option>Ноутбуки</option>
-                        <option>Периферия</option>
+                        <option>Планшеты</option>
                         <option>Мониторы</option>
+                        <option>Периферия</option>
                         <option>Накопители</option>
+                        <option>Комплектующие</option>
                         <option>Аудио</option>
+                        <option>Сетевое</option>
+                        <option>Умный дом</option>
+                        <option>Игровые</option>
+                        <option>Фото/Видео</option>
                         <option>Другое</option>
                     </select>
                 </div>
@@ -566,6 +685,16 @@
             reviews: [],
             loadingReviews: false,
 
+            // Поддержка
+            supportConversations: [],
+            loadingSupportConversations: false,
+            activeSupportConv: null,
+            supportMessages: [],
+            loadingSupportMessages: false,
+            supportInput: '',
+            sendingSupport: false,
+            _supportPollTimer: null,
+
             toasts: [],
             _toastId: 0,
 
@@ -575,11 +704,16 @@
                 await this.loadProducts();
             },
 
+            get totalSupportUnread() {
+                return this.supportConversations.reduce((s, c) => s + (c.unreadCount || 0), 0);
+            },
+
             async setTab(tab) {
                 this.activeTab = tab;
                 if (tab === 'products' && this.products.length === 0) await this.loadProducts();
                 if (tab === 'orders')   await this.loadOrders();
                 if (tab === 'invoices') await this.loadInvoices();
+                if (tab === 'support')  await this.loadSupportConversations();
             },
 
             // ── Товары ────────────────────────────────────────────
@@ -764,6 +898,80 @@
                     this.invoices = await api.getAllInvoices();
                 } catch (e) { this.toast(e.message, 'error'); }
                 finally { this.loadingInvoices = false; }
+            },
+
+            // ── Поддержка ─────────────────────────────────────────
+            async loadSupportConversations() {
+                this.loadingSupportConversations = true;
+                try {
+                    this.supportConversations = await api.getSupportConversations() || [];
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingSupportConversations = false; }
+            },
+
+            async openSupportConv(conv) {
+                this.activeSupportConv = conv;
+                this.supportMessages = [];
+                this.supportInput = '';
+                this.loadingSupportMessages = true;
+                try {
+                    this.supportMessages = await api.getSupportMessages(conv.id) || [];
+                    conv.unreadCount = 0;
+                    this.$nextTick(() => {
+                        const el = this.$refs.adminSupportMsgs;
+                        if (el) el.scrollTop = el.scrollHeight;
+                    });
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingSupportMessages = false; }
+                this._stopSupportPoll();
+                this._supportPollTimer = setInterval(() => this._pollSupportMessages(), 3000);
+            },
+
+            closeSupportConv() {
+                this._stopSupportPoll();
+                this.activeSupportConv = null;
+                this.loadSupportConversations();
+            },
+
+            _stopSupportPoll() {
+                if (this._supportPollTimer) {
+                    clearInterval(this._supportPollTimer);
+                    this._supportPollTimer = null;
+                }
+            },
+
+            async _pollSupportMessages() {
+                if (!this.activeSupportConv) return;
+                const lastId = this.supportMessages.length > 0
+                    ? this.supportMessages[this.supportMessages.length - 1].id
+                    : 0;
+                try {
+                    const newMsgs = await api.pollSupportMessages(this.activeSupportConv.id, lastId);
+                    if (newMsgs && newMsgs.length > 0) {
+                        this.supportMessages.push(...newMsgs);
+                        this.$nextTick(() => {
+                            const el = this.$refs.adminSupportMsgs;
+                            if (el) el.scrollTop = el.scrollHeight;
+                        });
+                    }
+                } catch { /* тихо игнорируем */ }
+            },
+
+            async sendSupportMsg() {
+                if (!this.supportInput.trim() || !this.activeSupportConv) return;
+                this.sendingSupport = true;
+                try {
+                    const msg = await api.sendSupportMessage(this.activeSupportConv.id, this.supportInput.trim());
+                    if (msg) {
+                        this.supportMessages.push(msg);
+                        this.supportInput = '';
+                        this.$nextTick(() => {
+                            const el = this.$refs.adminSupportMsgs;
+                            if (el) el.scrollTop = el.scrollHeight;
+                        });
+                    }
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.sendingSupport = false; }
             },
 
             // ── Утилиты ───────────────────────────────────────────
