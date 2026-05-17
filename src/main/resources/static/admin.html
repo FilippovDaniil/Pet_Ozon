@@ -65,6 +65,13 @@
                           class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center"
                           x-text="totalSupportUnread"></span>
                 </button>
+                <button @click="setTab('email')"
+                    :class="activeTab === 'email'
+                        ? 'bg-gray-700 text-white font-semibold'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    ✉️ Почта
+                </button>
             </div>
 
             <!-- Пользователь -->
@@ -370,6 +377,41 @@
                             class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition self-end">
                         <span x-show="!sendingSupport">Отправить</span>
                         <span x-show="sendingSupport">⏳</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─────────────────── TAB: ПОЧТА ───────────────────────────── -->
+        <div x-show="activeTab === 'email'">
+            <div class="max-w-xl">
+                <div class="flex items-center gap-3 mb-6">
+                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white text-lg"
+                         style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">✉️</div>
+                    <h2 class="text-xl font-bold text-gray-900">Отправить письмо</h2>
+                </div>
+
+                <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Кому (email)</label>
+                        <input type="email" x-model="emailForm.to" placeholder="user@example.com"
+                               class="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Тема</label>
+                        <input type="text" x-model="emailForm.subject" placeholder="Тема письма"
+                               class="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1.5">Текст письма</label>
+                        <textarea x-model="emailForm.text" rows="6" placeholder="Введите текст письма..."
+                                  class="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"></textarea>
+                    </div>
+                    <button @click="sendAdminEmail()"
+                            :disabled="!emailForm.to.trim() || !emailForm.subject.trim() || !emailForm.text.trim() || sendingEmail"
+                            class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition">
+                        <span x-show="!sendingEmail">✉️ Отправить письмо</span>
+                        <span x-show="sendingEmail">⏳ Отправляем...</span>
                     </button>
                 </div>
             </div>
@@ -695,6 +737,10 @@
             sendingSupport: false,
             _supportPollTimer: null,
 
+            // Почта
+            emailForm: { to: '', subject: '', text: '' },
+            sendingEmail: false,
+
             toasts: [],
             _toastId: 0,
 
@@ -889,6 +935,17 @@
                     this.orders = [...this.orders]; // trigger reactivity
                     this.toast(`Статус заказа #${order.id} изменён`, 'success');
                 } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Почта ─────────────────────────────────────────────
+            async sendAdminEmail() {
+                this.sendingEmail = true;
+                try {
+                    await api.sendAdminEmail(this.emailForm.to, this.emailForm.subject, this.emailForm.text);
+                    this.toast('Письмо отправлено', 'success');
+                    this.emailForm = { to: '', subject: '', text: '' };
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.sendingEmail = false; }
             },
 
             // ── Счета ─────────────────────────────────────────────

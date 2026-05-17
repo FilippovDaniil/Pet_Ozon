@@ -31,7 +31,11 @@
       "Bash(ConvertTo-Json -Depth 10)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\" -Recurse -Directory)",
       "Bash(Select-Object -ExpandProperty FullName)",
-      "Bash(Sort-Object)"
+      "Bash(Sort-Object)",
+      "Bash(Get-Content \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\src\\\\main\\\\resources\\\\static\\\\admin.html\")",
+      "Bash(Measure-Object -Line)",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\src\\\\main\\\\resources\\\\static\\\\admin.html\" | Measure-Object -Line\\).Lines)",
+      "Bash(git check-ignore *)"
     ]
   }
 }

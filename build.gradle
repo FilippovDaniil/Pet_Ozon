@@ -36,6 +36,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
 
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+
     // Spring Cache — декларативное кэширование через аннотации @Cacheable/@CacheEvict.
     // Базовая реализация: ConcurrentHashMap в памяти (без Redis — хватит для учёбы).
     implementation 'org.springframework.boot:spring-boot-starter-cache'

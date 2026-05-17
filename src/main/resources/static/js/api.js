@@ -204,4 +204,11 @@ const api = {
             method: 'POST',
             body: JSON.stringify({ content }),
         }),
+
+    // ── Админ: отправка произвольного письма ──────────────────────────────
+    sendAdminEmail: (to, subject, text) =>
+        apiFetch('/api/admin/email/send', {
+            method: 'POST',
+            body: JSON.stringify({ to, subject, text }),
+        }),
 };

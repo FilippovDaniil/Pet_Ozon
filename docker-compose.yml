@@ -45,6 +45,7 @@ services:
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       # Профиль "docker" активирует Loki-аппендер в logback-spring.xml
       SPRING_PROFILES_ACTIVE: docker
+      MAIL_PASSWORD: "${MAIL_PASSWORD}"
     depends_on:
       postgres:
         condition: service_healthy    # ждём пока PostgreSQL полностью запустится

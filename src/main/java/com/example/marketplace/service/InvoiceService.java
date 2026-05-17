@@ -44,6 +44,7 @@ public class InvoiceService {
     private final OrderRepository orderRepository;
     private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
+    private final EmailService emailService;
 
     /**
      * Возвращает все счета постранично.
@@ -111,6 +112,14 @@ public class InvoiceService {
 
         log.info("ACTION=PAY_INVOICE invoiceId={} orderId={} amount={} method={}",
                 invoiceId, order.getId(), invoice.getAmount(), payment.getPaymentMethod());
+
+        // Отправляем чек покупателю — вне try-with-rollback, сбой почты не отменяет платёж.
+        try {
+            User buyer = order.getUser(); // триггерим lazy-load пока транзакция открыта
+            emailService.sendOrderReceipt(buyer, order, payment.getPaymentMethod());
+        } catch (Exception e) {
+            log.warn("Receipt email skipped for invoiceId={}: {}", invoiceId, e.getMessage());
+        }
 
         PaymentResponse r = new PaymentResponse();
         r.setId(payment.getId());
