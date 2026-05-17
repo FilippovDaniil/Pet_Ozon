@@ -86,4 +86,19 @@ const api = {
     // ── Админ: счета ──────────────────────────────────────────────────────
     getAllInvoices: () =>
         apiFetch('/api/admin/invoices'),
+
+    // ── Чат ───────────────────────────────────────────────────────────────
+    getChatConversations: () =>
+        apiFetch('/api/chat/conversations'),
+    startChatConversation: (sellerId, message) =>
+        apiFetch('/api/chat/conversations', { method: 'POST', body: JSON.stringify({ sellerId, message }) }),
+    getChatMessages: (conversationId) =>
+        apiFetch(`/api/chat/conversations/${conversationId}/messages`),
+    pollChatMessages: (conversationId, afterId) =>
+        apiFetch(`/api/chat/conversations/${conversationId}/messages/poll?after=${afterId}`),
+    sendChatMessage: (conversationId, content) =>
+        apiFetch(`/api/chat/conversations/${conversationId}/messages`, {
+            method: 'POST',
+            body: JSON.stringify({ content }),
+        }),
 };

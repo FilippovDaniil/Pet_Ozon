@@ -45,6 +45,15 @@ public class ChatController {
         return chatService.getMessages(user, id);
     }
 
+    /** Опрос новых сообщений в диалоге (polling). Возвращает только сообщения с id > after. */
+    @GetMapping("/conversations/{id}/messages/poll")
+    public List<MessageResponse> pollMessages(
+            @AuthenticationPrincipal User user,
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") Long after) {
+        return chatService.pollMessages(user, id, after);
+    }
+
     /** Отправить сообщение в диалог. Доступно только участникам диалога. */
     @PostMapping(value = "/conversations/{id}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)

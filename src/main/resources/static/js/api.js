@@ -182,6 +182,8 @@ const api = {
         }),
     getChatMessages: (conversationId) =>
         apiFetch(`/api/chat/conversations/${conversationId}/messages`),
+    pollChatMessages: (conversationId, afterId) =>
+        apiFetch(`/api/chat/conversations/${conversationId}/messages/poll?after=${afterId}`),
     sendChatMessage: (conversationId, content) =>
         apiFetch(`/api/chat/conversations/${conversationId}/messages`, {
             method: 'POST',

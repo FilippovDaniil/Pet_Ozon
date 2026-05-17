@@ -8,4 +8,5 @@ import java.util.List;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findByConversationOrderBySentAtAsc(Conversation conversation);
+    List<Message> findByConversationAndIdGreaterThanOrderBySentAtAsc(Conversation conversation, Long afterId);
 }

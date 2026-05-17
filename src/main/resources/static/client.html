@@ -858,6 +858,7 @@
             writeSellerTarget: null,
             writeSellerMessage: '',
             writingToSeller: false,
+            _chatPollTimer: null,
 
             toasts: [],
             _toastId: 0,
@@ -1080,7 +1081,6 @@
                 this.loadingChatMessages = true;
                 try {
                     this.chatMessages = await api.getChatMessages(conv.id) || [];
-                    // Обнуляем счётчик непрочитанных в списке
                     conv.unreadCount = 0;
                     this.$nextTick(() => {
                         const el = this.$refs.chatMsgs;
@@ -1088,11 +1088,39 @@
                     });
                 } catch (e) { this.toast(e.message, 'error'); }
                 finally { this.loadingChatMessages = false; }
+                // Запускаем polling новых сообщений каждые 3 секунды
+                this._stopChatPoll();
+                this._chatPollTimer = setInterval(() => this._pollChatMessages(), 3000);
             },
 
             closeChatConversation() {
+                this._stopChatPoll();
                 this.activeChatConversation = null;
                 this.loadChatConversations();
+            },
+
+            _stopChatPoll() {
+                if (this._chatPollTimer) {
+                    clearInterval(this._chatPollTimer);
+                    this._chatPollTimer = null;
+                }
+            },
+
+            async _pollChatMessages() {
+                if (!this.activeChatConversation) return;
+                const lastId = this.chatMessages.length > 0
+                    ? this.chatMessages[this.chatMessages.length - 1].id
+                    : 0;
+                try {
+                    const newMsgs = await api.pollChatMessages(this.activeChatConversation.id, lastId);
+                    if (newMsgs && newMsgs.length > 0) {
+                        this.chatMessages.push(...newMsgs);
+                        this.$nextTick(() => {
+                            const el = this.$refs.chatMsgs;
+                            if (el) el.scrollTop = el.scrollHeight;
+                        });
+                    }
+                } catch { /* тихо игнорируем ошибки polling */ }
             },
 
             async sendChat() {

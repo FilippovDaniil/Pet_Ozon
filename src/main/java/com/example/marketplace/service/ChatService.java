@@ -83,6 +83,25 @@ public class ChatService {
     }
 
     @Transactional
+    public List<MessageResponse> pollMessages(User user, Long conversationId, Long afterId) {
+        Conversation conversation = findConversation(conversationId);
+        checkParticipant(conversation, user);
+
+        List<Message> messages = messageRepository
+                .findByConversationAndIdGreaterThanOrderBySentAtAsc(conversation, afterId);
+
+        List<Message> unread = messages.stream()
+                .filter(m -> !m.getSender().getId().equals(user.getId()) && !m.isRead())
+                .toList();
+        if (!unread.isEmpty()) {
+            unread.forEach(m -> m.setRead(true));
+            messageRepository.saveAll(unread);
+        }
+
+        return messages.stream().map(m -> toMessageResponse(m, user)).toList();
+    }
+
+    @Transactional
     public MessageResponse sendMessage(User sender, Long conversationId, String content) {
         Conversation conversation = findConversation(conversationId);
         checkParticipant(conversation, sender);
