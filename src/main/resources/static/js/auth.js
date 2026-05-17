@@ -63,8 +63,9 @@ function logout() {
 }
 
 function roleHome(role) {
-    if (role === 'ADMIN')  return 'admin.html';
-    if (role === 'SELLER') return 'seller.html';
+    if (role === 'ADMIN')      return 'admin.html';
+    if (role === 'SELLER')     return 'seller.html';
+    if (role === 'ACCOUNTANT') return 'accountant.html';
     return 'client.html';
 }
 
