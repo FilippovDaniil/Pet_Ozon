@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
@@ -25,11 +26,13 @@ public class AppConfig {
     private final ProductRepository productRepository;
     private final CartRepository cartRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JdbcTemplate jdbc;
 
     @Bean
     public CommandLineRunner initData() {
         return args -> {
             log.info("=== Initialising test data ===");
+            fixRoleConstraint();
 
             User client     = ensureUser("client@example.com",     "pass", "Иван Клиентов",    Role.CLIENT,     null);
             User admin      = ensureUser("admin@example.com",      "pass", "Администратор",    Role.ADMIN,      null);
@@ -290,6 +293,31 @@ public class AppConfig {
         p.setSeller(seller);
         p.setCategory(category);
         productRepository.save(p);
+    }
+
+    /**
+     * Пересоздаёт CHECK-ограничение на колонку role в таблице users.
+     *
+     * При ddl-auto=update Hibernate не обновляет существующие CHECK constraints —
+     * он создаёт их только при первом CREATE TABLE. Если БД была создана с более
+     * ранней версией enum (без ACCOUNTANT), constraint содержит только старые значения
+     * и INSERT нового пользователя падает с ConstraintViolationException.
+     *
+     * Этот метод запускается при каждом старте: он безопасно дропает constraint
+     * (IF EXISTS — не бросает ошибку если его нет) и создаёт актуальный.
+     * Идемпотентен: работает и на чистой БД, и на существующей.
+     */
+    private void fixRoleConstraint() {
+        try {
+            jdbc.execute("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check");
+            jdbc.execute("""
+                ALTER TABLE users ADD CONSTRAINT users_role_check
+                    CHECK (role IN ('CLIENT','SELLER','ADMIN','ACCOUNTANT'))
+                """);
+            log.info("users_role_check constraint updated");
+        } catch (Exception e) {
+            log.warn("Could not update users_role_check: {}", e.getMessage());
+        }
     }
 
     private String categorizeByName(String name) {
