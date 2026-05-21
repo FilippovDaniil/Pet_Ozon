@@ -3,8 +3,8 @@
 const API_BASE = '';
 
 function saveSession(data) {
-    localStorage.setItem('marketplace_token', data.token);
-    localStorage.setItem('marketplace_user', JSON.stringify({
+    sessionStorage.setItem('marketplace_token', data.token);
+    sessionStorage.setItem('marketplace_user', JSON.stringify({
         userId:   data.userId,
         email:    data.email,
         role:     data.role,
@@ -14,12 +14,12 @@ function saveSession(data) {
 }
 
 function getToken() {
-    return localStorage.getItem('marketplace_token');
+    return sessionStorage.getItem('marketplace_token');
 }
 
 function getCurrentUser() {
     try {
-        const raw = localStorage.getItem('marketplace_user');
+        const raw = sessionStorage.getItem('marketplace_user');
         return raw ? JSON.parse(raw) : null;
     } catch {
         return null;
@@ -57,8 +57,8 @@ async function register(email, password, fullName) {
 }
 
 function logout() {
-    localStorage.removeItem('marketplace_token');
-    localStorage.removeItem('marketplace_user');
+    sessionStorage.removeItem('marketplace_token');
+    sessionStorage.removeItem('marketplace_user');
     window.location.href = 'login.html';
 }
 
