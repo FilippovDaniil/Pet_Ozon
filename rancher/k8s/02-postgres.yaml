@@ -1,0 +1,167 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 02-postgres.yaml — База данных PostgreSQL в Kubernetes
+# Содержит три ресурса: PersistentVolumeClaim + Deployment + Service
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── РЕСУРС 1: PersistentVolumeClaim ─────────────────────────────────────────
+#
+# ЧТО ТАКОЕ PVC (PersistentVolumeClaim)?
+# По умолчанию данные внутри контейнера эфемерны: перезапустился под — все
+# файлы PostgreSQL исчезли. Это катастрофа для базы данных.
+#
+# PVC решает проблему: это «заявка на хранилище» которую под подаёт кластеру.
+# Кластер (через StorageClass) выделяет реальный диск (PersistentVolume, PV).
+# Данные живут на PV независимо от жизненного цикла пода.
+#
+# АНАЛОГИЯ: PVC = заказ аренды диска. PV = сам диск. StorageClass = поставщик дисков.
+# В Rancher Desktop StorageClass называется "local-path" — данные на диске ПК.
+#
+# ЧТО ПРОИСХОДИТ ПРИ kubectl delete namespace?
+# PVC удаляется вместе с namespace. Данные PostgreSQL тоже удаляются.
+# Чтобы сохранить данные, используй: kubectl delete namespace marketplace --grace-period=0
+# и предварительно сделай дамп: kubectl exec postgres-pod -- pg_dump marketplace > dump.sql
+# ════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1                  # PVC входит в стабильную группу v1.
+kind: PersistentVolumeClaim     # Заявка на выделение постоянного хранилища.
+metadata:
+  name: postgres-pvc            # Имя PVC. По этому имени Deployment подключает том.
+  namespace: marketplace
+spec:
+  accessModes:
+    - ReadWriteOnce             # Режим доступа к тому.
+                                # ReadWriteOnce (RWO) — том монтируется для чтения/записи
+                                # только ОДНИМ подом одновременно. Стандарт для БД.
+                                # ReadWriteMany (RWX) — несколько подов могут писать (NFS).
+                                # ReadOnlyMany (ROX) — много подов, только чтение.
+  resources:
+    requests:
+      storage: 1Gi              # Запрашиваем 1 гигабайт дискового пространства.
+                                # Для учебного проекта достаточно. В production — от 10Gi.
+                                # Rancher Desktop (local-path) выделит ровно столько сколько запрошено.
+
+---
+# ── РЕСУРС 2: Deployment ─────────────────────────────────────────────────────
+#
+# ЧТО ТАКОЕ DEPLOYMENT?
+# Deployment — контроллер K8s, управляющий группой одинаковых подов.
+# Он следит: если под упал — перезапустить. Если нужно обновить образ — сделать
+# rolling update (по одному, без простоя). Если rollout сломан — откатить.
+#
+# DEPLOYMENT vs POD: почему не создать Pod напрямую?
+# Pod — временная единица. Если узел (нода) умрёт, Pod не восстановится.
+# Deployment гарантирует: "всегда должно работать N реплик". Это самовосстановление.
+#
+# КАК DEPLOYMENT СВЯЗАН С ПОДОМ?
+# Deployment → ReplicaSet → Pod(s)
+# Deployment описывает ЖЕЛАЕМОЕ состояние. ReplicaSet следит за ТЕКУЩИМ.
+# При kubectl rollout restart создаётся новый ReplicaSet, старый постепенно убивается.
+# ════════════════════════════════════════════════════════════════════════════
+
+apiVersion: apps/v1      # Deployment входит в группу "apps", версия v1.
+kind: Deployment
+metadata:
+  name: postgres         # Имя Deployment. Команда: kubectl get deployment postgres -n marketplace
+  namespace: marketplace
+spec:
+  replicas: 1            # Количество одновременно работающих подов (экземпляров PostgreSQL).
+                         # БД не масштабируется горизонтально без специальных инструментов
+                         # (Patroni, Citus). Для нашего учебного проекта replicas: 1.
+
+  selector:              # КАК DEPLOYMENT НАХОДИТ СВОИ ПОДЫ?
+    matchLabels:         # Deployment управляет подами с label "app: postgres".
+      app: postgres      # Это связующее звено между Deployment и его подами.
+                         # Без этого Deployment не знает, какими подами управлять.
+
+  template:              # ШАБЛОН ПОДА — описание каждого создаваемого пода.
+    metadata:
+      labels:
+        app: postgres    # Метка пода. Должна совпадать с selector.matchLabels выше.
+                         # Service тоже ищет поды по этой метке (selector: app: postgres).
+    spec:                # Спецификация пода — что запускать.
+      containers:
+        - name: postgres          # Имя контейнера внутри пода (под может иметь несколько контейнеров).
+          image: postgres:15-alpine  # Docker-образ. Тег "15-alpine" = PostgreSQL 15 на Alpine Linux.
+                                     # Alpine — минимальный дистрибутив (~80 МБ вместо ~350 МБ).
+          ports:
+            - containerPort: 5432  # Порт который слушает PostgreSQL внутри контейнера.
+                                   # Это только документация (не открывает порт наружу).
+                                   # Реальный доступ организует Service ниже.
+          env:                     # Переменные окружения — основной способ настройки postgres-образа.
+            - name: POSTGRES_DB    # Имя базы данных создаваемой при первом старте.
+              value: "marketplace" # Должно совпадать с именем в SPRING_DATASOURCE_URL.
+
+            - name: POSTGRES_USER  # Суперпользователь PostgreSQL.
+              value: "postgres"    # Должно совпадать с SPRING_DATASOURCE_USERNAME.
+
+            - name: POSTGRES_PASSWORD       # Пароль суперпользователя.
+              valueFrom:                    # НЕ пишем пароль в открытом виде!
+                secretKeyRef:              # Берём значение из Secret.
+                  name: marketplace-secrets # Имя Secret (из 01-secrets.yaml).
+                  key: postgres-password    # Ключ внутри Secret.
+                                           # Итог: берёт строку "1234" из Secret.
+
+          volumeMounts:                    # КУДА монтировать том внутри контейнера.
+            - name: postgres-storage       # Ссылка на volume из секции volumes ниже.
+              mountPath: /var/lib/postgresql/data  # Стандартный путь данных PostgreSQL.
+                                                    # Именно здесь postgres хранит WAL, таблицы, индексы.
+
+          readinessProbe:          # ПРОВЕРКА ГОТОВНОСТИ — когда под готов принимать трафик?
+                                   # K8s НЕ перенаправляет трафик пока probe не вернёт успех.
+                                   # Без probe Service сразу роутит запросы, хотя postgres ещё грузится.
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "marketplace"]
+                                   # pg_isready — утилита PostgreSQL.
+                                   # Возвращает exit code 0 = сервер принимает соединения.
+                                   # Возвращает exit code 1/2 = ещё не готов.
+            initialDelaySeconds: 10  # Подождать 10 секунд после старта контейнера перед первой проверкой.
+                                     # PostgreSQL инициализирует данные ~5-8 сек — даём запас.
+            periodSeconds: 5         # Проверять каждые 5 секунд.
+            failureThreshold: 10     # Считать под "не готовым" только после 10 подряд неудач.
+                                     # 10 * 5 сек = 50 сек максимальное ожидание готовности.
+
+      volumes:                     # ОБЪЯВЛЕНИЕ ТОМОВ для пода.
+        - name: postgres-storage   # Имя тома (ссылается volumeMounts выше).
+          persistentVolumeClaim:
+            claimName: postgres-pvc  # Подключаем PVC который создали выше (postgres-pvc).
+                                     # K8s найдёт PVC, найдёт соответствующий PV (реальный диск)
+                                     # и монтирует его в /var/lib/postgresql/data.
+
+---
+# ── РЕСУРС 3: Service ────────────────────────────────────────────────────────
+#
+# ЧТО ТАКОЕ SERVICE?
+# Pod имеет динамический IP (меняется при рестарте). Напрямую к поду обращаться нельзя.
+# Service — стабильный виртуальный IP + DNS-имя + балансировщик.
+# Он всегда знает актуальные IP подов через label selector.
+#
+# ТИПЫ SERVICE:
+# ClusterIP  — только внутри кластера. Идеально для БД (не нужен внешний доступ).
+# NodePort   — открывает порт на каждой ноде кластера. localhost:30xxx.
+# LoadBalancer — внешний балансировщик (в cloud-провайдерах создаёт реальный LB).
+#
+# PostgreSQL закрыт через ClusterIP — никто снаружи не достучится напрямую.
+# Только другие поды в кластере (наше приложение) могут к нему подключиться.
+# ════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service   # ИМЯ СЕРВИСА = DNS-ИМЕНА ВНУТРИ КЛАСТЕРА.
+                           # Spring Boot подключается: jdbc:postgresql://postgres-service:5432/marketplace
+                           # Kubernetes DNS разворачивает "postgres-service" в ClusterIP сервиса.
+  namespace: marketplace
+spec:
+  type: ClusterIP          # Внутренний сервис. Получает виртуальный IP только внутри кластера.
+                           # Снаружи (с ПК) к нему не достучаться — это правильно для БД.
+
+  selector:                # КАК SERVICE НАХОДИТ ПОДЫ НАЗНАЧЕНИЯ?
+    app: postgres          # Ищет поды с меткой "app: postgres".
+                           # Это та же метка что в Deployment.spec.template.metadata.labels.
+                           # Service → реальный трафик → поды с этой меткой.
+
+  ports:
+    - port: 5432           # Порт на котором Service слушает (внутри кластера).
+                           # SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-service:5432/...
+      targetPort: 5432     # Порт внутри контейнера пода — куда перенаправить трафик.
+                           # Совпадает с containerPort в Deployment выше.

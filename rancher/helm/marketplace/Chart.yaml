@@ -1,0 +1,6 @@
+apiVersion: v2
+name: marketplace
+description: Pet-project marketplace — Spring Boot + PostgreSQL
+type: application
+version: 1.0.0       # версия самого чарта
+appVersion: "1.0.0"  # версия приложения (docker image tag)

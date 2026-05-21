@@ -1,0 +1,157 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 04-prometheus.yaml — Prometheus: сбор и хранение метрик приложения
+# Содержит четыре ресурса: ConfigMap + PVC + Deployment + Service
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ЧТО ТАКОЕ PROMETHEUS?
+# Prometheus — система мониторинга с моделью PULL (тяни, а не толкай).
+# Он сам периодически ходит на эндпоинт /actuator/prometheus приложения
+# и скачивает метрики в формате text/plain. Это называется "scrape" (скрейп).
+#
+# МЕТРИКИ vs ЛОГИ:
+# Логи (Loki) — что произошло, текстовое описание событий.
+# Метрики (Prometheus) — числа: сколько запросов/сек, какая латентность p95,
+#   сколько RAM потребляет JVM, сколько потоков активно.
+#
+# КАК SPRING BOOT ОТДАЁТ МЕТРИКИ?
+# Зависимость spring-boot-starter-actuator + micrometer-registry-prometheus.
+# Эндпоинт /actuator/prometheus — текстовый формат метрик.
+# Prometheus скрейпит его каждые 15 сек (задаётся в scrape_interval).
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── РЕСУРС 1: ConfigMap (конфиг Prometheus) ──────────────────────────────────
+#
+# КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ОТНОСИТЕЛЬНО docker-compose:
+# В docker-compose: targets: ['app:8667']  — "app" это имя docker-compose сервиса.
+# В Kubernetes:     targets: ['marketplace-service:8667']  — K8s Service DNS-имя.
+# Если оставить 'app:8667', Prometheus не найдёт приложение → метрики не собираются.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config   # Имя. На него ссылается volumes секция Deployment ниже.
+  namespace: marketplace
+data:
+  prometheus.yml: |         # Ключ "prometheus.yml" → файл /etc/prometheus/prometheus.yml.
+
+    global:
+      scrape_interval: 15s      # Как часто скрейпить метрики у всех targets.
+                                # 15 сек = стандарт. Реже → менее актуальные данные.
+                                # Чаще → нагрузка на приложение и хранилище.
+      evaluation_interval: 15s  # Как часто вычислять alerting rules (у нас нет алертов).
+
+    scrape_configs:             # Список что и откуда скрейпить.
+      - job_name: 'marketplace' # Имя задания. Попадёт как label job="marketplace" в метрики.
+
+        metrics_path: '/actuator/prometheus'  # Spring Boot Actuator эндпоинт с метриками.
+                                              # По умолчанию Prometheus ходит на /metrics.
+                                              # Но Spring Boot использует другой путь.
+
+        static_configs:
+          - targets: ['marketplace-service:8667']  # АДРЕС ПРИЛОЖЕНИЯ В K8s.
+                                                    # marketplace-service — K8s Service из 06-app.yaml.
+                                                    # K8s DNS разворачивает в ClusterIP этого сервиса.
+                                                    # 8667 — порт Spring Boot.
+
+        relabel_configs:                # Добавить/изменить labels у собираемых метрик.
+          - target_label: application   # Добавить label: application="marketplace"
+            replacement: marketplace    # Grafana фильтрует по этому label в запросах:
+                                        # http_server_requests_seconds_count{application="marketplace"}
+
+---
+# ── РЕСУРС 2: PersistentVolumeClaim ─────────────────────────────────────────
+# Prometheus хранит time-series данные в /prometheus (TSDB — Time Series DB).
+# Без PVC при рестарте пода вся история метрик (до 7 дней) теряется.
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: marketplace
+spec:
+  accessModes:
+    - ReadWriteOnce   # Только один под пишет. Для Prometheus это норма (одна реплика).
+  resources:
+    requests:
+      storage: 1Gi    # 7 дней метрик с интервалом 15 сек ~200-500 МБ. 1 ГБ с запасом.
+
+---
+# ── РЕСУРС 3: Deployment ─────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: marketplace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.51.2  # Конкретная версия — стабильность важнее "latest".
+
+          args:                           # Аргументы командной строки Prometheus при запуске.
+            - --config.file=/etc/prometheus/prometheus.yml  # Где конфиг (смонтирован из ConfigMap).
+            - --storage.tsdb.path=/prometheus               # Где хранить TSDB (смонтирован PVC).
+            - --storage.tsdb.retention.time=7d              # Хранить данные 7 дней, старше удалять.
+                                                            # Совпадает с retention в Loki (единая политика).
+
+          ports:
+            - containerPort: 9090   # UI Prometheus и API для Grafana.
+                                    # http://localhost:30900 (через NodePort).
+
+          volumeMounts:
+            - name: prometheus-config   # ConfigMap с prometheus.yml.
+              mountPath: /etc/prometheus  # Результат: /etc/prometheus/prometheus.yml.
+            - name: prometheus-storage  # PVC для TSDB данных.
+              mountPath: /prometheus    # Совпадает с --storage.tsdb.path выше.
+
+          readinessProbe:
+            httpGet:
+              path: /-/ready   # Prometheus /ready — возвращает 200 когда готов скрейпить.
+              port: 9090
+            initialDelaySeconds: 10   # Prometheus стартует быстрее Loki — 10 сек достаточно.
+            periodSeconds: 5
+
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config   # Берём ConfigMap "prometheus-config" → файл в /etc/prometheus.
+        - name: prometheus-storage
+          persistentVolumeClaim:
+            claimName: prometheus-pvc # Берём PVC "prometheus-pvc" → монтируем в /prometheus.
+
+---
+# ── РЕСУРС 4: Service ────────────────────────────────────────────────────────
+#
+# ⚠️  Сервис называется "prometheus" (не "prometheus-service")!
+# Grafana datasource прописывает: url: http://prometheus:9090
+# Если имя другое — Grafana не найдёт данные метрик.
+#
+# NodePort — в отличие от Loki, Prometheus открыт наружу.
+# Это удобно: можно открыть localhost:30900 и посмотреть сырые метрики,
+# проверить статус targets, выполнить PromQL запросы для отладки.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus      # DNS внутри кластера: http://prometheus:9090
+                        # Grafana datasource URL использует именно это имя.
+  namespace: marketplace
+spec:
+  type: NodePort        # Открывает порт на узле кластера (твоём ПК).
+                        # Позволяет обращаться к Prometheus напрямую с хоста.
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090        # Порт ClusterIP (для обращений из кластера: Grafana → prometheus:9090).
+      targetPort: 9090  # Порт контейнера куда идёт трафик.
+      nodePort: 30900   # Порт на хосте. http://localhost:30900 → UI Prometheus.
+                        # Диапазон NodePort: 30000-32767. Мы выбрали 30900 (похоже на 9090).

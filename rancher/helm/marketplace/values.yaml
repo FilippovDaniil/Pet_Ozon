@@ -1,0 +1,36 @@
+# values.yaml — параметры по умолчанию.
+# Переопределяются при деплое: helm install ... --set key=value
+# или через отдельный файл:   helm install ... -f my-values.yaml
+
+# ── Namespace ────────────────────────────────────────────────────────────────
+namespace: marketplace
+
+# ── Образ приложения ─────────────────────────────────────────────────────────
+app:
+  image: marketplace-app
+  tag: "1.0.0"
+  # Never = использовать локальный образ (Rancher Desktop).
+  # Для CI/CD с реестром заменить на IfNotPresent или Always.
+  imagePullPolicy: Never
+  port: 8667
+  nodePort: 30667
+  replicas: 1
+
+# ── PostgreSQL ───────────────────────────────────────────────────────────────
+postgres:
+  image: postgres:15-alpine
+  port: 5432
+  database: marketplace
+  user: postgres
+  # Пароль задаётся при деплое через --set postgres.password=...
+  # Никогда не храни реальный пароль в values.yaml (он в git)!
+  password: "1234"
+  storage: 1Gi
+
+# ── Spring Mail ───────────────────────────────────────────────────────────────
+mail:
+  host: smtp.yandex.ru
+  port: "465"
+  username: vorobyshek2015@yandex.ru
+  # Пароль задаётся при деплое: helm install ... --set mail.password=<secret>
+  password: ""

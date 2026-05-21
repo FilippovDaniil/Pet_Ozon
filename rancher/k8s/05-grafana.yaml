@@ -1,0 +1,584 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 05-grafana.yaml — Grafana: визуализация логов и метрик
+# Содержит шесть ресурсов: 3×ConfigMap + PVC + Deployment + Service
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ЧТО ТАКОЕ PROVISIONING В GRAFANA?
+# Provisioning = автоматическая настройка при старте. Grafana читает YAML-файлы
+# из /etc/grafana/provisioning/ и создаёт datasources и дашборды без ручной настройки.
+# Это "Infrastructure as Code" для Grafana: конфиг лежит в git, не в БД Grafana.
+#
+# БЕЗ PROVISIONING: нужно вручную через UI добавлять datasources и импортировать дашборды.
+# С PROVISIONING: при каждом перезапуске Grafana всё создаётся автоматически.
+#
+# СТРУКТУРА КОНФИГУРАЦИОННЫХ ФАЙЛОВ:
+# /etc/grafana/provisioning/
+# ├── datasources/        ← откуда брать данные (Loki, Prometheus)
+# │   ├── loki.yml
+# │   └── prometheus.yml
+# └── dashboards/         ← как находить JSON-дашборды
+#     ├── dashboards.yml  ← провайдер: путь к файлам
+#     └── json/           ← сами JSON-дашборды (монтируем из отдельного ConfigMap)
+#         ├── marketplace.json
+#         └── metrics.json
+#
+# МЫ СОЗДАЁМ 3 ConfigMap:
+# 1. grafana-datasources     → файлы loki.yml и prometheus.yml
+# 2. grafana-dashboards-config → файл dashboards.yml (описывает где искать JSON)
+# 3. grafana-dashboards      → JSON-файлы двух дашбордов
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── РЕСУРС 1: ConfigMap — источники данных (datasources) ─────────────────────
+#
+# Grafana читает файлы из /etc/grafana/provisioning/datasources/*.yml
+# и автоматически создаёт подключения к Loki и Prometheus.
+# URL-адреса используют K8s DNS: "loki" и "prometheus" = имена K8s сервисов.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources   # Монтируется в /etc/grafana/provisioning/datasources/
+  namespace: marketplace
+data:
+  loki.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        uid: loki-ds
+        access: proxy
+        url: http://loki:3100
+        isDefault: true
+        jsonData:
+          maxLines: 1000
+  prometheus.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus-ds
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: false
+        jsonData:
+          timeInterval: 15s
+
+---
+---
+# ── РЕСУРС 2: ConfigMap — провайдер дашбордов ────────────────────────────────
+#
+# Этот файл сообщает Grafana: "ищи JSON дашборды по пути /etc/grafana/provisioning/dashboards/json".
+# Grafana автоматически загрузит все .json файлы из этой директории.
+# Именно в эту директорию мы монтируем третий ConfigMap (grafana-dashboards).
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-config   # Монтируется в /etc/grafana/provisioning/dashboards/
+  namespace: marketplace
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: marketplace
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /etc/grafana/provisioning/dashboards
+          foldersFromFilesStructure: false
+
+---
+---
+# ── РЕСУРС 3: ConfigMap — JSON-файлы дашбордов ───────────────────────────────
+#
+# Два готовых дашборда встроены прямо в ConfigMap как текстовые ключи.
+# При монтировании каждый ключ становится файлом:
+#   marketplace.json → /etc/grafana/provisioning/dashboards/json/marketplace.json
+#   metrics.json     → /etc/grafana/provisioning/dashboards/json/metrics.json
+#
+# Grafana подгружает их автоматически при старте (через провайдер из ConfigMap выше).
+# Дашборды провизионированы = их нельзя удалить через UI (только через изменение ConfigMap).
+# Используй allowUiUpdates: true (в dashboards.yml) чтобы редактировать через UI.
+#
+# ПОЧЕМУ НЕ ХРАНИТЬ JSON В GIT КАК ОБЫЧНЫЙ ФАЙЛ И НЕ МОНТИРОВАТЬ?
+# В K8s нет прямого доступа к файловой системе хоста — всё через ConfigMap/Secret/PVC.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: marketplace
+data:
+  marketplace.json: |
+    {
+      "__inputs": [],
+      "__elements": {},
+      "__requires": [],
+      "annotations": { "list": [] },
+      "description": "Аудит-лог маркетплейса: действия CLIENT, SELLER и ADMIN",
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 10,
+          "title": "Обзор трафика",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki-ds" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "fillOpacity": 10, "lineWidth": 2 }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
+          "id": 1,
+          "options": {
+            "legend": { "calcs": [], "displayMode": "list", "placement": "bottom" },
+            "tooltip": { "mode": "multi", "sort": "none" }
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki-ds" },
+              "expr": "sum by(role) (rate({app=\"marketplace\"}[1m]))",
+              "legendFormat": "{{role}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Количество логов в минуту (по роли)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+          "id": 11,
+          "title": "Действия акторов",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki-ds" },
+          "gridPos": { "h": 9, "w": 8, "x": 0, "y": 10 },
+          "id": 2,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki-ds" },
+              "expr": "{app=\"marketplace\", role=\"CLIENT\"} |= \"ACTION=\"",
+              "refId": "A"
+            }
+          ],
+          "title": "CLIENT: действия покупателя",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki-ds" },
+          "gridPos": { "h": 9, "w": 8, "x": 8, "y": 10 },
+          "id": 3,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki-ds" },
+              "expr": "{app=\"marketplace\", role=\"SELLER\"} |= \"ACTION=\"",
+              "refId": "A"
+            }
+          ],
+          "title": "SELLER: действия продавца",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki-ds" },
+          "gridPos": { "h": 9, "w": 8, "x": 16, "y": 10 },
+          "id": 4,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki-ds" },
+              "expr": "{app=\"marketplace\", role=\"ADMIN\"} |= \"ACTION=\"",
+              "refId": "A"
+            }
+          ],
+          "title": "ADMIN: административные действия",
+          "type": "logs"
+        },
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 },
+          "id": 12,
+          "title": "Ошибки и ключевые события",
+          "type": "row"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki-ds" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+          "id": 5,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki-ds" },
+              "expr": "{app=\"marketplace\", level=~\"WARN|ERROR\"}",
+              "refId": "A"
+            }
+          ],
+          "title": "Ошибки и предупреждения (WARN/ERROR)",
+          "type": "logs"
+        },
+        {
+          "datasource": { "type": "loki", "uid": "loki-ds" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+          "id": 6,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "targets": [
+            {
+              "datasource": { "type": "loki", "uid": "loki-ds" },
+              "expr": "{app=\"marketplace\"} |~ \"ACTION=(CHECKOUT|PAY_INVOICE)\"",
+              "refId": "A"
+            }
+          ],
+          "title": "Заказы и оплаты (CHECKOUT + PAY_INVOICE)",
+          "type": "logs"
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "tags": ["marketplace", "audit"],
+      "templating": { "list": [] },
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Marketplace Audit Logs",
+      "uid": "marketplace-audit",
+      "version": 1
+    }
+  metrics.json: |
+    {
+      "__inputs": [],
+      "__elements": {},
+      "__requires": [
+        { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+        { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+        { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+        { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" },
+        { "type": "panel", "id": "stat", "name": "Stat", "version": "" }
+      ],
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10 },
+              "unit": "reqps"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "tooltip": { "mode": "multi" } },
+          "title": "HTTP запросы / сек",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+              "expr": "sum(rate(http_server_requests_seconds_count{application=\"marketplace\"}[1m])) by (uri, method, status)",
+              "legendFormat": "{{method}} {{uri}} [{{status}}]",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10 },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "id": 2,
+          "title": "HTTP p95 Latency",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+              "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"marketplace\"}[1m])) by (le, uri))",
+              "legendFormat": "p95 {{uri}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10 },
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "id": 3,
+          "title": "JVM Memory (heap)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+              "expr": "jvm_memory_used_bytes{area=\"heap\",application=\"marketplace\"}",
+              "legendFormat": "used {{id}}",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+              "expr": "jvm_memory_max_bytes{area=\"heap\",application=\"marketplace\"}",
+              "legendFormat": "max {{id}}",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2, "fillOpacity": 10 },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+          "id": 4,
+          "title": "JVM Threads",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+              "expr": "jvm_threads_live_threads{application=\"marketplace\"}",
+              "legendFormat": "live",
+              "refId": "A"
+            },
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+              "expr": "jvm_threads_daemon_threads{application=\"marketplace\"}",
+              "legendFormat": "daemon",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "fixedColor": "green", "mode": "fixed" },
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [{ "color": "green", "value": null }]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+          "id": 5,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto" },
+          "title": "Uptime",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+              "expr": "process_uptime_seconds{application=\"marketplace\"}",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "refresh": "15s",
+      "schemaVersion": 38,
+      "tags": ["marketplace", "prometheus", "jvm"],
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Marketplace — Метрики (Prometheus)",
+      "uid": "marketplace-metrics",
+      "version": 1
+    }
+
+---
+---
+# ── РЕСУРС 4: PersistentVolumeClaim ─────────────────────────────────────────
+# Grafana хранит в /var/lib/grafana: базу SQLite (пользователи, настройки, API-ключи).
+# Без PVC при рестарте теряются: добавленные вручную datasources, изменения дашбордов,
+# API-ключи, плагины. Provisioning-конфиг (из ConfigMap) пересоздаётся автоматически,
+# но остальное — нет.
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: marketplace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi    # Grafana SQLite + плагины ~ 50-100 МБ. 256 МБ с запасом.
+
+---
+# ── РЕСУРС 5: Deployment ─────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: marketplace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.3
+
+          ports:
+            - containerPort: 3000   # HTTP UI Grafana. Доступен через NodePort 30300.
+
+          env:                                  # Настройки через переменные окружения.
+                                                # Grafana поддерживает конфигурацию через GF_*
+            - name: GF_SECURITY_ADMIN_PASSWORD  # Пароль admin-пользователя.
+              value: "admin"                    # Для учебного проекта. В prod — из Secret!
+            - name: GF_USERS_ALLOW_SIGN_UP      # Запретить самостоятельную регистрацию.
+              value: "false"                    # Только admin может создавать пользователей.
+
+          volumeMounts:
+            # ТОМ 1: Постоянное хранилище Grafana (SQLite + плагины).
+            - name: grafana-storage
+              mountPath: /var/lib/grafana       # Стандартный путь данных Grafana.
+
+            # ТОМ 2: Datasources (loki.yml + prometheus.yml).
+            # Grafana читает файлы из этой директории при старте → создаёт подключения.
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+
+            # ТОМ 3: Провайдер дашбордов (dashboards.yml).
+            # Этот файл говорит "ищи JSON дашборды в /dashboards/json".
+            - name: grafana-dashboards-config
+              mountPath: /etc/grafana/provisioning/dashboards
+
+            # ТОМ 4: Сами JSON-дашборды (marketplace.json + metrics.json).
+            # Монтируем в ПОДПАПКУ /json — не перетираем dashboards.yml из тома 3.
+            # Это ключевой момент: два ConfigMap монтируются в одно дерево директорий.
+            - name: grafana-dashboards
+              mountPath: /etc/grafana/provisioning/dashboards/json
+
+          readinessProbe:
+            httpGet:
+              path: /api/health   # Grafana /api/health → {"database":"ok"} когда готова.
+              port: 3000
+            initialDelaySeconds: 15   # Grafana инициализирует SQLite, плагины ~10-15 сек.
+            periodSeconds: 5
+
+      volumes:
+        - name: grafana-storage           # ← PVC для /var/lib/grafana
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+
+        - name: grafana-datasources       # ← ConfigMap grafana-datasources → файлы в /datasources/
+          configMap:
+            name: grafana-datasources
+
+        - name: grafana-dashboards-config # ← ConfigMap с dashboards.yml → файл в /dashboards/
+          configMap:
+            name: grafana-dashboards-config
+
+        - name: grafana-dashboards        # ← ConfigMap с JSON → файлы в /dashboards/json/
+          configMap:
+            name: grafana-dashboards
+
+---
+# ── РЕСУРС 6: Service ────────────────────────────────────────────────────────
+#
+# ⚠️  Сервис называется "grafana" — для совместимости с docker-compose.
+# NodePort 30300 — Grafana открыта снаружи: http://localhost:30300
+# Логин по умолчанию: admin / admin
+# После входа смотри: Dashboards → Browse → папка "marketplace".
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana         # DNS внутри кластера: http://grafana:3000
+  namespace: marketplace
+spec:
+  type: NodePort        # Открываем наружу — удобный доступ к UI без port-forward.
+  selector:
+    app: grafana
+  ports:
+    - port: 3000        # Порт для обращений из кластера.
+      targetPort: 3000  # Порт контейнера.
+      nodePort: 30300   # Порт на хосте. http://localhost:30300 → UI Grafana.

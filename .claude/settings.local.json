@@ -35,7 +35,30 @@
       "Bash(Get-Content \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\src\\\\main\\\\resources\\\\static\\\\admin.html\")",
       "Bash(Measure-Object -Line)",
       "PowerShell(\\(Get-Content \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\src\\\\main\\\\resources\\\\static\\\\admin.html\" | Measure-Object -Line\\).Lines)",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "PowerShell(docker version *)",
+      "PowerShell(helm version *)",
+      "PowerShell(kubectl cluster-info *)",
+      "PowerShell(kubectl get nodes *)",
+      "PowerShell(docker build *)",
+      "PowerShell(kubectl apply *)",
+      "PowerShell(kubectl rollout status *)",
+      "PowerShell(kubectl get pods,pvc,svc -n marketplace)",
+      "PowerShell(kubectl get pods *)",
+      "PowerShell(nerdctl version *)",
+      "PowerShell(Get-Item *)",
+      "PowerShell(nerdctl --namespace k8s.io load -i \"$env:TEMP\\\\marketplace-app.tar\" 2>&1)",
+      "PowerShell(docker save *)",
+      "PowerShell(rdctl shell *)",
+      "PowerShell(kubectl rollout restart *)",
+      "PowerShell(kubectl logs *)",
+      "PowerShell(kubectl get pods,svc -n marketplace)",
+      "PowerShell(New-Item *)",
+      "PowerShell(helm lint *)",
+      "PowerShell(helm template *)",
+      "PowerShell(Get-ChildItem -Recurse \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\k8s\", \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\helm\" | Where-Object { -not $_.PSIsContainer } | Select-Object FullName)",
+      "PowerShell(kubectl get all *)",
+      "PowerShell(kubectl delete namespace *)"
     ]
   }
 }

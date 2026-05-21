@@ -1,0 +1,202 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 03-loki.yaml — Grafana Loki: агрегатор и хранилище логов
+# Содержит четыре ресурса: ConfigMap + PVC + Deployment + Service
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ЧТО ТАКОЕ LOKI?
+# Loki — система хранения логов от Grafana Labs. Похожа на Prometheus, но для логов.
+# Приложение отправляет лог-строки в Loki по HTTP. Loki индексирует их по labels
+# (низкокардинальные: app, level, role) и хранит тело как сжатые чанки.
+# Grafana читает логи из Loki через язык запросов LogQL.
+#
+# ПОТОК ЛОГОВ В НАШЕМ ПРОЕКТЕ:
+# Spring Boot (loki4j appender) → HTTP POST → Loki:3100 → хранение на PVC
+# Grafana → GET запрос LogQL → Loki:3100 → дашборд
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── РЕСУРС 1: ConfigMap (конфигурационный файл Loki) ─────────────────────────
+#
+# ЗАЧЕМ ConfigMap ДЛЯ ФАЙЛА КОНФИГУРАЦИИ?
+# В docker-compose мы монтировали ./loki/loki-config.yml напрямую с диска хоста.
+# В K8s нет прямого доступа к файловой системе хоста (поды изолированы).
+#
+# Решение: ConfigMap может хранить текстовые файлы как ключи.
+# Затем ConfigMap монтируется в контейнер как директория:
+#   volumeMounts: mountPath: /etc/loki
+# K8s создаёт файл /etc/loki/loki-config.yml с содержимым ключа loki-config.yml.
+#
+# ДВА РЕЖИМА ConfigMap:
+# 1. Переменные окружения (envFrom/env) — простые ключ=значение
+# 2. Файлы (volumeMounts) — ключ становится именем файла, значение — содержимым
+#    Именно второй режим используется здесь.
+# ════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config        # Имя ConfigMap. На него ссылается volumes секция Deployment.
+  namespace: marketplace
+data:
+  loki-config.yml: |       # КЛЮЧ = имя файла который будет создан при монтировании.
+                           # Значение после "|" = многострочное содержимое файла (YAML-синтаксис).
+                           # Результат: файл /etc/loki/loki-config.yml внутри контейнера.
+
+    auth_enabled: false    # Отключить аутентификацию. Для учебного проекта ок.
+                           # В production включить и настроить multi-tenant режим.
+
+    server:
+      http_listen_port: 3100   # HTTP API Loki. Сюда шлёт логи loki4j, сюда запрашивает Grafana.
+      grpc_listen_port: 9096   # gRPC порт (внутренний, для кластерного режима).
+      log_level: warn          # Уровень собственных логов Loki. warn = подавляем info-шум.
+
+    common:                    # Общие настройки для всех компонентов Loki.
+      instance_addr: 127.0.0.1 # IP этого экземпляра для кольцевой распределённой координации.
+                               # В single-node режиме (replicas: 1) достаточно loopback.
+      path_prefix: /loki       # Корневая директория для всех данных Loki.
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks  # Здесь хранятся сжатые блоки (чанки) логов.
+          rules_directory: /loki/rules    # Правила алертинга (у нас пустая директория).
+      replication_factor: 1    # Сколько копий каждого чанка. 1 = нет репликации (single-node).
+      ring:
+        kvstore:
+          store: inmemory      # Хранилище координации кольца — в памяти (для single-node).
+                               # В кластерном режиме заменяется на consul или etcd.
+
+    schema_config:             # Схема хранения — как организован индекс и чанки.
+      configs:
+        - from: 2020-10-24     # С какой даты применяется эта схема.
+          store: tsdb          # Тип индекса. tsdb = современный, стабильный в Loki 2.9.x.
+          object_store: filesystem  # Хранение чанков: на файловой системе (PVC).
+          schema: v13          # Версия схемы Loki. v13 = актуальная для 2.9.x.
+          index:
+            prefix: index_     # Префикс имён файлов индекса.
+            period: 24h        # Создавать новый файл индекса каждые 24 часа.
+
+    compactor:                 # Компактор — периодически объединяет мелкие чанки в крупные.
+      working_directory: /loki/compactor
+      compaction_interval: 10m   # Запускать компакцию каждые 10 минут.
+      retention_enabled: true    # Включить удаление старых данных (по retention_period ниже).
+      retention_delete_delay: 1h # Подождать 1 час перед физическим удалением (защита от ошибок).
+
+    limits_config:
+      reject_old_samples: true           # Отклонять логи с "будущей" меткой времени или очень старые.
+      reject_old_samples_max_age: 168h   # Максимальный возраст принимаемых логов = 7 дней.
+      max_cache_freshness_per_query: 10m # Не кешировать данные новее 10 мин (актуальность).
+      retention_period: 168h             # Хранить логи 7 дней. Старше — удалять (компактором).
+
+    analytics:
+      reporting_enabled: false   # Отключить отправку телеметрии в Grafana Labs.
+
+---
+# ── РЕСУРС 2: PersistentVolumeClaim ─────────────────────────────────────────
+# Loki хранит чанки логов и индексы на диске. Без PVC при рестарте пода
+# все исторические логи теряются (7 дней retention станут 0).
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc
+  namespace: marketplace
+spec:
+  accessModes:
+    - ReadWriteOnce   # Один под пишет — для Loki single-node достаточно.
+  resources:
+    requests:
+      storage: 2Gi   # 2 ГБ для 7 дней логов учебного проекта. В prod от 20Gi.
+
+---
+# ── РЕСУРС 3: Deployment ─────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: marketplace
+spec:
+  replicas: 1           # Loki в distributed mode можно масштабировать. Нам достаточно 1.
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      securityContext:
+        runAsUser: 0    # ПОЧЕМУ ЗАПУСКАЕМ ОТ ROOT (UID 0)?
+                        # Loki 2.x по умолчанию запускается от UID 10001 (non-root).
+                        # PVC в Rancher Desktop создаётся с правами root (UID 0).
+                        # Loki (UID 10001) не может писать в /loki → Permission denied.
+                        # Решение: runAsUser: 0 = запустить от root (как в docker-compose user: "0").
+                        # Альтернатива prod: initContainer меняет права на /loki через chown.
+
+      containers:
+        - name: loki
+          image: grafana/loki:2.9.10    # Конкретный тег = воспроизводимые деплои.
+                                        # "latest" опасен — при рестарте может подтянуть несовместимую версию.
+          args:
+            - -config.file=/etc/loki/loki-config.yml  # Аргумент командной строки Loki.
+                                                        # Указывает где искать конфиг.
+                                                        # Без этого Loki ищет конфиг по умолчанию.
+          ports:
+            - containerPort: 3100   # HTTP API. Loki4j шлёт сюда: POST /loki/api/v1/push
+                                    # Grafana читает отсюда: GET /loki/api/v1/query_range
+
+          volumeMounts:
+            - name: loki-config           # Монтируем ConfigMap как ДИРЕКТОРИЮ.
+              mountPath: /etc/loki        # Результат: файл /etc/loki/loki-config.yml
+                                          # (ключ ConfigMap → файл в этой директории).
+
+            - name: loki-storage          # Монтируем PVC — постоянное хранилище.
+              mountPath: /loki            # Сюда Loki пишет чанки, индексы, compactor рабочие файлы.
+                                          # Путь совпадает с path_prefix в конфиге.
+
+          readinessProbe:
+            httpGet:
+              path: /ready       # Эндпоинт Loki для проверки готовности.
+                                 # Возвращает HTTP 200 когда Loki полностью инициализировался.
+              port: 3100
+            initialDelaySeconds: 15   # Дать Loki 15 сек на инициализацию.
+            periodSeconds: 5
+            failureThreshold: 10      # 10 неудач × 5 сек = 50 сек максимум ожидания.
+
+      volumes:
+        - name: loki-config           # ОТКУДА берётся том "loki-config"?
+          configMap:
+            name: loki-config         # Из ConfigMap с именем "loki-config" (создан выше).
+                                      # Каждый ключ ConfigMap → файл в mountPath.
+                                      # loki-config.yml → /etc/loki/loki-config.yml ✓
+
+        - name: loki-storage          # ОТКУДА берётся том "loki-storage"?
+          persistentVolumeClaim:
+            claimName: loki-pvc       # Из PVC "loki-pvc" (создан выше).
+                                      # K8s найдёт реальный диск (PV) и смонтирует его.
+
+---
+# ── РЕСУРС 4: Service ────────────────────────────────────────────────────────
+#
+# ⚠️  КРИТИЧЕСКИ ВАЖНО: Сервис называется "loki" (не "loki-service")!
+#
+# ПОЧЕМУ ИМЕННО "loki"?
+# logback-spring.xml жёстко прописывает: http://loki:3100/loki/api/v1/push
+# Это имя взято из docker-compose где сервис называется "loki".
+# В K8s: DNS-имя сервиса = его .metadata.name.
+# Если назвать сервис "loki-service" → Spring Boot не найдёт Loki → логи не дойдут.
+# Решение: держать имена сервисов совместимыми с docker-compose.
+#
+# Loki не нужен снаружи кластера — только приложение и Grafana обращаются к нему.
+# Поэтому тип ClusterIP (без NodePort).
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki            # Это имя = DNS: http://loki:3100 внутри namespace marketplace.
+  namespace: marketplace
+spec:
+  type: ClusterIP       # Только внутри кластера. Извне (localhost:...) не доступен.
+  selector:
+    app: loki           # Трафик идёт в поды с label "app: loki".
+  ports:
+    - port: 3100        # Порт сервиса (по нему обращаются клиенты: приложение, Grafana).
+      targetPort: 3100  # Порт внутри контейнера (loki слушает на 3100).

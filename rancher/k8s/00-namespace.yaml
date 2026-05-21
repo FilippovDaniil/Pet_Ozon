@@ -1,0 +1,43 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 00-namespace.yaml — Изолированное пространство имён для всего проекта
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ЧТО ТАКОЕ NAMESPACE?
+# Namespace — это виртуальный «раздел» внутри одного Kubernetes-кластера.
+# Представь: кластер — это здание, namespace — отдельные офисы внутри.
+# Всё что мы создаём (поды, сервисы, секреты, конфиги) принадлежит namespace.
+#
+# ЗАЧЕМ НУЖЕН NAMESPACE?
+# 1. ИЗОЛЯЦИЯ — если в двух namespace создать сервис "postgres", конфликта нет.
+#    Каждый namespace — своё независимое пространство имён для ресурсов.
+# 2. УДОБНОЕ УДАЛЕНИЕ — `kubectl delete namespace marketplace` одной командой
+#    удаляет ВСЁ: поды, сервисы, секреты, конфиги, тома заявок (PVC).
+# 3. КОНТРОЛЬ ДОСТУПА — в реальных проектах права выдаются на namespace.
+#    Разработчики видят только свой namespace, не трогают production.
+# 4. УЧЁТ РЕСУРСОВ — можно ограничить CPU и RAM для конкретного namespace.
+#
+# КАК РАБОТАЕТ DNS ВНУТРИ NAMESPACE?
+# Когда приложение обращается к "postgres-service", Kubernetes разворачивает
+# это в полный адрес: postgres-service.marketplace.svc.cluster.local
+# Внутри одного namespace достаточно короткого имени. Между namespace нужен
+# полный адрес: postgres-service.OTHER-NAMESPACE.svc.cluster.local
+#
+# ПОРЯДОК ПРИМЕНЕНИЯ: этот файл — ПЕРВЫЙ из семи.
+# Остальные манифесты содержат "namespace: marketplace". Если namespace
+# не существует в момент kubectl apply, команда вернёт ошибку.
+# ════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1       # Версия Kubernetes API для работы с этим типом ресурса.
+                     # "v1" — стабильная группа: Pod, Service, ConfigMap, Secret, Namespace.
+                     # Для Deployment используется "apps/v1" — другая группа API.
+
+kind: Namespace      # Тип создаваемого K8s-ресурса.
+                     # Kubernetes поддерживает десятки типов: Pod, Deployment, Service, Job...
+                     # kind: Namespace создаёт изолированное пространство имён.
+
+metadata:            # Метаданные ресурса — имя, пространство имён, метки, аннотации.
+  name: marketplace  # Уникальное имя namespace в кластере.
+                     # Именно это имя используется в kubectl командах:
+                     #   kubectl get pods -n marketplace
+                     #   kubectl logs -n marketplace deployment/marketplace-app
+                     #   kubectl delete namespace marketplace  (удаляет ВСЁ)

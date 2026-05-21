@@ -1,0 +1,236 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 06-app.yaml — Spring Boot приложение (маркетплейс)
+# Содержит три ресурса: ConfigMap + Deployment + Service
+# ════════════════════════════════════════════════════════════════════════════
+#
+# ЭТОТ ФАЙЛ ПРИМЕНЯЕТСЯ ПОСЛЕДНИМ (06) — ПОЧЕМУ?
+# Приложение зависит от PostgreSQL, Loki и Prometheus.
+# Если применить его первым, Spring Boot стартует до готовности БД → упадёт.
+# initContainer (описан ниже) страхует от этой ситуации для PostgreSQL.
+# Loki и Prometheus не блокируют старт (loki4j асинхронный, метрики не критичны).
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── РЕСУРС 1: ConfigMap — переменные окружения приложения ────────────────────
+#
+# ConfigMap хранит НЕСЕКРЕТНЫЕ настройки. Пароли — только в Secret (01-secrets.yaml).
+#
+# КАК SPRING BOOT ЧИТАЕТ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ?
+# Spring Boot автоматически превращает переменные окружения в свойства:
+#   SPRING_DATASOURCE_URL → spring.datasource.url
+#   SPRING_PROFILES_ACTIVE → spring.profiles.active
+# Это называется "Externalized Configuration" — один образ, разные среды.
+# В docker-compose те же переменные — образ одинаковый, конфиг разный.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: marketplace-config   # Имя. Deployment монтирует его через envFrom.
+  namespace: marketplace
+data:
+  # ── База данных ──────────────────────────────────────────────────────────
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-service:5432/marketplace"
+  # В K8s хост БД = DNS-имя K8s Service "postgres-service" (из 02-postgres.yaml).
+  # В docker-compose было: jdbc:postgresql://postgres:5432/marketplace
+  # Пароль НЕ здесь — он в Secret и подставляется через env.secretKeyRef (ниже в Deployment).
+
+  SPRING_DATASOURCE_USERNAME: "postgres"
+  # Имя пользователя PostgreSQL. Должно совпадать с POSTGRES_USER в 02-postgres.yaml.
+
+  SPRING_JPA_HIBERNATE_DDL_AUTO: "update"
+  # Hibernate автоматически создаёт/обновляет таблицы при старте.
+  # "update" = добавить новые колонки/таблицы, но не удалять существующие.
+  # В production обычно "none" — миграции через Flyway/Liquibase.
+
+  # ── Email (Яндекс SMTP) ──────────────────────────────────────────────────
+  SPRING_MAIL_HOST: "smtp.yandex.ru"
+  SPRING_MAIL_PORT: "465"
+  SPRING_MAIL_USERNAME: "vorobyshek2015@yandex.ru"
+  SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE: "true"
+  # Пароль почты НЕ здесь — он в Secret.
+  # Если MAIL_PASSWORD пустой (как в 01-secrets.yaml), письма не отправятся,
+  # но приложение запустится нормально.
+
+  # ── Spring Profile ────────────────────────────────────────────────────────
+  SPRING_PROFILES_ACTIVE: "docker"
+  # Активирует профиль "docker" в logback-spring.xml.
+  # Этот профиль включает loki4j appender: логи отправляются в Loki.
+  # URL в logback: http://loki:3100/loki/api/v1/push
+  # "loki" = DNS-имя K8s Service из 03-loki.yaml (поэтому сервис назван "loki", не "loki-service").
+  # Без этой настройки (профиль !docker): логи только в консоль, Loki пустой.
+
+  # ── Actuator / Health ─────────────────────────────────────────────────────
+  MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
+  # Spring Boot автоматически добавляет mail health indicator когда настроен spring.mail.
+  # Без реального пароля SMTP соединение не устанавливается → indicator = DOWN → /actuator/health = 503.
+  # readinessProbe и livenessProbe видят 503 → перезапускают под бесконечно.
+  # Решение: отключить mail health indicator. Это НЕ отключает саму отправку писем.
+
+  MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
+  # По умолчанию /actuator/health возвращает только {"status":"UP"} без деталей.
+  # "always" = показывать все компоненты: db, diskSpace, ping, liveness, readiness.
+  # Удобно для диагностики. В production обычно "when_authorized".
+
+---
+# ── РЕСУРС 2: Deployment ─────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketplace-app
+  namespace: marketplace
+spec:
+  replicas: 1     # Одна реплика. Можно масштабировать: kubectl scale deployment marketplace-app --replicas=3
+                  # Но без sticky sessions и внешней БД сессий — осторожно.
+  selector:
+    matchLabels:
+      app: marketplace-app
+  template:
+    metadata:
+      labels:
+        app: marketplace-app
+    spec:
+      # ── initContainers: что запустить ДО основного контейнера ────────────
+      #
+      # ЧТО ТАКОЕ initContainers?
+      # Это контейнеры которые запускаются ПЕРЕД основным контейнером и должны успешно завершиться.
+      # Основной контейнер не стартует пока все initContainers не выполнились (exit code 0).
+      #
+      # ЗАЧЕМ НУЖЕН wait-for-postgres?
+      # Kubernetes запускает PostgreSQL и приложение "почти одновременно".
+      # Spring Boot стартует очень быстро и пытается подключиться к БД — а postgres ещё не готов.
+      # Результат: Connection refused → Spring Boot падает → K8s перезапускает → снова падает.
+      # После 3-5 рестартов статус пода = CrashLoopBackOff.
+      #
+      # readinessProbe у postgres не помогает: он защищает Service от роутинга, но не останавливает
+      # старт соседних подов. Именно для этого нужен initContainer.
+      initContainers:
+        - name: wait-for-postgres   # Имя initContainer (отображается в kubectl describe pod).
+          image: busybox:1.36       # Минимальный образ со стандартными утилитами (~1.5 МБ).
+                                    # Содержит sh, nc (netcat), sleep и другие базовые команды.
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres-service 5432; do
+                echo "Waiting for postgres-service:5432..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready!"
+              # nc -z = netcat в режиме "просто проверь TCP соединение" (zero-I/O).
+              # Возвращает exit code 0 если порт открыт, 1 если нет.
+              # "until": повторяй пока команда НЕ успешна (exit ≠ 0).
+              # Когда postgres-service:5432 отвечает → exit 0 → цикл завершается.
+              # initContainer завершается успешно → стартует основной контейнер.
+
+      # ── Основной контейнер: Spring Boot приложение ───────────────────────
+      containers:
+        - name: marketplace-app
+          image: marketplace-app:1.0.0  # Образ собранный через `docker build --provenance=false`.
+                                        # Тег 1.0.0 — при обновлении меняй тег и пересобирай образ.
+
+          imagePullPolicy: Never        # ⚠️  КРИТИЧЕСКИ ВАЖНО ДЛЯ RANCHER DESKTOP.
+                                        # Never = не пытаться скачать образ из Docker Hub.
+                                        # Использовать только тот что уже есть локально.
+                                        #
+                                        # ЛОВУШКА: Docker Desktop и Docker в VM Rancher Desktop
+                                        # — это ДВА РАЗНЫХ демона. Образ нужно загрузить в VM:
+                                        #   docker save marketplace-app:1.0.0 -o C:\Temp\app.tar
+                                        #   rdctl shell -- sh -c "docker load < /mnt/c/Temp/app.tar"
+                                        #
+                                        # IfNotPresent — стандарт в реальных проектах с registry.
+                                        # Always — всегда тянуть последнюю версию (CI/CD с :latest).
+
+          ports:
+            - containerPort: 8667   # Порт приложения (server.port=8667 в application.properties).
+
+          # ── КАК ПОДСТАВЛЯЮТСЯ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ? ──────────────────────
+          #
+          # СПОСОБ 1: envFrom — весь ConfigMap как переменные окружения.
+          # Каждый ключ ConfigMap становится переменной окружения в контейнере.
+          # Аналог docker-compose: env_file или environment с несколькими строками.
+          envFrom:
+            - configMapRef:
+                name: marketplace-config  # Все ключи ConfigMap → переменные окружения.
+                                          # SPRING_DATASOURCE_URL, SPRING_PROFILES_ACTIVE и т.д.
+
+          # СПОСОБ 2: env — отдельные переменные, значения из Secret.
+          # Нельзя использовать envFrom для Secret когда нужны КОНКРЕТНЫЕ ключи
+          # (а не весь Secret как переменные окружения с именами ключей).
+          env:
+            - name: SPRING_DATASOURCE_PASSWORD  # Имя переменной в контейнере.
+              valueFrom:
+                secretKeyRef:
+                  name: marketplace-secrets  # Из Secret (01-secrets.yaml).
+                  key: postgres-password     # Конкретный ключ. Значение: "1234".
+
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: marketplace-secrets
+                  key: mail-password        # Значение: "" (пустая строка → письма не отправляются).
+
+          # ── HEALTH PROBES: как K8s проверяет здоровье пода ───────────────
+          #
+          # ЗАЧЕМ НУЖНЫ PROBES?
+          # K8s не знает "работает ли приложение" — только "запущен ли процесс".
+          # Probes позволяют K8s понять реальное состояние приложения.
+          #
+          # ДВА ТИПА PROBE:
+          # readinessProbe — "готов ли под принимать трафик?"
+          #   Если нет → Service не направляет трафик на этот под (но под не перезапускается).
+          #   Используй для: период прогрева, временная перегрузка.
+          #
+          # livenessProbe — "живой ли под?"
+          #   Если нет → K8s перезапускает контейнер.
+          #   Используй для: обнаружение дедлоков, утечек памяти, зависших процессов.
+          #
+          # НАША КОНФИГУРАЦИЯ:
+          # Эндпоинт /actuator/health — Spring Boot Actuator.
+          # Возвращает 200 OK когда все health indicators UP (db, disk, ping).
+          # Возвращает 503 Service Unavailable когда хотя бы один DOWN.
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health  # Spring Actuator health endpoint.
+              port: 8667
+            initialDelaySeconds: 30   # Ждать 30 сек после старта контейнера перед первой проверкой.
+                                      # Spring Boot + JPA + тестовые данные стартуют ~20-25 сек.
+                                      # Без задержки probe сразу вернёт 503 → Service не роутит трафик.
+            periodSeconds: 10         # Проверять каждые 10 секунд.
+            failureThreshold: 6       # 6 неудач × 10 сек = 60 сек ожидания после initialDelay.
+                                      # Итого: 30 + 60 = 90 сек максимум на готовность.
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8667
+            initialDelaySeconds: 60   # Намного больше чем у readiness!
+                                      # Если поставить 30, K8s начнёт перезапускать под во время старта.
+                                      # liveness должна начинаться только когда приложение точно запущено.
+            periodSeconds: 15         # Проверять каждые 15 секунд (реже чем readiness).
+            failureThreshold: 3       # 3 неудачи × 15 сек = 45 сек до перезапуска.
+                                      # Достаточно чтобы не перезапускать при кратковременных нагрузках.
+
+---
+# ── РЕСУРС 3: Service ────────────────────────────────────────────────────────
+#
+# "marketplace-service" — это имя используется в prometheus.yml (04-prometheus.yaml):
+#   targets: ['marketplace-service:8667']
+# Если переименовать сервис, Prometheus перестанет собирать метрики.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: marketplace-service   # DNS: marketplace-service.marketplace.svc.cluster.local
+                               # Prometheus обращается: http://marketplace-service:8667/actuator/prometheus
+  namespace: marketplace
+spec:
+  type: NodePort              # Открываем приложение снаружи кластера.
+                              # localhost:30667 → под marketplace-app:8667
+  selector:
+    app: marketplace-app      # Трафик идёт в поды с label "app: marketplace-app".
+  ports:
+    - port: 8667              # Порт Service внутри кластера (для Prometheus).
+      targetPort: 8667        # Порт контейнера куда перенаправлять (containerPort).
+      nodePort: 30667         # Порт на хост-машине. http://localhost:30667/login.html
+                              # Выбрали 30667 (похоже на порт приложения 8667).

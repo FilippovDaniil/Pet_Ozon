@@ -33,6 +33,7 @@
 - [Email-уведомления](#email-уведомления)
 - [Бухгалтер — отчёты](#бухгалтер--отчёты)
 - [Запуск в GitLab CI/CD](#запуск-в-gitlab-cicd)
+- [Запуск в Rancher Desktop (Kubernetes)](#запуск-в-rancher-desktop-kubernetes)
 
 ---
 
@@ -2435,6 +2436,252 @@ docker run -p 8667:8667 \
 Пайплайн кеширует скачанные зависимости Gradle между запусками.  
 Ключ кеша — содержимое файлов `build.gradle` и `settings.gradle`.  
 При изменении зависимостей кеш автоматически инвалидируется и скачивается заново.
+
+---
+
+---
+
+## Запуск в Rancher Desktop (Kubernetes)
+
+Полный стек маркетплейса (Spring Boot + PostgreSQL + Loki + Prometheus + Grafana)
+запускается в локальном Kubernetes-кластере через Rancher Desktop.
+
+### Требования
+
+| Инструмент | Где взять | Проверка |
+|---|---|---|
+| **Rancher Desktop** | [rancherdesktop.io](https://rancherdesktop.io) | Установить, выбрать `dockerd (Moby)` при настройке |
+| **kubectl** | Входит в Rancher Desktop | `kubectl version --client` |
+| **helm** | Входит в Rancher Desktop | `helm version` |
+
+После установки Rancher Desktop убедись что кластер запущен:
+
+```powershell
+kubectl cluster-info          # должен показать https://127.0.0.1:6443
+kubectl get nodes             # нода в статусе Ready
+```
+
+---
+
+### Структура файлов
+
+```
+rancher/
+├── k8s/                    ← Kubernetes манифесты (plain YAML)
+│   ├── 00-namespace.yaml   ← Создаёт namespace "marketplace"
+│   ├── 01-secrets.yaml     ← Пароли (postgres, mail)
+│   ├── 02-postgres.yaml    ← PostgreSQL: PVC + Deployment + Service
+│   ├── 03-loki.yaml        ← Grafana Loki: ConfigMap + PVC + Deployment + Service
+│   ├── 04-prometheus.yaml  ← Prometheus: ConfigMap + PVC + Deployment + Service
+│   ├── 05-grafana.yaml     ← Grafana: 3×ConfigMap + PVC + Deployment + Service
+│   ├── 06-app.yaml         ← Spring Boot: ConfigMap + Deployment + Service
+│   └── 07-dashboard.yaml   ← Kubernetes Dashboard: веб-интерфейс управления
+└── helm/                   ← Helm chart (продвинутый способ, шаблонизация)
+    └── marketplace/
+```
+
+---
+
+### Шаг 1 — Собери Docker-образ
+
+> ⚠️ **Важная особенность Rancher Desktop**: Docker Desktop и Docker внутри VM Rancher Desktop — два разных демона.  
+> `docker build` кладёт образ в Docker Desktop. Kubernetes (k3s) видит только Docker внутри VM.  
+> Поэтому образ нужно **дополнительно загрузить в VM**.
+
+```powershell
+# 1. Собери образ (--provenance=false обязателен — без него создаётся manifest list,
+#    который k3s не может найти с imagePullPolicy: Never)
+docker build --provenance=false -t marketplace-app:1.0.0 .
+
+# 2. Сохрани образ в файл
+docker save marketplace-app:1.0.0 -o $env:TEMP\marketplace-app.tar
+
+# 3. Загрузи образ в Docker внутри Rancher Desktop VM
+rdctl shell -- sh -c "docker load < /mnt/c/Users/$env:USERNAME/AppData/Local/Temp/marketplace-app.tar"
+
+# Проверка — образ должен появиться внутри VM:
+rdctl shell -- sh -c "docker images marketplace-app"
+```
+
+---
+
+### Шаг 2 — Задеплой весь стек
+
+Применяй манифесты **строго по порядку** (числа в именах файлов — это порядок):
+
+```powershell
+# Namespace и секреты — первыми
+kubectl apply -f rancher/k8s/00-namespace.yaml
+kubectl apply -f rancher/k8s/01-secrets.yaml
+
+# Базовые сервисы — запускаются параллельно
+kubectl apply -f rancher/k8s/02-postgres.yaml
+kubectl apply -f rancher/k8s/03-loki.yaml
+kubectl apply -f rancher/k8s/04-prometheus.yaml
+kubectl apply -f rancher/k8s/05-grafana.yaml
+
+# Ждём пока PostgreSQL и Loki будут готовы
+kubectl rollout status deployment/postgres -n marketplace --timeout=120s
+kubectl rollout status deployment/loki -n marketplace --timeout=120s
+
+# Приложение — последним (зависит от PostgreSQL)
+kubectl apply -f rancher/k8s/06-app.yaml
+kubectl rollout status deployment/marketplace-app -n marketplace --timeout=150s
+
+# Kubernetes Dashboard — в отдельный namespace (можно применить в любой момент)
+kubectl apply -f rancher/k8s/07-dashboard.yaml
+kubectl rollout status deployment/kubernetes-dashboard -n kubernetes-dashboard --timeout=120s
+```
+
+Или одной командой (K8s применит все файлы, включая Dashboard):
+
+```powershell
+kubectl apply -f rancher/k8s/
+kubectl rollout status deployment/marketplace-app -n marketplace --timeout=180s
+kubectl rollout status deployment/kubernetes-dashboard -n kubernetes-dashboard --timeout=120s
+```
+
+---
+
+### Шаг 3 — Проверь результат
+
+```powershell
+# Все поды должны быть 1/1 Running (marketplace + kubernetes-dashboard)
+kubectl get pods -n marketplace
+kubectl get pods -n kubernetes-dashboard
+
+# Сервисы и их NodePort-адреса
+kubectl get svc -n marketplace
+kubectl get svc -n kubernetes-dashboard
+```
+
+Ожидаемый вывод:
+```
+NAME                          TYPE        CLUSTER-IP   PORT(S)
+service/grafana               NodePort    10.43.x.x    3000:30300/TCP
+service/loki                  ClusterIP   10.43.x.x    3100/TCP
+service/marketplace-service   NodePort    10.43.x.x    8667:30667/TCP
+service/postgres-service      ClusterIP   10.43.x.x    5432/TCP
+service/prometheus            NodePort    10.43.x.x    9090:30900/TCP
+
+NAME                          TYPE        CLUSTER-IP   PORT(S)
+service/kubernetes-dashboard  NodePort    10.43.x.x    443:30443/TCP
+```
+
+---
+
+### Адреса сервисов
+
+| Сервис | URL | Данные для входа |
+|---|---|---|
+| **Приложение** | http://localhost:30667/login.html | см. таблицу тестовых пользователей |
+| **Prometheus** | http://localhost:30900 | без авторизации |
+| **Grafana** | http://localhost:30300 | admin / admin |
+| **Kubernetes Dashboard** | https://localhost:30443 | токен (см. ниже) |
+
+В Grafana дашборды загружаются автоматически: **Dashboards → Browse → папка marketplace**.
+
+---
+
+### Kubernetes Dashboard — вход
+
+Dashboard работает по HTTPS с самоподписанным сертификатом.  
+При открытии браузер покажет предупреждение — нажми **"Дополнительно" → "Перейти на сайт"**.
+
+**Получить токен для входа:**
+
+```powershell
+# Получить токен (PowerShell)
+$b64 = kubectl -n kubernetes-dashboard get secret admin-user-token -o jsonpath='{.data.token}'
+[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
+```
+
+Скопируй вывод → вставь в поле "Token" на странице Dashboard → **Sign in**.
+
+**Что можно делать в Dashboard:**
+
+| Действие | Где в UI |
+|---|---|
+| Просмотр всех подов | Workloads → Pods |
+| Логи контейнера | Pods → [имя пода] → иконка логов |
+| Перезапуск деплоймента | Workloads → Deployments → ⋮ → Restart |
+| Остановить под (Scale 0) | Workloads → Deployments → ⋮ → Scale |
+| События (почему под не стартует) | Pods → [имя пода] → Events |
+| Просмотр ConfigMap и Secret | Config → ConfigMaps / Secrets |
+
+> Dashboard показывает **все namespace** — выбери `marketplace` в левом верхнем выпадающем списке.
+
+---
+
+### Полезные команды
+
+```powershell
+# Посмотреть все ресурсы в namespace
+kubectl get all -n marketplace
+
+# Логи Spring Boot (в реальном времени)
+kubectl logs -n marketplace deployment/marketplace-app -f
+
+# Логи конкретного пода
+kubectl logs -n marketplace POD_NAME
+
+# Описание пода (события, проблемы с probe)
+kubectl describe pod -n marketplace POD_NAME
+
+# Войти внутрь контейнера для отладки
+kubectl exec -it -n marketplace deployment/marketplace-app -- /bin/sh
+
+# Проверить health endpoint напрямую (минуя NodePort)
+kubectl port-forward -n marketplace service/marketplace-service 8667:8667
+# → затем открыть http://localhost:8667/actuator/health
+```
+
+---
+
+### Обновление образа (после изменения кода)
+
+```powershell
+# 1. Пересобери образ (обязательно --provenance=false)
+docker build --provenance=false -t marketplace-app:1.0.0 .
+
+# 2. Загрузи в VM Rancher Desktop
+docker save marketplace-app:1.0.0 -o $env:TEMP\marketplace-app.tar
+rdctl shell -- sh -c "docker load < /mnt/c/Users/$env:USERNAME/AppData/Local/Temp/marketplace-app.tar"
+
+# 3. Перезапусти деплоймент (K8s пересоздаст под с новым образом)
+kubectl rollout restart deployment/marketplace-app -n marketplace
+
+# 4. Следи за обновлением
+kubectl rollout status deployment/marketplace-app -n marketplace
+```
+
+---
+
+### Сброс / удаление
+
+```powershell
+# Удалить стек приложения
+kubectl delete namespace marketplace
+
+# Удалить Dashboard
+kubectl delete namespace kubernetes-dashboard
+kubectl delete clusterrolebinding admin-user
+
+# Пересоздать всё с нуля
+kubectl apply -f rancher/k8s/
+```
+
+---
+
+### Известные проблемы и решения
+
+| Проблема | Причина | Решение |
+|---|---|---|
+| `ErrImageNeverPull` | Образ есть в Docker Desktop, но не в VM Rancher Desktop | Загрузи образ в VM: `docker save \| rdctl shell -- docker load` |
+| `/actuator/health` возвращает 503 | Mail health indicator DOWN (SMTP без пароля) | `MANAGEMENT_HEALTH_MAIL_ENABLED: "false"` в ConfigMap |
+| Pod в `CrashLoopBackOff` | Spring Boot стартует до готовности PostgreSQL | initContainer `wait-for-postgres` должен успеть завершиться |
+| `ErrImageNeverPull` после `docker build` | BuildKit создал manifest list | Используй `docker build --provenance=false` |
+| Grafana дашборды пустые | Loki ещё не получал логи | Войди в приложение, соверши действия, подожди 1-2 минуты |
 
 ---
 
