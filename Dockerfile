@@ -28,8 +28,8 @@ WORKDIR /app
 # Копируем только собранный JAR из предыдущей стадии.
 COPY --from=builder /app/build/libs/*.jar app.jar
 
-# 8080 — стандартный порт Spring Boot (задаётся в application.properties).
-EXPOSE 8080
+# 8667 — порт приложения (server.port=8667 в application.properties).
+EXPOSE 8667
 
 # ENTRYPOINT задаёт команду запуска контейнера.
 # exec-форма (JSON) предпочтительна: процесс получает PID 1 и корректно обрабатывает SIGTERM.

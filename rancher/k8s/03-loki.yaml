@@ -37,9 +37,8 @@ metadata:
   name: loki-config        # Имя ConfigMap. На него ссылается volumes секция Deployment.
   namespace: marketplace
 data:
-  loki-config.yml: |       # КЛЮЧ = имя файла который будет создан при монтировании.
-                           # Значение после "|" = многострочное содержимое файла (YAML-синтаксис).
-                           # Результат: файл /etc/loki/loki-config.yml внутри контейнера.
+  # Ключ = имя файла в контейнере: /etc/loki/loki-config.yml
+  loki-config.yml: |
 
     auth_enabled: false    # Отключить аутентификацию. Для учебного проекта ок.
                            # В production включить и настроить multi-tenant режим.

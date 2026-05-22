@@ -58,7 +58,10 @@
       "PowerShell(helm template *)",
       "PowerShell(Get-ChildItem -Recurse \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\k8s\", \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\helm\" | Where-Object { -not $_.PSIsContainer } | Select-Object FullName)",
       "PowerShell(kubectl get all *)",
-      "PowerShell(kubectl delete namespace *)"
+      "PowerShell(kubectl delete namespace *)",
+      "Bash(kubectl get nodes *)",
+      "PowerShell(Invoke-RestMethod http://localhost:30667/actuator/health | ConvertTo-Json -Depth 3)",
+      "PowerShell(\\(Invoke-RestMethod \"http://localhost:30300/api/search?type=dash-db\" -Headers @{Authorization=\"Basic \"+[Convert]::ToBase64String\\([Text.Encoding]::ASCII.GetBytes\\(\"admin:admin\"\\)\\)}\\) | Select-Object title,uid)"
     ]
   }
 }

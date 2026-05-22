@@ -64,7 +64,6 @@ data:
           timeInterval: 15s
 
 ---
----
 # ── РЕСУРС 2: ConfigMap — провайдер дашбордов ────────────────────────────────
 #
 # Этот файл сообщает Grafana: "ищи JSON дашборды по пути /etc/grafana/provisioning/dashboards/json".
@@ -86,10 +85,9 @@ data:
         updateIntervalSeconds: 30
         allowUiUpdates: true
         options:
-          path: /etc/grafana/provisioning/dashboards
+          path: /etc/grafana/provisioning/dashboards/json
           foldersFromFilesStructure: false
 
----
 ---
 # ── РЕСУРС 3: ConfigMap — JSON-файлы дашбордов ───────────────────────────────
 #
@@ -464,7 +462,6 @@ data:
       "version": 1
     }
 
----
 ---
 # ── РЕСУРС 4: PersistentVolumeClaim ─────────────────────────────────────────
 # Grafana хранит в /var/lib/grafana: базу SQLite (пользователи, настройки, API-ключи).
