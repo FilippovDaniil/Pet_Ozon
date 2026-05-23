@@ -1,10 +1,11 @@
-// auth.js — управление сессией через JWT
+// auth.js — управление сессией через JWT + refresh-токены
 
 const API_BASE = '';
 
 function saveSession(data) {
-    sessionStorage.setItem('marketplace_token', data.token);
-    sessionStorage.setItem('marketplace_user', JSON.stringify({
+    localStorage.setItem('marketplace_token', data.token);
+    localStorage.setItem('marketplace_refresh', data.refreshToken || '');
+    localStorage.setItem('marketplace_user', JSON.stringify({
         userId:   data.userId,
         email:    data.email,
         role:     data.role,
@@ -14,12 +15,16 @@ function saveSession(data) {
 }
 
 function getToken() {
-    return sessionStorage.getItem('marketplace_token');
+    return localStorage.getItem('marketplace_token');
+}
+
+function getRefreshToken() {
+    return localStorage.getItem('marketplace_refresh');
 }
 
 function getCurrentUser() {
     try {
-        const raw = sessionStorage.getItem('marketplace_user');
+        const raw = localStorage.getItem('marketplace_user');
         return raw ? JSON.parse(raw) : null;
     } catch {
         return null;
@@ -56,9 +61,39 @@ async function register(email, password, fullName) {
     return data;
 }
 
-function logout() {
-    sessionStorage.removeItem('marketplace_token');
-    sessionStorage.removeItem('marketplace_user');
+// Попытка обновить access-токен через refresh-токен.
+// Возвращает true если успешно, false если нужен логаут.
+async function tryRefreshToken() {
+    const refresh = getRefreshToken();
+    if (!refresh) return false;
+    try {
+        const res = await fetch(API_BASE + '/api/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: refresh }),
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        saveSession(data);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function logout() {
+    const refresh = getRefreshToken();
+    if (refresh) {
+        // Инвалидируем refresh-токен на сервере (fire-and-forget).
+        fetch(API_BASE + '/api/auth/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: refresh }),
+        }).catch(() => {});
+    }
+    localStorage.removeItem('marketplace_token');
+    localStorage.removeItem('marketplace_refresh');
+    localStorage.removeItem('marketplace_user');
     window.location.href = 'login.html';
 }
 

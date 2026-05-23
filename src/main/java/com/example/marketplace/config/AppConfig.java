@@ -1,12 +1,14 @@
 package com.example.marketplace.config;
 
 import com.example.marketplace.entity.Cart;
+import com.example.marketplace.entity.Category;
 import com.example.marketplace.entity.Product;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.repository.CartRepository;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.UserRepository;
+import com.example.marketplace.service.CategoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -25,6 +27,7 @@ public class AppConfig {
     private final UserRepository userRepository;
     private final ProductRepository productRepository;
     private final CartRepository cartRepository;
+    private final CategoryService categoryService;
     private final PasswordEncoder passwordEncoder;
     private final JdbcTemplate jdbc;
 
@@ -202,7 +205,6 @@ public class AppConfig {
                 addProduct("Портативный проектор XGIMI Halo+", "1080p, 900 ANSI люмен, 15Вт Harman Kardon, Android TV", "59999.99", 6, seller1, "Другое");
                 addProduct("Power Bank Baseus 65 Вт 30000 мАч", "USB-C PD 65 Вт, 2×USB-A, быстрая зарядка, дисплей", "4999.99", 30, seller1, "Другое");
                 addProduct("Трекер Apple AirTag (4-pack)", "U1 чип, UWB, находить в iOS, IP67, год от батарейки", "7999.99", 25, seller1, "Другое");
-
                 // ── AudioWorld — наушники дополнительно ────────────────────────────────────
                 addProduct("Beyerdynamic DT 990 Pro 250 Ом", "Открытые, 250 Ом, студийный звук, мягкие амбушюры", "9999.99", 20, seller2, "Аудио");
                 addProduct("Audio-Technica ATH-M70x", "Закрытые, 48 Ом, 5–40 000 Гц, 3 съёмных кабеля", "14999.99", 15, seller2, "Аудио");
@@ -248,10 +250,11 @@ public class AppConfig {
                 log.info("Created extended product catalog: {} total products", productRepository.count());
             }
 
+            // Fallback: задаём категорию тем товарам, у которых она не указана.
             productRepository.findAll().stream()
                     .filter(p -> p.getCategory() == null)
                     .forEach(p -> {
-                        p.setCategory(categorizeByName(p.getName()));
+                        p.setCategory(categoryService.findOrCreate(categorizeByName(p.getName())));
                         productRepository.save(p);
                     });
 
@@ -284,28 +287,21 @@ public class AppConfig {
         });
     }
 
-    private void addProduct(String name, String description, String price, int stock, User seller, String category) {
+    private void addProduct(String name, String description, String price, int stock, User seller, String categoryName) {
         Product p = new Product();
         p.setName(name);
         p.setDescription(description);
         p.setPrice(new BigDecimal(price));
         p.setStockQuantity(stock);
         p.setSeller(seller);
-        p.setCategory(category);
+        // Находим или создаём Category по имени.
+        p.setCategory(categoryService.findOrCreate(categoryName));
         productRepository.save(p);
     }
 
     /**
      * Пересоздаёт CHECK-ограничение на колонку role в таблице users.
-     *
-     * При ddl-auto=update Hibernate не обновляет существующие CHECK constraints —
-     * он создаёт их только при первом CREATE TABLE. Если БД была создана с более
-     * ранней версией enum (без ACCOUNTANT), constraint содержит только старые значения
-     * и INSERT нового пользователя падает с ConstraintViolationException.
-     *
-     * Этот метод запускается при каждом старте: он безопасно дропает constraint
-     * (IF EXISTS — не бросает ошибку если его нет) и создаёт актуальный.
-     * Идемпотентен: работает и на чистой БД, и на существующей.
+     * При ddl-auto=update Hibernate не обновляет существующие CHECK constraints.
      */
     private void fixRoleConstraint() {
         try {

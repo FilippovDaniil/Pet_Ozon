@@ -1,5 +1,6 @@
 package com.example.marketplace.entity;
 
+import com.example.marketplace.entity.Category;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -52,8 +53,11 @@ public class Product {
     // Нужен клиенту, чтобы собрать data-URL: data:<contentType>;base64,<imageData>
     private String imageContentType;
 
-    // Категория: "Ноутбуки", "Периферия", "Аудио" и т.д.
-    private String category;
+    // Категория товара — ссылка на сущность Category (вместо произвольной строки).
+    // FetchType.LAZY: данные категории не загружаются из БД до первого обращения.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private Category category;
 
     // FetchType.LAZY — данные продавца НЕ загружаются из БД до первого обращения к ним.
     // Это оптимизация: если продавец не нужен — лишнего JOIN не будет.

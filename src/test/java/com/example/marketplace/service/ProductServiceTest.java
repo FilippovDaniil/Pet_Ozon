@@ -3,9 +3,12 @@ package com.example.marketplace.service;
 import com.example.marketplace.dto.request.CreateProductRequest;
 import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.entity.Product;
+import com.example.marketplace.entity.User;
+import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.ReviewRepository;
+import com.example.marketplace.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -29,9 +32,11 @@ import static org.mockito.Mockito.*;
 class ProductServiceTest {
 
     @Mock ProductRepository productRepository;
-    // ReviewRepository нужен ProductService после добавления рейтингов.
-    // Mockito вернёт null для getAverageRatingByProduct (нет отзывов) и 0 для countByProduct.
+    // ReviewRepository нужен ProductService для рейтингов.
     @Mock ReviewRepository  reviewRepository;
+    // UserRepository и CategoryService добавлены после миграции категорий и привязки к продавцу.
+    @Mock UserRepository    userRepository;
+    @Mock CategoryService   categoryService;
 
     @InjectMocks ProductService productService;
 
@@ -115,15 +120,22 @@ class ProductServiceTest {
 
     @Test
     void createProduct_savesAndReturnsResponse() {
-        // CreateProductRequest — DTO с данными нового товара от клиента
+        // Создаём продавца, которого вернёт userRepository
+        User seller = new User();
+        seller.setId(10L);
+        seller.setRole(Role.SELLER);
+        when(userRepository.findById(10L)).thenReturn(java.util.Optional.of(seller));
+
         CreateProductRequest req = new CreateProductRequest();
         req.setName("Клавиатура");
         req.setDescription("Механическая");
         req.setPrice(new BigDecimal("3999.00"));
         req.setStockQuantity(20);
+        req.setSellerId(10L); // sellerId обязателен после привязки товара к продавцу
 
         Product saved = makeProduct(3L, "Клавиатура", new BigDecimal("3999.00"), 20);
         saved.setDescription("Механическая");
+        saved.setSeller(seller);
         when(productRepository.save(any(Product.class))).thenReturn(saved);
 
         ProductResponse result = productService.createProduct(req);
@@ -131,7 +143,7 @@ class ProductServiceTest {
         assertThat(result.getId()).isEqualTo(3L);
         assertThat(result.getName()).isEqualTo("Клавиатура");
         assertThat(result.getStockQuantity()).isEqualTo(20);
-        verify(productRepository).save(any(Product.class)); // убеждаемся что save был вызван
+        verify(productRepository).save(any(Product.class));
     }
 
     // ── updateProduct ─────────────────────────────────────────────────────────

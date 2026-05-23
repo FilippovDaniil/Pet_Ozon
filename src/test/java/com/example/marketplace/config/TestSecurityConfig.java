@@ -29,12 +29,16 @@ public class TestSecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 // Правила доступа — копия из основного SecurityConfig
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**").permitAll()               // без токена
-                        .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll() // каталог публичный
-                        .requestMatchers("/api/admin/**").hasRole("ADMIN")              // только ADMIN
-                        .requestMatchers("/api/seller/**").hasRole("SELLER")            // только SELLER
-                        .requestMatchers("/api/accountant/**").hasRole("ACCOUNTANT")    // только ACCOUNTANT
-                        .anyRequest().authenticated()                                   // остальное — авторизованные
+                        .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/categories").permitAll()
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/seller/**").hasRole("SELLER")
+                        .requestMatchers("/api/accountant/**").hasRole("ACCOUNTANT")
+                        // CategoryController: POST/DELETE требуют ADMIN (аналог @PreAuthorize на сервисе)
+                        .requestMatchers(HttpMethod.POST, "/api/categories").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/categories/**").hasRole("ADMIN")
+                        .anyRequest().authenticated()
                 )
                 // Если запрос без аутентификации к защищённому ресурсу — вернуть 401 (не редирект)
                 .exceptionHandling(ex -> ex

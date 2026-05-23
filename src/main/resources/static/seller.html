@@ -462,19 +462,9 @@
                     <select x-model="form.category"
                             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
                         <option value="">— Выбрать —</option>
-                        <option>Смартфоны</option>
-                        <option>Ноутбуки</option>
-                        <option>Планшеты</option>
-                        <option>Мониторы</option>
-                        <option>Периферия</option>
-                        <option>Накопители</option>
-                        <option>Комплектующие</option>
-                        <option>Аудио</option>
-                        <option>Сетевое</option>
-                        <option>Умный дом</option>
-                        <option>Игровые</option>
-                        <option>Фото/Видео</option>
-                        <option>Другое</option>
+                        <template x-for="cat in categories" :key="cat.id">
+                            <option :value="cat.name" x-text="cat.name"></option>
+                        </template>
                     </select>
                 </div>
                 <!-- Загрузка фото товара -->
@@ -627,6 +617,7 @@
             showModal: false,
             editingProduct: null,
             form: { name: '', description: '', price: '', stockQuantity: '', category: '' },
+            categories: [],
             // Состояние загрузки фото
             imageFile: null,         // выбранный файл (File-объект)
             imagePreview: null,      // URL для предпросмотра (blob: или data:)
@@ -653,6 +644,10 @@
             async init() {
                 this.user = getCurrentUser();
                 if (!this.user) return;
+                try {
+                    const cats = await api.getCategories();
+                    if (cats) this.categories = cats;
+                } catch {}
                 await this.loadProducts();
             },
 

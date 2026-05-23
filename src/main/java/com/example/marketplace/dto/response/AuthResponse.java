@@ -6,19 +6,20 @@ import lombok.Getter;
 /**
  * Ответ на POST /api/auth/login и /api/auth/register.
  *
- * @AllArgsConstructor (Lombok) — генерирует конструктор со ВСЕМИ полями.
- * Используется в AuthController: new AuthResponse(token, userId, ...).
+ * token        — короткоживущий access-токен (15 минут), передаётся в каждом запросе.
+ * refreshToken — долгоживущий токен (7 дней), используется только для обновления access-токена.
  *
- * Содержит JWT-токен и базовые данные пользователя, чтобы клиент
- * не делал дополнительный запрос к /api/profile/me сразу после входа.
+ * Клиент хранит оба токена в localStorage и автоматически запрашивает новый access-токен
+ * через POST /api/auth/refresh при получении 401.
  */
 @Getter
 @AllArgsConstructor
 public class AuthResponse {
-    private String token;    // JWT-токен для отправки в Authorization: Bearer <token>
+    private String token;         // access JWT-токен
+    private String refreshToken;  // refresh UUID-токен
     private Long userId;
     private String email;
-    private String role;     // "CLIENT", "SELLER" или "ADMIN"
+    private String role;          // "CLIENT", "SELLER", "ADMIN", "ACCOUNTANT"
     private String fullName;
-    private String shopName; // только для SELLER, иначе null
+    private String shopName;      // только для SELLER, иначе null
 }

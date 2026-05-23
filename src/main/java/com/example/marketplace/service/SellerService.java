@@ -48,7 +48,8 @@ public class SellerService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final OrderRepository orderRepository;
-    private final ProductService productService;  // делегируем конвертацию в ProductService
+    private final ProductService productService;
+    private final CategoryService categoryService;
 
     /**
      * Возвращает товары данного продавца постранично.
@@ -74,6 +75,9 @@ public class SellerService {
         product.setPrice(request.getPrice());
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
+        if (request.getCategory() != null && !request.getCategory().isBlank()) {
+            product.setCategory(categoryService.findOrCreate(request.getCategory()));
+        }
         product.setSeller(seller);
         ProductResponse response = productService.toResponse(productRepository.save(product));
         log.info("ACTION=SELLER_CREATE_PRODUCT sellerId={} productId={} name=\"{}\" price={}",
@@ -91,6 +95,9 @@ public class SellerService {
         product.setPrice(request.getPrice());
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
+        if (request.getCategory() != null && !request.getCategory().isBlank()) {
+            product.setCategory(categoryService.findOrCreate(request.getCategory()));
+        }
         ProductResponse response = productService.toResponse(productRepository.save(product));
         log.info("ACTION=SELLER_UPDATE_PRODUCT sellerId={} productId={} name=\"{}\" price={}",
                 sellerId, productId, response.getName(), response.getPrice());

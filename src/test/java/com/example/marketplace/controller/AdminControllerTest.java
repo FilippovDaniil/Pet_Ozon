@@ -14,6 +14,7 @@ import com.example.marketplace.security.JwtAuthenticationFilter;
 import com.example.marketplace.service.InvoiceService;
 import com.example.marketplace.service.OrderService;
 import com.example.marketplace.service.ProductService;
+import com.example.marketplace.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -52,10 +53,11 @@ class AdminControllerTest {
 
     @Autowired MockMvc mockMvc;
 
-    // AdminController использует три сервиса
+    // AdminController использует четыре сервиса
     @MockitoBean ProductService productService;
     @MockitoBean OrderService   orderService;
     @MockitoBean InvoiceService invoiceService;
+    @MockitoBean UserService    userService;
 
     // Создаёт пользователя с ролью ADMIN для имитации авторизованного администратора
     private User mockAdminUser() {

@@ -2,6 +2,7 @@ package com.example.marketplace.service;
 
 import com.example.marketplace.dto.request.CreateProductRequest;
 import com.example.marketplace.dto.response.ProductResponse;
+import com.example.marketplace.entity.Category;
 import com.example.marketplace.entity.Product;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
@@ -44,6 +45,7 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final ReviewRepository  reviewRepository;
     private final UserRepository    userRepository;
+    private final CategoryService   categoryService;
 
     /**
      * Возвращает постранично список товаров с опциональными фильтрами.
@@ -75,8 +77,9 @@ public class ProductService {
                     cb.like(cb.lower(root.get("name")), "%" + name.toLowerCase() + "%"));
         }
         if (category != null && !category.isBlank()) {
+            // Фильтрация по имени категории через JOIN: product.category.name = ?
             spec = spec.and((root, q, cb) ->
-                    cb.equal(root.get("category"), category));
+                    cb.equal(root.get("category").get("name"), category));
         }
         if (minPrice != null) {
             spec = spec.and((root, q, cb) ->
@@ -130,7 +133,10 @@ public class ProductService {
         product.setPrice(request.getPrice());
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
-        product.setCategory(request.getCategory());
+        // Если передана категория по имени — находим или создаём сущность Category.
+        if (request.getCategory() != null && !request.getCategory().isBlank()) {
+            product.setCategory(categoryService.findOrCreate(request.getCategory()));
+        }
         product.setSeller(seller);
         ProductResponse response = toResponse(productRepository.save(product));
         log.info("ACTION=ADMIN_CREATE_PRODUCT productId={} name=\"{}\" price={} sellerId={}",
@@ -156,7 +162,9 @@ public class ProductService {
         product.setPrice(request.getPrice());
         product.setStockQuantity(request.getStockQuantity());
         product.setImageUrl(request.getImageUrl());
-        product.setCategory(request.getCategory());
+        if (request.getCategory() != null && !request.getCategory().isBlank()) {
+            product.setCategory(categoryService.findOrCreate(request.getCategory()));
+        }
         log.info("ACTION=ADMIN_UPDATE_PRODUCT productId={} name=\"{}\" price={}",
                 id, product.getName(), product.getPrice());
         return toResponse(productRepository.save(product));
@@ -264,7 +272,10 @@ public class ProductService {
         // Копируем Base64-данные изображения и его MIME-тип в ответ.
         r.setImageData(product.getImageData());
         r.setImageContentType(product.getImageContentType());
-        r.setCategory(product.getCategory());
+        if (product.getCategory() != null) {
+            r.setCategoryId(product.getCategory().getId());
+            r.setCategory(product.getCategory().getName());
+        }
         if (product.getSeller() != null) {
             r.setSellerId(product.getSeller().getId());
             r.setSellerName(product.getSeller().getFullName());

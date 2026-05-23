@@ -28,6 +28,9 @@ public class ProductResponse {
     // MIME-тип изображения: "image/jpeg", "image/png" и т.д.
     private String imageContentType;
 
+    // Категория: id для точной фильтрации, name — для отображения.
+    private Long categoryId;
+
     // Данные продавца — заполняются только если у товара есть seller.
     private Long sellerId;
     private String sellerName;

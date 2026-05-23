@@ -111,7 +111,7 @@ public class AccountantService {
                     return new CartReportDto(
                             name, u.getEmail(),
                             ci.getProduct().getName(),
-                            ci.getProduct().getCategory(),
+                            ci.getProduct().getCategory() != null ? ci.getProduct().getCategory().getName() : null,
                             ci.getQuantity(),
                             ci.getProduct().getPrice(), sub
                     );

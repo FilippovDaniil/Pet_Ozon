@@ -8,16 +8,30 @@ function buildHeaders() {
     return headers;
 }
 
-async function apiFetch(path, { method = 'GET', body } = {}) {
+async function apiFetch(path, { method = 'GET', body } = {}, _isRetry = false) {
     const res = await fetch(API_BASE + path, {
         method,
         headers: buildHeaders(),
         body,
     });
-    if (res.status === 401 || res.status === 403) {
+
+    // При 401 пробуем обновить access-токен через refresh (один раз).
+    // _isRetry предотвращает бесконечный цикл, если refresh тоже вернёт 401.
+    if (res.status === 401 && !_isRetry) {
+        const refreshed = await tryRefreshToken();
+        if (refreshed) {
+            // Повторяем оригинальный запрос с новым токеном.
+            return apiFetch(path, { method, body }, true);
+        }
         logout();
         return null;
     }
+
+    if (res.status === 403) {
+        logout();
+        return null;
+    }
+
     if (res.status === 204) return null;
     const text = await res.text();
     if (!text || !text.trim()) return null;
@@ -28,6 +42,13 @@ async function apiFetch(path, { method = 'GET', body } = {}) {
 }
 
 const api = {
+    // ── Категории ─────────────────────────────────────────────────────────
+    getCategories: () => apiFetch('/api/categories'),
+    createCategory: (name) =>
+        apiFetch('/api/categories', { method: 'POST', body: JSON.stringify({ name }) }),
+    deleteCategory: (id) =>
+        apiFetch(`/api/categories/${id}`, { method: 'DELETE' }),
+
     // ── Товары ────────────────────────────────────────────────────────────
     getProducts: (params = {}) => {
         const qs = new URLSearchParams();
@@ -85,18 +106,23 @@ const api = {
     // При использовании FormData браузер сам выставляет Content-Type: multipart/form-data
     // с уникальным boundary (разделитель частей формы), поэтому заголовок НЕ нужно указывать.
     uploadProductImage: async (productId, file) => {
-        const formData = new FormData();
-        formData.append('file', file);  // 'file' совпадает с @RequestParam("file") на бэке
-        const headers = {};
-        const token = getToken();
-        if (token) headers['Authorization'] = 'Bearer ' + token;
-        // Намеренно НЕ указываем Content-Type — браузер добавит его сам с boundary
-        const res = await fetch(API_BASE + `/api/seller/products/${productId}/image`, {
-            method: 'POST',
-            headers,
-            body: formData,
-        });
-        if (res.status === 401 || res.status === 403) { logout(); return null; }
+        const doUpload = async () => {
+            const formData = new FormData();
+            formData.append('file', file);
+            const headers = {};
+            const token = getToken();
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            return fetch(API_BASE + `/api/seller/products/${productId}/image`, {
+                method: 'POST', headers, body: formData,
+            });
+        };
+        let res = await doUpload();
+        if (res.status === 401) {
+            const refreshed = await tryRefreshToken();
+            if (refreshed) res = await doUpload();
+            else { logout(); return null; }
+        }
+        if (res.status === 403) { logout(); return null; }
         const text = await res.text();
         if (!text || !text.trim()) return null;
         let json;
@@ -118,17 +144,23 @@ const api = {
     // Загрузка/удаление изображения товара администратором.
     // Аналогично uploadProductImage у продавца — FormData без явного Content-Type.
     uploadAdminProductImage: async (productId, file) => {
-        const formData = new FormData();
-        formData.append('file', file);
-        const headers = {};
-        const token = getToken();
-        if (token) headers['Authorization'] = 'Bearer ' + token;
-        const res = await fetch(API_BASE + `/api/admin/products/${productId}/image`, {
-            method: 'POST',
-            headers,
-            body: formData,
-        });
-        if (res.status === 401 || res.status === 403) { logout(); return null; }
+        const doUpload = async () => {
+            const formData = new FormData();
+            formData.append('file', file);
+            const headers = {};
+            const token = getToken();
+            if (token) headers['Authorization'] = 'Bearer ' + token;
+            return fetch(API_BASE + `/api/admin/products/${productId}/image`, {
+                method: 'POST', headers, body: formData,
+            });
+        };
+        let res = await doUpload();
+        if (res.status === 401) {
+            const refreshed = await tryRefreshToken();
+            if (refreshed) res = await doUpload();
+            else { logout(); return null; }
+        }
+        if (res.status === 403) { logout(); return null; }
         const text = await res.text();
         if (!text || !text.trim()) return null;
         let json;

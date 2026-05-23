@@ -78,7 +78,7 @@ class AccountantServiceTest {
     private CartItem makeCartItem(User user, String productName, BigDecimal price, int qty) {
         Product product = new Product();
         product.setName(productName);
-        product.setCategory("Электроника");
+        product.setCategory(new com.example.marketplace.entity.Category("Электроника"));
         product.setPrice(price);
 
         Cart cart = new Cart();
@@ -184,7 +184,7 @@ class AccountantServiceTest {
         OrderReportDto dto = result.get(0);
         assertThat(dto.getOrderId()).isEqualTo(7L);
         assertThat(dto.getCustomerName()).isEqualTo("Пётр Иванов");
-        assertThat(dto.getCustomerEmail()).isEqualTo("петриванов@example.com");
+        assertThat(dto.getCustomerEmail()).isEqualTo("пётриванов@example.com");
         assertThat(dto.getStatus()).isEqualTo("PAID");
         assertThat(dto.getTotalAmount()).isEqualByComparingTo("12000.00");
         assertThat(dto.getShippingAddress()).isEqualTo("Москва, ул. Примерная, 1");

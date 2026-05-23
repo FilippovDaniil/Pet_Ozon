@@ -61,7 +61,11 @@
       "PowerShell(kubectl delete namespace *)",
       "Bash(kubectl get nodes *)",
       "PowerShell(Invoke-RestMethod http://localhost:30667/actuator/health | ConvertTo-Json -Depth 3)",
-      "PowerShell(\\(Invoke-RestMethod \"http://localhost:30300/api/search?type=dash-db\" -Headers @{Authorization=\"Basic \"+[Convert]::ToBase64String\\([Text.Encoding]::ASCII.GetBytes\\(\"admin:admin\"\\)\\)}\\) | Select-Object title,uid)"
+      "PowerShell(\\(Invoke-RestMethod \"http://localhost:30300/api/search?type=dash-db\" -Headers @{Authorization=\"Basic \"+[Convert]::ToBase64String\\([Text.Encoding]::ASCII.GetBytes\\(\"admin:admin\"\\)\\)}\\) | Select-Object title,uid)",
+      "Skill(update-config)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(powershell -Command \"Add-Content -Path \\\\\"$env:USERPROFILE\\\\.claude\\\\session-log.txt\\\\\" -Value \\\\\"$\\(Get-Date -Format 'yyyy-MM-dd HH:mm'\\) | session ended\\\\\"\")",
+      "PowerShell(Add-Content *)"
     ]
   }
 }

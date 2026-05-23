@@ -936,7 +936,7 @@
             totalPages: 0,
             totalElements: 0,
             pageSize: 12,
-            CATEGORIES: ['', 'Смартфоны', 'Ноутбуки', 'Планшеты', 'Мониторы', 'Периферия', 'Накопители', 'Комплектующие', 'Аудио', 'Сетевое', 'Умный дом', 'Игровые', 'Фото/Видео', 'Другое'],
+            CATEGORIES: [''],
 
             cart: null,
             cartCount: 0,
@@ -988,6 +988,11 @@
             async init() {
                 this.user = getCurrentUser();
                 if (!this.user) return;
+                // Загружаем категории из API — заполняем CATEGORIES динамически.
+                try {
+                    const cats = await api.getCategories();
+                    if (cats) this.CATEGORIES = ['', ...cats.map(c => c.name)];
+                } catch {}
                 await this.loadProducts();
                 // Pre-fill checkout address from profile
                 try {

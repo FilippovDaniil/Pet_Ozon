@@ -2,11 +2,12 @@ package com.example.marketplace.controller;
 
 import com.example.marketplace.config.SecurityConfig;
 import com.example.marketplace.config.TestSecurityConfig;
-import com.example.marketplace.dto.response.AuthResponse;
+import com.example.marketplace.entity.RefreshToken;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.security.JwtAuthenticationFilter;
 import com.example.marketplace.security.JwtUtil;
+import com.example.marketplace.service.RefreshTokenService;
 import com.example.marketplace.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,14 +23,17 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// Тесты AuthController: вход (login) и регистрация (register).
-// Эндпоинты /api/auth/** публичные — не требуют токена, поэтому .with(user(...)) не нужен.
+// Тесты AuthController: login, register, refresh, logout.
+// /api/auth/** — публичные эндпоинты, .with(user(...)) не нужен.
 @WebMvcTest(
         value = AuthController.class,
         excludeFilters = {
@@ -42,63 +46,66 @@ class AuthControllerTest {
 
     @Autowired MockMvc mockMvc;
 
-    // AuthController использует четыре зависимости — все мокируем
     @MockitoBean UserService userService;
     @MockitoBean JwtUtil jwtUtil;
-    // AuthenticationManager — компонент Spring Security, проверяет email + password
     @MockitoBean AuthenticationManager authenticationManager;
-    // UserDetailsService — загружает UserDetails (наш User) по username (email)
     @MockitoBean UserDetailsService userDetailsService;
+    // RefreshTokenService добавлен в AuthController при реализации refresh-токенов.
+    @MockitoBean RefreshTokenService refreshTokenService;
 
-    // Тестовый пользователь-клиент для имитации успешного логина
     private User mockClientUser() {
         User u = new User();
         u.setId(1L);
         u.setEmail("client@example.com");
-        u.setPassword("encoded");  // хешированный пароль (в реальности BCrypt)
+        u.setPassword("encoded");
         u.setFullName("Иван Клиентов");
         u.setRole(Role.CLIENT);
         u.setBalance(BigDecimal.ZERO);
         return u;
     }
 
+    private RefreshToken mockRefreshToken(User user) {
+        RefreshToken rt = new RefreshToken();
+        rt.setToken("refresh-uuid-123");
+        rt.setUser(user);
+        rt.setExpiresAt(Instant.now().plusSeconds(604_800));
+        return rt;
+    }
+
     // ── POST /api/auth/login ──────────────────────────────────────────────────
 
     @Test
-    void login_validCredentials_returns200WithToken() throws Exception {
+    void login_validCredentials_returns200WithBothTokens() throws Exception {
         User client = mockClientUser();
-        // authenticate(any()) → null: Spring Security успешно проверил пароль (без броска исключения)
         when(authenticationManager.authenticate(any())).thenReturn(null);
-        // loadUserByUsername возвращает нашего пользователя (он реализует UserDetails)
         when(userDetailsService.loadUserByUsername("client@example.com")).thenReturn(client);
-        // generateToken — мок возвращает фиктивный токен вместо реального JWT
-        when(jwtUtil.generateToken(client)).thenReturn("jwt-token-123");
+        when(jwtUtil.generateToken(client)).thenReturn("access-jwt-123");
+        when(refreshTokenService.createRefreshToken(client)).thenReturn(mockRefreshToken(client));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"client@example.com\",\"password\":\"pass\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").value("jwt-token-123"))   // токен в теле ответа
+                .andExpect(jsonPath("$.token").value("access-jwt-123"))
+                .andExpect(jsonPath("$.refreshToken").value("refresh-uuid-123"))
                 .andExpect(jsonPath("$.email").value("client@example.com"))
                 .andExpect(jsonPath("$.role").value("CLIENT"))
-                .andExpect(header().exists("Authorization")); // токен также в заголовке
+                .andExpect(header().exists("Authorization"));
     }
 
     @Test
     void login_badCredentials_returns401() throws Exception {
-        // BadCredentialsException — стандартное исключение Spring Security при неверном пароле
         doThrow(new BadCredentialsException("Bad credentials"))
                 .when(authenticationManager).authenticate(any());
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"client@example.com\",\"password\":\"wrong\"}"))
-                .andExpect(status().isUnauthorized()); // GlobalExceptionHandler → 401
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     void login_blankEmail_returns400() throws Exception {
-        // @Valid + @Email: пустой email не проходит валидацию → MethodArgumentNotValidException → 400
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"\",\"password\":\"pass\"}"))
@@ -108,7 +115,6 @@ class AuthControllerTest {
 
     @Test
     void login_invalidEmailFormat_returns400() throws Exception {
-        // @Email проверяет формат: "not-an-email" не является корректным email-адресом
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"not-an-email\",\"password\":\"pass\"}"))
@@ -117,7 +123,6 @@ class AuthControllerTest {
 
     @Test
     void login_blankPassword_returns400() throws Exception {
-        // @NotBlank: пустой пароль не проходит валидацию
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"client@example.com\",\"password\":\"\"}"))
@@ -127,7 +132,7 @@ class AuthControllerTest {
     // ── POST /api/auth/register ───────────────────────────────────────────────
 
     @Test
-    void register_validRequest_returns201WithToken() throws Exception {
+    void register_validRequest_returns201WithBothTokens() throws Exception {
         User newUser = new User();
         newUser.setId(10L);
         newUser.setEmail("newuser@example.com");
@@ -137,20 +142,21 @@ class AuthControllerTest {
 
         when(userService.registerClient("newuser@example.com", "password123", "Новый Пользователь"))
                 .thenReturn(newUser);
-        when(jwtUtil.generateToken(newUser)).thenReturn("new-jwt-token");
+        when(jwtUtil.generateToken(newUser)).thenReturn("new-access-token");
+        when(refreshTokenService.createRefreshToken(newUser)).thenReturn(mockRefreshToken(newUser));
 
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"newuser@example.com\",\"password\":\"password123\",\"fullName\":\"Новый Пользователь\"}"))
-                .andExpect(status().isCreated()) // HTTP 201 Created (не 200 OK)
-                .andExpect(jsonPath("$.token").value("new-jwt-token"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.token").value("new-access-token"))
+                .andExpect(jsonPath("$.refreshToken").value("refresh-uuid-123"))
                 .andExpect(jsonPath("$.email").value("newuser@example.com"))
                 .andExpect(jsonPath("$.role").value("CLIENT"));
     }
 
     @Test
     void register_duplicateEmail_returns400() throws Exception {
-        // registerClient бросает IllegalArgumentException если email уже занят
         when(userService.registerClient(eq("client@example.com"), any(), any()))
                 .thenThrow(new IllegalArgumentException("Email already registered: client@example.com"));
 
@@ -163,7 +169,6 @@ class AuthControllerTest {
 
     @Test
     void register_shortPassword_returns400() throws Exception {
-        // @Size(min = 6): пароль "123" — слишком короткий → 400
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"new@example.com\",\"password\":\"123\"}"))
@@ -176,6 +181,91 @@ class AuthControllerTest {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"\",\"password\":\"password123\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ── POST /api/auth/refresh ────────────────────────────────────────────────
+
+    @Test
+    void refresh_validToken_returnsNewTokenPair() throws Exception {
+        User client = mockClientUser();
+        RefreshToken oldRefresh = mockRefreshToken(client);
+
+        when(refreshTokenService.findValid("refresh-uuid-123")).thenReturn(Optional.of(oldRefresh));
+        doNothing().when(refreshTokenService).delete(oldRefresh);
+        when(jwtUtil.generateToken(client)).thenReturn("new-access-token");
+        when(refreshTokenService.createRefreshToken(client)).thenReturn(mockRefreshToken(client));
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"refresh-uuid-123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("new-access-token"))
+                .andExpect(jsonPath("$.refreshToken").value("refresh-uuid-123"));
+
+        // Старый токен должен быть удалён (ротация).
+        verify(refreshTokenService).delete(oldRefresh);
+        // Новый refresh создан.
+        verify(refreshTokenService).createRefreshToken(client);
+    }
+
+    @Test
+    void refresh_expiredToken_returns500() throws Exception {
+        // findValid возвращает empty когда токен истёк или не найден.
+        when(refreshTokenService.findValid("expired-token")).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"expired-token\"}"))
+                .andExpect(status().isInternalServerError());
+    }
+
+    @Test
+    void refresh_blankToken_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    // ── POST /api/auth/logout ─────────────────────────────────────────────────
+
+    @Test
+    void logout_validToken_returns204AndDeletesToken() throws Exception {
+        User client = mockClientUser();
+        RefreshToken refreshToken = mockRefreshToken(client);
+
+        when(refreshTokenService.findValid("refresh-uuid-123")).thenReturn(Optional.of(refreshToken));
+        doNothing().when(refreshTokenService).delete(refreshToken);
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"refresh-uuid-123\"}"))
+                .andExpect(status().isNoContent());
+
+        // Токен инвалидирован на сервере.
+        verify(refreshTokenService).delete(refreshToken);
+    }
+
+    @Test
+    void logout_unknownToken_returns204Silently() throws Exception {
+        // Логаут с неизвестным токеном не должен возвращать ошибку.
+        when(refreshTokenService.findValid("unknown-token")).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"unknown-token\"}"))
+                .andExpect(status().isNoContent());
+
+        // delete не вызывается, если токен не найден.
+        verify(refreshTokenService, never()).delete(any());
+    }
+
+    @Test
+    void logout_blankToken_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"refreshToken\":\"\"}"))
                 .andExpect(status().isBadRequest());
     }
 }
