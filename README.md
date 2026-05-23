@@ -61,6 +61,9 @@
 | **Alpine.js** | 3.14.1 | Реактивный фронтенд без сборщика (CDN) |
 | **Tailwind CSS** | CDN | Утилитарный CSS-фреймворк для адаптивного дизайна |
 | **SheetJS (xlsx.js)** | 0.18.5 | Excel-выгрузка отчётов на странице бухгалтера |
+| **OpenSearch** | 2.17.0 | Полнотекстовый поиск по товарам (multi_match, bool.must, пагинация) |
+| **opensearch-java** | 2.15.0 | Java-клиент для OpenSearch (ApacheHttpClient5Transport) |
+| **httpclient5** | BOM (5.4.x) | Транспорт для OpenSearch; версию НЕ пинить явно |
 
 ### Что такое Spring Boot BOM
 
@@ -256,8 +259,9 @@ com.example.marketplace
 ├── MarketplaceApplication.java     ← точка входа (@SpringBootApplication)
 │
 ├── config/
-│   ├── AppConfig.java              ← CommandLineRunner, тестовые данные
+│   ├── AppConfig.java              ← CommandLineRunner, тестовые данные + reindexAll
 │   ├── CorsConfig.java             ← разрешает запросы с фронтенда
+│   ├── OpenSearchConfig.java       ← Bean OpenSearchClient (ApacheHttpClient5Transport)
 │   └── SecurityConfig.java         ← настройки Spring Security, правила доступа
 │
 ├── controller/
@@ -269,21 +273,27 @@ com.example.marketplace
 │   ├── ProfileController           GET/PATCH /api/profile/me
 │   ├── SellerController            /api/seller/products, /balance, /sales
 │   ├── AdminController             /api/admin/products, /orders, /invoices, /sellers
-│   └── ChatController              /api/chat/conversations, /{id}/messages
+│   ├── ChatController              /api/chat/conversations, /{id}/messages
+│   └── ProductSearchController     GET /api/search/products (OpenSearch, без авторизации)
 │
 ├── service/
 │   ├── UserService                 ← CRUD пользователей, регистрация, список продавцов
-│   ├── ProductService              ← каталог товаров, фильтрация
+│   ├── ProductService              ← каталог товаров, фильтрация + indexProduct при CRUD
 │   ├── CartService                 ← корзина, checkout (самый сложный сервис)
 │   ├── OrderService                ← чтение и управление заказами
 │   ├── InvoiceService              ← оплата, начисление выручки продавцам
-│   ├── SellerService               ← операции продавца (CRUD его товаров)
+│   ├── SellerService               ← операции продавца (CRUD его товаров) + indexProduct
 │   ├── ChatService                 ← диалоги и сообщения между клиентами и продавцами
+│   ├── ProductSearchService        ← OpenSearch: ensureIndex, indexProduct, removeProduct,
+│   │                                  reindexAll, search (graceful degradation)
 │   └── PaymentService              ← заглушка (делегирует в InvoiceService)
+│
+├── search/
+│   └── ProductDocument.java        ← плоский POJO для OpenSearch (не JPA entity)
 │
 ├── repository/                     ← 10 JpaRepository-интерфейсов
 │   ├── UserRepository              ← + findByRole(Role) для выборки продавцов
-│   ├── ProductRepository           ← + JpaSpecificationExecutor (динамические запросы)
+│   ├── ProductRepository           ← + JpaSpecificationExecutor + findAllForReindex() JOIN FETCH
 │   ├── CartRepository
 │   ├── CartItemRepository
 │   ├── OrderRepository             ← кастомный @Query для запросов продавца
@@ -2146,6 +2156,37 @@ response.setMine(message.getSender().getId().equals(viewer.getId()));
 
 ---
 
+### Полнотекстовый поиск (OpenSearch)
+
+| Метод | URL | Параметры | Ответ | Доступ |
+|---|---|---|---|---|
+| GET | `/api/search/products` | `q`, `category`, `minPrice`, `maxPrice`, `page`, `size` | `Page<ProductDocument>` | Все |
+
+Параметры — все необязательные:
+
+| Параметр | Описание |
+|---|---|
+| `q` | Полнотекстовый запрос — ищет по `name` и `description` (`multi_match`) |
+| `category` | Точная фильтрация по категории (`term` — без анализатора) |
+| `minPrice` | Цена от (`range.gte`) |
+| `maxPrice` | Цена до (`range.lte`) |
+| `page` / `size` | Пагинация (по умолчанию `size=20`) |
+
+Примеры:
+```
+GET /api/search/products?q=ноутбук
+GET /api/search/products?category=Наушники&maxPrice=10000
+GET /api/search/products?q=sony&minPrice=5000&page=0&size=10
+GET /api/search/products          # match_all — все товары
+```
+
+**`ProductDocument`** содержит: `id`, `name`, `description`, `price`, `category`, `shopName`, `stockQuantity`.
+
+**Graceful degradation:** если OpenSearch недоступен — endpoint возвращает пустую страницу (не 500).  
+Основной каталог `GET /api/products` работает независимо от состояния OpenSearch.
+
+---
+
 ### Отзывы и рейтинги
 
 | Метод | URL | Тело | Ответ | Доступ |
@@ -2443,7 +2484,7 @@ docker run -p 8667:8667 \
 
 ## Запуск в Rancher Desktop (Kubernetes)
 
-Полный стек маркетплейса (Spring Boot + PostgreSQL + Loki + Prometheus + Grafana)
+Полный стек маркетплейса (Spring Boot + PostgreSQL + OpenSearch + Loki + Prometheus + Grafana)
 запускается в локальном Kubernetes-кластере через Rancher Desktop.
 
 ### Быстрый старт — один скрипт
@@ -2500,7 +2541,8 @@ rancher/
 │   ├── 04-prometheus.yaml  ← Prometheus: ConfigMap + PVC + Deployment + Service
 │   ├── 05-grafana.yaml     ← Grafana: 3×ConfigMap + PVC + Deployment + Service
 │   ├── 06-app.yaml         ← Spring Boot: ConfigMap + Deployment + Service
-│   └── 07-dashboard.yaml   ← Kubernetes Dashboard: веб-интерфейс управления
+│   ├── 07-dashboard.yaml   ← Kubernetes Dashboard: веб-интерфейс управления
+│   └── 08-opensearch.yaml  ← OpenSearch: PVC + Deployment (privileged sysctl) + Service
 └── helm/                   ← Helm chart (продвинутый способ, шаблонизация)
     └── marketplace/
 ```
@@ -2707,11 +2749,16 @@ kubectl apply -f rancher/k8s/
 | Pod в `CrashLoopBackOff` | Spring Boot стартует до готовности PostgreSQL | initContainer `wait-for-postgres` должен успеть завершиться |
 | `ErrImageNeverPull` после `docker build` | BuildKit создал manifest list | Используй `docker build --provenance=false` |
 | Grafana дашборды пустые | Loki ещё не получал логи | Войди в приложение, соверши действия, подожди 1-2 минуты |
+| OpenSearch Exit Code 78 | `vm.max_map_count` слишком мал (65530 < 262144) | Privileged initContainer `sysctl` в `08-opensearch.yaml` |
+| `NoClassDefFoundError: TlsSocketStrategy` | `httpclient5` явно пинирован на 5.3.x | Убрать версию из build.gradle — BOM даст 5.4.x |
+| OpenSearch индекс пуст после старта | `reindexAll` вызван до готовности OpenSearch | initContainer `wait-for-opensearch` в `06-app.yaml` |
+| `LazyInitializationException` в reindexAll | `findAll()` закрывает JPA-сессию до обращения к Category | Использовать `findAllForReindex()` с `JOIN FETCH` |
 
 ---
 
 ## Что добавлено
 
+- [x] **Полнотекстовый поиск (OpenSearch)** — `ProductSearchService` (graceful degradation), `ProductSearchController` (`GET /api/search/products`), `ProductDocument` POJO, `OpenSearchConfig` (ApacheHttpClient5Transport); индексация при каждом CRUD товара через `ProductService`/`SellerService`; полная переиндексация 320 товаров при старте через `AppConfig.reindexAll()`; поддержка multi_match + term + range + пагинация; K8s: `08-opensearch.yaml` с privileged initContainer для `vm.max_map_count`; подробности — `OpenSearch.md`
 - [x] **Интеграционные тесты** — `@DataJpaTest` + Testcontainers, реальная PostgreSQL в Docker (`@Tag("integration")`)
 - [x] **Swagger UI / OpenAPI 3** — автодокументация, `http://localhost:8667/swagger-ui.html`
 - [x] **Пагинация везде** — товары, заказы, счета, товары продавца — все возвращают `Page<T>`

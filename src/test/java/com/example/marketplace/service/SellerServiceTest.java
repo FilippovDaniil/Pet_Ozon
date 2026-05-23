@@ -11,6 +11,8 @@ import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.UserRepository;
+import com.example.marketplace.service.CategoryService;
+import com.example.marketplace.service.ProductSearchService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -35,11 +37,12 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class SellerServiceTest {
 
-    @Mock ProductRepository productRepository;
-    @Mock UserRepository    userRepository;
-    @Mock OrderRepository   orderRepository;
-    // ProductService тоже мокируем: SellerService делегирует ему преобразование Product → ProductResponse
-    @Mock ProductService    productService;
+    @Mock ProductRepository    productRepository;
+    @Mock UserRepository       userRepository;
+    @Mock OrderRepository      orderRepository;
+    @Mock ProductService       productService;
+    @Mock CategoryService      categoryService;
+    @Mock ProductSearchService productSearchService;
 
     @InjectMocks
     SellerService sellerService;

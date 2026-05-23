@@ -65,7 +65,10 @@
       "Skill(update-config)",
       "PowerShell(Get-Content *)",
       "PowerShell(powershell -Command \"Add-Content -Path \\\\\"$env:USERPROFILE\\\\.claude\\\\session-log.txt\\\\\" -Value \\\\\"$\\(Get-Date -Format 'yyyy-MM-dd HH:mm'\\) | session ended\\\\\"\")",
-      "PowerShell(Add-Content *)"
+      "PowerShell(Add-Content *)",
+      "Bash(.\\\\rancher\\\\build-and-load.ps1)",
+      "Bash(.\\\\rancher\\\\deploy.ps1 *)",
+      "PowerShell(.\\\\rancher\\\\deploy.ps1)"
     ]
   }
 }

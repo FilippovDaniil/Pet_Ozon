@@ -1,0 +1,128 @@
+# ════════════════════════════════════════════════════════════════════════════
+# 08-opensearch.yaml — OpenSearch для полнотекстового поиска по товарам
+#
+# Три ресурса: PersistentVolumeClaim + Deployment + Service
+#
+# ВАЖНО: OpenSearch требует vm.max_map_count ≥ 262144 в ядре Linux.
+# В Rancher Desktop (k3s) initContainer с privileged:true устанавливает его
+# через sysctl на уровне Linux VM. Без этого OpenSearch выйдет с ошибкой
+# "max virtual memory areas vm.max_map_count [65530] is too low".
+#
+# DISABLE_SECURITY_PLUGIN=true — без TLS и Basic Auth. Только для dev/test.
+# В production использовать HTTPS + встроенный Security плагин.
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── РЕСУРС 1: PersistentVolumeClaim — хранилище индексов ─────────────────────
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opensearch-pvc
+  namespace: marketplace
+spec:
+  accessModes:
+    - ReadWriteOnce           # один под читает и пишет (достаточно для single-node)
+  resources:
+    requests:
+      storage: 5Gi            # 5 ГБ для индексов (у нас ~250 товаров, хватит с запасом)
+
+---
+# ── РЕСУРС 2: Deployment ─────────────────────────────────────────────────────
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch
+  namespace: marketplace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opensearch
+  template:
+    metadata:
+      labels:
+        app: opensearch
+    spec:
+      # ── initContainer: установить vm.max_map_count ────────────────────────
+      # OpenSearch требует этого системного параметра.
+      # privileged: true — нужен для sysctl на уровне VM (Rancher Desktop).
+      # Если pod не запускается из-за SecurityContext — проверь Pod Security Policy.
+      initContainers:
+        - name: sysctl-fix
+          image: busybox:1.36
+          command: ["sysctl", "-w", "vm.max_map_count=262144"]
+          securityContext:
+            privileged: true   # требуется для изменения sysctl ядра
+
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:2.17.0
+          # IfNotPresent: образ тянется из Docker Hub при первом запуске.
+          # Это не наш кастомный образ → Never не нужен.
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: discovery.type
+              value: single-node          # без кластеризации — режим разработки
+            - name: DISABLE_SECURITY_PLUGIN
+              value: "true"              # HTTP без TLS + без Basic Auth
+            - name: bootstrap.memory_lock
+              value: "false"             # в K8s memory lock управляется resource limits
+            - name: OPENSEARCH_JAVA_OPTS
+              value: "-Xms512m -Xmx512m" # фиксируем heap: 512m хватит для dev
+          ports:
+            - containerPort: 9200        # REST API
+            - containerPort: 9600        # Performance Analyzer
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
+          # ── Resource limits: защита от съедания памяти пода ──────────────
+          resources:
+            requests:
+              memory: "600Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          # ── readinessProbe: ждём пока кластер green/yellow ───────────────
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 30      # OpenSearch стартует ~20-30 секунд
+            periodSeconds: 10
+            failureThreshold: 12         # максимум 120 сек после initialDelay
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: opensearch-pvc
+
+---
+# ── РЕСУРС 3: Service ────────────────────────────────────────────────────────
+#
+# Имя "opensearch-service" используется в ConfigMap приложения (06-app.yaml):
+#   OPENSEARCH_HOST: "opensearch-service"
+# В logback-spring.xml (если нужен): http://loki (другой сервис, отдельно).
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch-service   # DNS: opensearch-service.marketplace.svc.cluster.local
+  namespace: marketplace
+spec:
+  selector:
+    app: opensearch
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+    - name: perf-analyzer
+      port: 9600
+      targetPort: 9600

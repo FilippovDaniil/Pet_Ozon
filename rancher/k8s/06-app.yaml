@@ -70,6 +70,11 @@ data:
   # "always" = показывать все компоненты: db, diskSpace, ping, liveness, readiness.
   # Удобно для диагностики. В production обычно "when_authorized".
 
+  # ── OpenSearch ────────────────────────────────────────────────────────────
+  OPENSEARCH_HOST: "opensearch-service"   # DNS-имя K8s Service из 08-opensearch.yaml
+  OPENSEARCH_PORT: "9200"                 # → opensearch.port в application.properties
+  OPENSEARCH_SCHEME: "http"               # DISABLE_SECURITY_PLUGIN=true → HTTP без TLS
+
 ---
 # ── РЕСУРС 2: Deployment ─────────────────────────────────────────────────────
 
@@ -104,9 +109,8 @@ spec:
       # readinessProbe у postgres не помогает: он защищает Service от роутинга, но не останавливает
       # старт соседних подов. Именно для этого нужен initContainer.
       initContainers:
-        - name: wait-for-postgres   # Имя initContainer (отображается в kubectl describe pod).
-          image: busybox:1.36       # Минимальный образ со стандартными утилитами (~1.5 МБ).
-                                    # Содержит sh, nc (netcat), sleep и другие базовые команды.
+        - name: wait-for-postgres
+          image: busybox:1.36
           command:
             - sh
             - -c
@@ -116,11 +120,21 @@ spec:
                 sleep 2
               done
               echo "PostgreSQL is ready!"
-              # nc -z = netcat в режиме "просто проверь TCP соединение" (zero-I/O).
-              # Возвращает exit code 0 если порт открыт, 1 если нет.
-              # "until": повторяй пока команда НЕ успешна (exit ≠ 0).
-              # Когда postgres-service:5432 отвечает → exit 0 → цикл завершается.
-              # initContainer завершается успешно → стартует основной контейнер.
+
+        # Ждём OpenSearch перед стартом приложения.
+        # Приложение стартует с graceful degradation (если OS недоступен — warning в логах),
+        # но лучше подождать чтобы startup reindexAll сработал корректно.
+        - name: wait-for-opensearch
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z opensearch-service 9200; do
+                echo "Waiting for opensearch-service:9200..."
+                sleep 3
+              done
+              echo "OpenSearch is ready!"
 
       # ── Основной контейнер: Spring Boot приложение ───────────────────────
       containers:

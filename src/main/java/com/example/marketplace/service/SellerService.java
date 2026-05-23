@@ -45,11 +45,12 @@ public class SellerService {
     // 1024 * 1024 = 1 МБ, умножаем на 2 → 2 МБ.
     private static final long MAX_IMAGE_SIZE_BYTES = 2L * 1024 * 1024;
 
-    private final ProductRepository productRepository;
-    private final UserRepository userRepository;
-    private final OrderRepository orderRepository;
-    private final ProductService productService;
-    private final CategoryService categoryService;
+    private final ProductRepository    productRepository;
+    private final UserRepository       userRepository;
+    private final OrderRepository      orderRepository;
+    private final ProductService       productService;
+    private final CategoryService      categoryService;
+    private final ProductSearchService productSearchService;
 
     /**
      * Возвращает товары данного продавца постранично.
@@ -79,7 +80,9 @@ public class SellerService {
             product.setCategory(categoryService.findOrCreate(request.getCategory()));
         }
         product.setSeller(seller);
-        ProductResponse response = productService.toResponse(productRepository.save(product));
+        Product saved = productRepository.save(product);
+        productSearchService.indexProduct(saved);
+        ProductResponse response = productService.toResponse(saved);
         log.info("ACTION=SELLER_CREATE_PRODUCT sellerId={} productId={} name=\"{}\" price={}",
                 sellerId, response.getId(), response.getName(), response.getPrice());
         return response;
@@ -98,7 +101,9 @@ public class SellerService {
         if (request.getCategory() != null && !request.getCategory().isBlank()) {
             product.setCategory(categoryService.findOrCreate(request.getCategory()));
         }
-        ProductResponse response = productService.toResponse(productRepository.save(product));
+        Product saved = productRepository.save(product);
+        productSearchService.indexProduct(saved);
+        ProductResponse response = productService.toResponse(saved);
         log.info("ACTION=SELLER_UPDATE_PRODUCT sellerId={} productId={} name=\"{}\" price={}",
                 sellerId, productId, response.getName(), response.getPrice());
         return response;
@@ -111,6 +116,7 @@ public class SellerService {
         log.info("ACTION=SELLER_DELETE_PRODUCT sellerId={} productId={} name=\"{}\"",
                 sellerId, productId, product.getName());
         productRepository.delete(product);
+        productSearchService.removeProduct(productId);
     }
 
     /** Возвращает баланс продавца — сколько он заработал на продажах. */

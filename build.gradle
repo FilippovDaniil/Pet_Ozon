@@ -66,6 +66,14 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+
+    // OpenSearch Java Client — полнотекстовый поиск по товарам.
+    // opensearch-java: высокоуровневый клиент (Query DSL, индексирование, поиск).
+    // Транспорт: ApacheHttpClient5Transport (httpclient5).
+    // Версия httpclient5 без пина: Spring Boot 3.4.x управляет ею (5.4.x),
+    // это нужно для совместимости с HttpClientAutoConfiguration (TlsSocketStrategy).
+    implementation 'org.opensearch.client:opensearch-java:2.15.0'
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
 }
 
 // Обычный запуск тестов — без Docker (быстро, без внешних зависимостей).

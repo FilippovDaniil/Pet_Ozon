@@ -5,6 +5,7 @@ import com.example.marketplace.entity.User;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,4 +38,9 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     // Стандартный findAll(Pageable) уже есть в JpaRepository,
     // но здесь он переопределён явно для ясности.
     Page<Product> findAll(Pageable pageable);
+
+    // JOIN FETCH загружает category и seller в рамках одного запроса.
+    // Нужно для reindexAll: без этого lazy-прокси не инициализируются вне сессии.
+    @Query("SELECT p FROM Product p LEFT JOIN FETCH p.category LEFT JOIN FETCH p.seller")
+    List<Product> findAllForReindex();
 }

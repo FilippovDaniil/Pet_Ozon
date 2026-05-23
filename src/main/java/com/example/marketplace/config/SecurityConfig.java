@@ -71,9 +71,10 @@ public class SecurityConfig {
                         // Actuator: /actuator/health и /actuator/prometheus — для Prometheus scrape.
                         .requestMatchers("/actuator/**").permitAll()
 
-                        // Просмотр товаров и категорий — публичный доступ (не нужно логиниться).
+                        // Просмотр товаров, категорий и поиск — публичный доступ.
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/categories").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/search/**").permitAll()
 
                         // Админские эндпоинты — только для роли ADMIN.
                         // Spring добавит "ROLE_" автоматически: ищет "ROLE_ADMIN".

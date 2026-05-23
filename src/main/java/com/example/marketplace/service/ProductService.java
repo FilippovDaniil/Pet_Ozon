@@ -42,10 +42,11 @@ import java.util.Base64;
 @RequiredArgsConstructor
 public class ProductService {
 
-    private final ProductRepository productRepository;
-    private final ReviewRepository  reviewRepository;
-    private final UserRepository    userRepository;
-    private final CategoryService   categoryService;
+    private final ProductRepository    productRepository;
+    private final ReviewRepository     reviewRepository;
+    private final UserRepository       userRepository;
+    private final CategoryService      categoryService;
+    private final ProductSearchService productSearchService;
 
     /**
      * Возвращает постранично список товаров с опциональными фильтрами.
@@ -138,7 +139,9 @@ public class ProductService {
             product.setCategory(categoryService.findOrCreate(request.getCategory()));
         }
         product.setSeller(seller);
-        ProductResponse response = toResponse(productRepository.save(product));
+        Product saved = productRepository.save(product);
+        productSearchService.indexProduct(saved);
+        ProductResponse response = toResponse(saved);
         log.info("ACTION=ADMIN_CREATE_PRODUCT productId={} name=\"{}\" price={} sellerId={}",
                 response.getId(), response.getName(), response.getPrice(), seller.getId());
         return response;
@@ -167,7 +170,9 @@ public class ProductService {
         }
         log.info("ACTION=ADMIN_UPDATE_PRODUCT productId={} name=\"{}\" price={}",
                 id, product.getName(), product.getPrice());
-        return toResponse(productRepository.save(product));
+        Product saved = productRepository.save(product);
+        productSearchService.indexProduct(saved);
+        return toResponse(saved);
     }
 
     /**
@@ -185,6 +190,7 @@ public class ProductService {
             throw new ResourceNotFoundException("Product not found with id: " + id);
         }
         productRepository.deleteById(id);
+        productSearchService.removeProduct(id);
         log.info("ACTION=ADMIN_DELETE_PRODUCT productId={}", id);
     }
 

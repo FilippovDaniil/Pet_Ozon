@@ -44,3 +44,6 @@ bin/
 
 ### Secrets ###
 .env
+
+### Markdown helper files ###
+*.md

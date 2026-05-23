@@ -9,6 +9,7 @@ import com.example.marketplace.repository.CartRepository;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.UserRepository;
 import com.example.marketplace.service.CategoryService;
+import com.example.marketplace.service.ProductSearchService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -24,12 +25,13 @@ import java.math.BigDecimal;
 @Slf4j
 public class AppConfig {
 
-    private final UserRepository userRepository;
-    private final ProductRepository productRepository;
-    private final CartRepository cartRepository;
-    private final CategoryService categoryService;
-    private final PasswordEncoder passwordEncoder;
-    private final JdbcTemplate jdbc;
+    private final UserRepository       userRepository;
+    private final ProductRepository    productRepository;
+    private final CartRepository       cartRepository;
+    private final CategoryService      categoryService;
+    private final ProductSearchService productSearchService;
+    private final PasswordEncoder      passwordEncoder;
+    private final JdbcTemplate         jdbc;
 
     @Bean
     public CommandLineRunner initData() {
@@ -257,6 +259,10 @@ public class AppConfig {
                         p.setCategory(categoryService.findOrCreate(categorizeByName(p.getName())));
                         productRepository.save(p);
                     });
+
+            // Синхронизируем все товары из PostgreSQL в OpenSearch.
+            // Если OpenSearch недоступен — productSearchService логирует warning и продолжает.
+            productSearchService.reindexAll(productRepository.findAllForReindex());
 
             log.info("=== Marketplace ready ===");
             log.info("  client@example.com   / pass → покупатель");

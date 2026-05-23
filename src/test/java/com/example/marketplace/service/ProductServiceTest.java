@@ -9,6 +9,8 @@ import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.ReviewRepository;
 import com.example.marketplace.repository.UserRepository;
+import com.example.marketplace.service.CategoryService;
+import com.example.marketplace.service.ProductSearchService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -31,12 +33,11 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
 
-    @Mock ProductRepository productRepository;
-    // ReviewRepository нужен ProductService для рейтингов.
-    @Mock ReviewRepository  reviewRepository;
-    // UserRepository и CategoryService добавлены после миграции категорий и привязки к продавцу.
-    @Mock UserRepository    userRepository;
-    @Mock CategoryService   categoryService;
+    @Mock ProductRepository    productRepository;
+    @Mock ReviewRepository     reviewRepository;
+    @Mock UserRepository       userRepository;
+    @Mock CategoryService      categoryService;
+    @Mock ProductSearchService productSearchService;
 
     @InjectMocks ProductService productService;
 

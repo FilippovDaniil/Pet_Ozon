@@ -29,6 +29,31 @@ services:
       timeout: 5s
       retries: 10
 
+  # ── OpenSearch — полнотекстовый поиск ──────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.17.0
+    container_name: marketplace_opensearch
+    environment:
+      - discovery.type=single-node        # один узел — режим разработки
+      - DISABLE_SECURITY_PLUGIN=true      # без SSL и Basic Auth (только для dev)
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"  # лимит JVM-heap
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"   # REST API (curl http://localhost:9200)
+      - "9600:9600"   # Performance Analyzer
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      # Ждём пока кластер выйдет в статус green или yellow
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
   # ── Spring Boot App ─────────────────────────────────────────────────────────
   app:
     build: .                          # собрать образ из Dockerfile в текущей директории
@@ -46,11 +71,17 @@ services:
       # Профиль "docker" активирует Loki-аппендер в logback-spring.xml
       SPRING_PROFILES_ACTIVE: docker
       MAIL_PASSWORD: "${MAIL_PASSWORD}"
+      # OpenSearch: Spring Boot автоматически маппит OPENSEARCH_HOST → opensearch.host
+      OPENSEARCH_HOST: opensearch
+      OPENSEARCH_PORT: "9200"
+      OPENSEARCH_SCHEME: http
     depends_on:
       postgres:
         condition: service_healthy    # ждём пока PostgreSQL полностью запустится
       loki:
         condition: service_healthy    # ждём пока Loki готов принимать логи
+      opensearch:
+        condition: service_healthy    # ждём пока OpenSearch принимает запросы
 
   # ── Grafana Loki — агрегатор логов ──────────────────────────────────────────
   loki:
@@ -111,3 +142,4 @@ volumes:
   loki_data:
   grafana_data:
   prometheus_data:
+  opensearch_data:
