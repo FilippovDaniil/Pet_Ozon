@@ -1,27 +1,27 @@
 package com.example.marketplace.controller;
 
+import com.example.marketplace.dto.request.CheckoutRequest;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.entity.User;
+import com.example.marketplace.service.CartService;
 import com.example.marketplace.service.OrderService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * Контроллер заказов покупателя.
+ * Контроллер заказов.
  *
- * Доступен любому аутентифицированному пользователю.
- * Обратите внимание: метод getOrderById НЕ проверяет, принадлежит ли заказ
- * текущему пользователю — это потенциальное IDOR (Insecure Direct Object Reference).
- * На production нужно добавить проверку: order.getUser().getId().equals(user.getId()).
- *
- * Эндпоинты:
- *   GET /api/orders/my       — мои заказы (с пагинацией)
- *   GET /api/orders/{id}     — конкретный заказ по id
+ * REST-эндпоинты:
+ *   POST /api/orders          — оформить заказ из корзины (201 Created)
+ *   GET  /api/orders/my       — мои заказы (с пагинацией)
+ *   GET  /api/orders/{id}     — конкретный заказ по id
  */
 @RestController
 @RequestMapping(value = "/api/orders", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -29,11 +29,20 @@ import org.springframework.web.bind.annotation.*;
 public class OrderController {
 
     private final OrderService orderService;
+    private final CartService cartService;
 
     /**
-     * GET /api/orders/my — заказы текущего пользователя.
-     * Поддерживает пагинацию: ?page=0&size=10&sort=orderDate,desc
+     * POST /api/orders — оформление заказа.
+     * Превращает содержимое корзины в Order + Invoice.
+     * Возвращает 201 Created с созданным заказом.
      */
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public OrderResponse createOrder(@AuthenticationPrincipal User user,
+                                     @Valid @RequestBody CheckoutRequest request) {
+        return cartService.checkout(user.getId(), request.getShippingAddress());
+    }
+
     @GetMapping("/my")
     public Page<OrderResponse> getMyOrders(@AuthenticationPrincipal User user,
                                             @PageableDefault(size = 20) Pageable pageable) {

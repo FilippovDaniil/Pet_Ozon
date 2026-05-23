@@ -37,21 +37,20 @@ public class SupportChatController {
         return supportChatService.getAllConversations();
     }
 
-    /** Сообщения в диалоге. Входящие непрочитанные помечаются прочитанными. */
+    /**
+     * Сообщения в диалоге.
+     * Без параметра after — все сообщения (помечает входящие прочитанными).
+     * С параметром after — только сообщения с id > after (polling, без пометки прочитанными).
+     */
     @GetMapping("/conversations/{id}/messages")
     public List<MessageResponse> getMessages(
             @AuthenticationPrincipal User user,
-            @PathVariable Long id) {
-        return supportChatService.getMessages(user, id);
-    }
-
-    /** Polling новых сообщений (id > after). */
-    @GetMapping("/conversations/{id}/messages/poll")
-    public List<MessageResponse> pollMessages(
-            @AuthenticationPrincipal User user,
             @PathVariable Long id,
-            @RequestParam(defaultValue = "0") Long after) {
-        return supportChatService.pollMessages(user, id, after);
+            @RequestParam(required = false) Long after) {
+        if (after != null) {
+            return supportChatService.pollMessages(user, id, after);
+        }
+        return supportChatService.getMessages(user, id);
     }
 
     /** Отправить сообщение в диалог. */

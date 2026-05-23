@@ -65,13 +65,13 @@ const api = {
     getCart: () =>
         apiFetch('/api/cart'),
     addToCart: (productId, quantity) =>
-        apiFetch('/api/cart/add', { method: 'POST', body: JSON.stringify({ productId, quantity }) }),
+        apiFetch('/api/cart/items', { method: 'POST', body: JSON.stringify({ productId, quantity }) }),
     removeFromCart: (cartItemId) =>
-        apiFetch(`/api/cart/remove/${cartItemId}`, { method: 'DELETE' }),
+        apiFetch(`/api/cart/items/${cartItemId}`, { method: 'DELETE' }),
     updateCartItem: (cartItemId, quantity) =>
-        apiFetch(`/api/cart/update/${cartItemId}`, { method: 'PUT', body: JSON.stringify({ quantity }) }),
+        apiFetch(`/api/cart/items/${cartItemId}`, { method: 'PUT', body: JSON.stringify({ quantity }) }),
     checkout: (shippingAddress) =>
-        apiFetch('/api/cart/checkout', { method: 'POST', body: JSON.stringify({ shippingAddress }) }),
+        apiFetch('/api/orders', { method: 'POST', body: JSON.stringify({ shippingAddress }) }),
 
     // ── Заказы (клиент) ───────────────────────────────────────────────────
     getMyOrders: async () => {
@@ -81,9 +81,9 @@ const api = {
 
     // ── Счета ─────────────────────────────────────────────────────────────
     getInvoice: (id) =>
-        apiFetch(`/api/invoice/${id}`),
+        apiFetch(`/api/invoices/${id}`),
     payInvoice: (invoiceId, paymentMethod) =>
-        apiFetch(`/api/invoice/${invoiceId}/pay`, { method: 'POST', body: JSON.stringify({ paymentMethod }) }),
+        apiFetch(`/api/invoices/${invoiceId}/payments`, { method: 'POST', body: JSON.stringify({ paymentMethod }) }),
 
     // ── Продавец ──────────────────────────────────────────────────────────
     getSellerProducts: async () => {
@@ -177,7 +177,7 @@ const api = {
         return page ? page.content : [];
     },
     updateOrderStatus: (id, status) =>
-        apiFetch(`/api/admin/orders/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+        apiFetch(`/api/admin/orders/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
     // ── Отзывы ────────────────────────────────────────────────────────────
     getProductReviews: (productId) =>
@@ -215,7 +215,7 @@ const api = {
     getChatMessages: (conversationId) =>
         apiFetch(`/api/chat/conversations/${conversationId}/messages`),
     pollChatMessages: (conversationId, afterId) =>
-        apiFetch(`/api/chat/conversations/${conversationId}/messages/poll?after=${afterId}`),
+        apiFetch(`/api/chat/conversations/${conversationId}/messages?after=${afterId}`),
     sendChatMessage: (conversationId, content) =>
         apiFetch(`/api/chat/conversations/${conversationId}/messages`, {
             method: 'POST',
@@ -230,7 +230,7 @@ const api = {
     getSupportMessages: (id) =>
         apiFetch(`/api/support/conversations/${id}/messages`),
     pollSupportMessages: (id, afterId) =>
-        apiFetch(`/api/support/conversations/${id}/messages/poll?after=${afterId}`),
+        apiFetch(`/api/support/conversations/${id}/messages?after=${afterId}`),
     sendSupportMessage: (id, content) =>
         apiFetch(`/api/support/conversations/${id}/messages`, {
             method: 'POST',
@@ -239,7 +239,7 @@ const api = {
 
     // ── Админ: отправка произвольного письма ──────────────────────────────
     sendAdminEmail: (to, subject, text) =>
-        apiFetch('/api/admin/email/send', {
+        apiFetch('/api/admin/emails', {
             method: 'POST',
             body: JSON.stringify({ to, subject, text }),
         }),

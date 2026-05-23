@@ -66,14 +66,13 @@ class EmailControllerTest {
                 """;
     }
 
-    // ── POST /api/admin/email/send ────────────────────────────────────────────
+    // ── POST /api/admin/emails ────────────────────────────────────────────────
 
     @Test
     void send_asAdmin_returns200AndCallsService() throws Exception {
-        // doNothing() — мок EmailService ничего не делает при вызове sendCustomEmail
         doNothing().when(emailService).sendCustomEmail(anyString(), anyString(), anyString());
 
-        mockMvc.perform(post("/api/admin/email/send")
+        mockMvc.perform(post("/api/admin/emails")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validBody()))
@@ -86,7 +85,7 @@ class EmailControllerTest {
     @Test
     void send_unauthenticated_returns401() throws Exception {
         // Без авторизации — 401
-        mockMvc.perform(post("/api/admin/email/send")
+        mockMvc.perform(post("/api/admin/emails")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validBody()))
                 .andExpect(status().isUnauthorized());
@@ -95,7 +94,7 @@ class EmailControllerTest {
     @Test
     void send_asClient_returns403() throws Exception {
         // Клиент не имеет доступа к /api/admin/** → 403
-        mockMvc.perform(post("/api/admin/email/send")
+        mockMvc.perform(post("/api/admin/emails")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validBody()))
@@ -113,7 +112,7 @@ class EmailControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/admin/email/send")
+        mockMvc.perform(post("/api/admin/emails")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(badBody))
@@ -133,7 +132,7 @@ class EmailControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/admin/email/send")
+        mockMvc.perform(post("/api/admin/emails")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(badBody))
@@ -151,7 +150,7 @@ class EmailControllerTest {
                 }
                 """;
 
-        mockMvc.perform(post("/api/admin/email/send")
+        mockMvc.perform(post("/api/admin/emails")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(badBody))
@@ -164,7 +163,7 @@ class EmailControllerTest {
         doThrow(new RuntimeException("Ошибка отправки письма: SMTP timeout"))
                 .when(emailService).sendCustomEmail(anyString(), anyString(), anyString());
 
-        mockMvc.perform(post("/api/admin/email/send")
+        mockMvc.perform(post("/api/admin/emails")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validBody()))

@@ -8,6 +8,7 @@ import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.security.JwtAuthenticationFilter;
+import com.example.marketplace.service.CartService;
 import com.example.marketplace.service.OrderService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -29,10 +31,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// Тесты OrderController: GET /api/orders/my (с пагинацией), GET /api/orders/{id}.
 @WebMvcTest(
         value = OrderController.class,
         excludeFilters = {
@@ -46,6 +47,7 @@ class OrderControllerTest {
     @Autowired MockMvc mockMvc;
 
     @MockitoBean OrderService orderService;
+    @MockitoBean CartService cartService;
 
     private User mockClientUser() {
         User u = new User();
@@ -66,26 +68,58 @@ class OrderControllerTest {
         return r;
     }
 
+    // ── POST /api/orders ──────────────────────────────────────────────────────
+
+    @Test
+    void createOrder_success_returns201() throws Exception {
+        when(cartService.checkout(eq(1L), eq("Москва, ул. Тестовая, 1")))
+                .thenReturn(makeOrderResponse(1L, OrderStatus.CREATED, new BigDecimal("100000.00")));
+
+        mockMvc.perform(post("/api/orders")
+                        .with(user(mockClientUser()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"shippingAddress\": \"Москва, ул. Тестовая, 1\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.status").value("CREATED"));
+    }
+
+    @Test
+    void createOrder_emptyCart_returns400() throws Exception {
+        when(cartService.checkout(eq(1L), eq("Москва")))
+                .thenThrow(new IllegalArgumentException("Cart is empty"));
+
+        mockMvc.perform(post("/api/orders")
+                        .with(user(mockClientUser()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"shippingAddress\": \"Москва\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Cart is empty"));
+    }
+
+    @Test
+    void createOrder_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/orders")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"shippingAddress\": \"Москва\"}"))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ── GET /api/orders/my ────────────────────────────────────────────────────
 
     @Test
     void getMyOrders_authenticated_returns200WithPage() throws Exception {
-        // PageImpl — реализация Page<T> для тестов: оборачивает обычный список
         PageImpl<OrderResponse> page = new PageImpl<>(List.of(
                 makeOrderResponse(1L, OrderStatus.CREATED, new BigDecimal("5000.00")),
                 makeOrderResponse(2L, OrderStatus.PAID, new BigDecimal("3000.00"))
         ));
-        // eq(1L) — первый аргумент должен быть ровно 1L (id из аутентификации)
-        // any(Pageable.class) — параметры пагинации могут быть любые
         when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/orders/my").with(user(mockClientUser())))
                 .andExpect(status().isOk())
-                // $.content — массив элементов страницы в ответе Page<T>
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.content[0].status").value("CREATED"))
                 .andExpect(jsonPath("$.content[1].status").value("PAID"))
-                // $.totalElements — общее число элементов (не только на этой странице)
                 .andExpect(jsonPath("$.totalElements").value(2));
     }
 
@@ -102,7 +136,6 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_unauthenticated_returns401() throws Exception {
-        // Запрос без токена/аутентификации → 401 Unauthorized
         mockMvc.perform(get("/api/orders/my"))
                 .andExpect(status().isUnauthorized());
     }
@@ -119,14 +152,12 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_withPaginationParams_passes() throws Exception {
-        // ?page=0&size=5 — Spring автоматически создаёт Pageable из query-параметров
         when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/orders/my?page=0&size=5").with(user(mockClientUser())))
                 .andExpect(status().isOk());
 
-        // Убеждаемся что сервис был вызван (значит параметры пагинации дошли до контроллера)
         verify(orderService).getOrdersByUserId(eq(1L), any(Pageable.class));
     }
 

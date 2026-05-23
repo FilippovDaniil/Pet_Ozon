@@ -73,25 +73,24 @@ class InvoiceControllerTest {
         return r;
     }
 
-    // ── GET /api/invoice/{id} ─────────────────────────────────────────────────
+    // ── GET /api/invoices/{id} ────────────────────────────────────────────────
 
     @Test
     void getInvoice_found_returns200() throws Exception {
         when(invoiceService.getInvoiceById(1L))
                 .thenReturn(makeInvoiceResponse(1L, InvoiceStatus.UNPAID));
 
-        mockMvc.perform(get("/api/invoice/1").with(user(mockClientUser())))
+        mockMvc.perform(get("/api/invoices/1").with(user(mockClientUser())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.status").value("UNPAID")) // InvoiceStatus.UNPAID → строка "UNPAID"
+                .andExpect(jsonPath("$.status").value("UNPAID"))
                 .andExpect(jsonPath("$.amount").value(5000.00))
                 .andExpect(jsonPath("$.orderId").value(1));
     }
 
     @Test
     void getInvoice_unauthenticated_returns401() throws Exception {
-        // Счёт — защищённый ресурс, без токена нельзя
-        mockMvc.perform(get("/api/invoice/1"))
+        mockMvc.perform(get("/api/invoices/1"))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -100,63 +99,60 @@ class InvoiceControllerTest {
         when(invoiceService.getInvoiceById(99L))
                 .thenThrow(new ResourceNotFoundException("Invoice not found with id: 99"));
 
-        mockMvc.perform(get("/api/invoice/99").with(user(mockClientUser())))
+        mockMvc.perform(get("/api/invoices/99").with(user(mockClientUser())))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Invoice not found with id: 99"));
     }
 
-    // ── POST /api/invoice/{id}/pay ────────────────────────────────────────────
+    // ── POST /api/invoices/{id}/payments ──────────────────────────────────────
 
     @Test
-    void pay_withCardMethod_returns200WithPayment() throws Exception {
+    void pay_withCardMethod_returns201WithPayment() throws Exception {
         when(invoiceService.pay(1L, "CARD")).thenReturn(makePaymentResponse("CARD"));
 
-        mockMvc.perform(post("/api/invoice/1/pay")
+        mockMvc.perform(post("/api/invoices/1/payments")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paymentMethod\": \"CARD\"}"))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.paymentMethod").value("CARD"))
-                .andExpect(jsonPath("$.status").value("SUCCESS")) // PaymentStatus.SUCCESS → "SUCCESS"
+                .andExpect(jsonPath("$.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.amount").value(5000.00));
     }
 
     @Test
-    void pay_withCashMethod_returns200() throws Exception {
+    void pay_withCashMethod_returns201() throws Exception {
         when(invoiceService.pay(1L, "CASH")).thenReturn(makePaymentResponse("CASH"));
 
-        mockMvc.perform(post("/api/invoice/1/pay")
+        mockMvc.perform(post("/api/invoices/1/payments")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paymentMethod\": \"CASH\"}"))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.paymentMethod").value("CASH"));
     }
 
     @Test
     void pay_withoutBody_returns415() throws Exception {
-        // 415 Unsupported Media Type: @RequestBody с consumes=application/json,
-        // но Content-Type не указан или не application/json → Spring отклоняет запрос
-        mockMvc.perform(post("/api/invoice/1/pay")
-                        .with(user(mockClientUser()))) // нет .contentType() и .content()
+        mockMvc.perform(post("/api/invoices/1/payments")
+                        .with(user(mockClientUser())))
                 .andExpect(status().isUnsupportedMediaType());
     }
 
     @Test
     void pay_withBlankPaymentMethod_returns400() throws Exception {
-        // @NotBlank на поле paymentMethod: пустая строка → MethodArgumentNotValidException → 400
-        mockMvc.perform(post("/api/invoice/1/pay")
+        mockMvc.perform(post("/api/invoices/1/payments")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"paymentMethod\": \"\"}")) // пустая строка
+                        .content("{\"paymentMethod\": \"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
     }
 
     @Test
     void pay_unauthenticated_returns401() throws Exception {
-        mockMvc.perform(post("/api/invoice/1/pay")
+        mockMvc.perform(post("/api/invoices/1/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paymentMethod\": \"CARD\"}"))
                 .andExpect(status().isUnauthorized());
@@ -164,15 +160,14 @@ class InvoiceControllerTest {
 
     @Test
     void pay_alreadyPaid_returns400() throws Exception {
-        // InvoiceService бросает IllegalArgumentException если счёт уже оплачен
         when(invoiceService.pay(1L, "CARD"))
                 .thenThrow(new IllegalArgumentException("Invoice #1 is already paid"));
 
-        mockMvc.perform(post("/api/invoice/1/pay")
+        mockMvc.perform(post("/api/invoices/1/payments")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paymentMethod\": \"CARD\"}"))
-                .andExpect(status().isBadRequest()) // GlobalExceptionHandler: IllegalArgumentException → 400
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("Invoice #1 is already paid"));
     }
 
@@ -181,10 +176,10 @@ class InvoiceControllerTest {
         when(invoiceService.pay(99L, "CARD"))
                 .thenThrow(new ResourceNotFoundException("Invoice not found with id: 99"));
 
-        mockMvc.perform(post("/api/invoice/99/pay")
+        mockMvc.perform(post("/api/invoices/99/payments")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"paymentMethod\": \"CARD\"}"))
-                .andExpect(status().isNotFound()); // GlobalExceptionHandler: ResourceNotFoundException → 404
+                .andExpect(status().isNotFound());
     }
 }

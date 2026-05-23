@@ -108,8 +108,8 @@ public class AdminController {
         return orderService.getAllOrders(pageable);
     }
 
-    /** Смена статуса заказа: CREATED → PAID, PAID → DELIVERED, CREATED → CANCELLED и т.д. */
-    @PutMapping(value = "/orders/{id}/status", consumes = MediaType.APPLICATION_JSON_VALUE)
+    /** PATCH /api/admin/orders/{id} — смена статуса заказа: CREATED → PAID, PAID → DELIVERED и т.д. */
+    @PatchMapping(value = "/orders/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public OrderResponse updateOrderStatus(
             @PathVariable Long id,
             @Valid @RequestBody UpdateOrderStatusRequest request) {

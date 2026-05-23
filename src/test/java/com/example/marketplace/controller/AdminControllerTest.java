@@ -217,17 +217,17 @@ class AdminControllerTest {
         verify(orderService).getAllOrders(any(Pageable.class));
     }
 
-    // ── PUT /api/admin/orders/{id}/status ─────────────────────────────────────
+    // ── PATCH /api/admin/orders/{id} ─────────────────────────────────────────
 
     @Test
     void updateOrderStatus_delivered_returns200() throws Exception {
         OrderResponse updated = makeOrderResponse(1L, OrderStatus.DELIVERED);
         when(orderService.updateStatus(eq(1L), eq(OrderStatus.DELIVERED))).thenReturn(updated);
 
-        mockMvc.perform(put("/api/admin/orders/1/status")
+        mockMvc.perform(patch("/api/admin/orders/1")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\": \"DELIVERED\"}")) // строка → enum OrderStatus.DELIVERED
+                        .content("{\"status\": \"DELIVERED\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DELIVERED"));
     }
@@ -237,7 +237,7 @@ class AdminControllerTest {
         OrderResponse updated = makeOrderResponse(1L, OrderStatus.CANCELLED);
         when(orderService.updateStatus(eq(1L), eq(OrderStatus.CANCELLED))).thenReturn(updated);
 
-        mockMvc.perform(put("/api/admin/orders/1/status")
+        mockMvc.perform(patch("/api/admin/orders/1")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\": \"CANCELLED\"}"))
@@ -250,7 +250,7 @@ class AdminControllerTest {
         when(orderService.updateStatus(eq(99L), any()))
                 .thenThrow(new ResourceNotFoundException("Order not found with id: 99"));
 
-        mockMvc.perform(put("/api/admin/orders/99/status")
+        mockMvc.perform(patch("/api/admin/orders/99")
                         .with(user(mockAdminUser()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\": \"PAID\"}"))
