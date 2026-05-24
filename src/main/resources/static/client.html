@@ -16,6 +16,7 @@
     <script src="js/api.js"></script>
     <style>
         [x-cloak] { display: none !important; }
+        html, body { overflow-x: hidden; max-width: 100%; }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -132,18 +133,18 @@
 
                 <!-- Slides -->
                 <template x-for="(s, i) in slides" :key="i">
-                    <div class="absolute inset-0 flex items-center justify-between px-10 bg-gradient-to-r transition-opacity duration-700 cursor-pointer"
+                    <div class="absolute inset-0 flex items-center justify-between px-5 sm:px-10 bg-gradient-to-r transition-opacity duration-700 cursor-pointer overflow-hidden"
                          :class="[`${s.grad}`, slide === i ? 'opacity-100 z-10' : 'opacity-0 z-0']"
                          @click="$dispatch('select-category', s.cat)">
-                        <div class="text-white">
+                        <div class="text-white min-w-0 flex-1 pr-3">
                             <p class="text-xs font-semibold uppercase tracking-widest text-white/70 mb-1">Marketplace</p>
-                            <h2 class="text-3xl font-extrabold leading-tight" x-text="s.title"></h2>
-                            <p class="text-white/80 text-sm mt-1" x-text="s.sub"></p>
-                            <p class="text-white/50 text-xs mt-3 flex items-center gap-1">
+                            <h2 class="text-2xl sm:text-3xl font-extrabold leading-tight truncate" x-text="s.title"></h2>
+                            <p class="text-white/80 text-xs sm:text-sm mt-1 line-clamp-2" x-text="s.sub"></p>
+                            <p class="text-white/50 text-xs mt-2 hidden sm:flex items-center gap-1">
                                 <span>→</span> Нажмите для перехода в категорию
                             </p>
                         </div>
-                        <div class="text-8xl leading-none opacity-90" x-text="s.icon"></div>
+                        <div class="text-5xl sm:text-8xl leading-none opacity-90 flex-shrink-0" x-text="s.icon"></div>
                     </div>
                 </template>
 
@@ -181,17 +182,39 @@
                     </button>
                 </div>
 
-                <!-- Категории -->
-                <div class="flex flex-wrap gap-2 mb-3">
-                    <template x-for="cat in CATEGORIES" :key="cat">
-                        <button @click="selectCategory(cat)"
-                                :class="selectedCategory === cat
-                                    ? 'bg-indigo-600 text-white border-indigo-600'
-                                    : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'"
-                                class="px-3 py-1.5 border rounded-full text-xs font-medium transition"
-                                x-text="cat === '' ? 'Все категории' : cat">
-                        </button>
-                    </template>
+                <!-- Категории — по 5 штук, стрелки и точки-переключатель -->
+                <div class="mb-3 w-full overflow-hidden">
+                    <div class="flex items-center gap-1 sm:gap-2">
+                        <button @click="categoryPage--"
+                                :class="categoryPage > 0
+                                    ? 'border-gray-300 text-gray-600 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50'
+                                    : 'border-gray-100 text-gray-200 pointer-events-none'"
+                                class="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full border transition text-sm font-bold select-none">‹</button>
+                        <div class="flex flex-1 gap-1 sm:gap-2 min-w-0">
+                            <template x-for="cat in pagedCategories" :key="cat">
+                                <button @click="selectCategory(cat)"
+                                        :class="selectedCategory === cat
+                                            ? 'bg-indigo-600 text-white border-indigo-600'
+                                            : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'"
+                                        class="flex-1 min-w-0 px-1 sm:px-2 py-1.5 border rounded-full text-xs font-medium transition truncate text-center"
+                                        x-text="cat === '' ? 'Все' : cat">
+                                </button>
+                            </template>
+                        </div>
+                        <button @click="categoryPage++"
+                                :class="(categoryPage + 1) * 5 < CATEGORIES.length
+                                    ? 'border-gray-300 text-gray-600 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50'
+                                    : 'border-gray-100 text-gray-200 pointer-events-none'"
+                                class="flex-shrink-0 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full border transition text-sm font-bold select-none">›</button>
+                    </div>
+                    <div class="flex justify-center gap-1.5 mt-2" x-show="CATEGORIES.length > 5">
+                        <template x-for="n in totalCategoryPages" :key="n">
+                            <button @click="categoryPage = n - 1"
+                                    :class="categoryPage === n - 1 ? 'bg-indigo-500 w-5' : 'bg-gray-200 w-2 hover:bg-gray-300'"
+                                    class="h-1.5 rounded-full transition-all duration-200">
+                            </button>
+                        </template>
+                    </div>
                 </div>
 
                 <!-- Фильтр цены -->
@@ -322,21 +345,32 @@
             <!-- ══════════ ПАГИНАЦИЯ ══════════ -->
             <div x-show="!loadingProducts && totalPages > 1"
                  class="flex items-center justify-center gap-1 mt-8 pb-4">
-                <button @click="goToPage(currentPage - 1)" :disabled="currentPage === 0"
-                        class="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                <!-- Предыдущая группа из 5 -->
+                <button @click="goToPage(Math.floor(currentPage / 5) * 5 - 5)"
+                        :disabled="Math.floor(currentPage / 5) === 0"
+                        class="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
                     ‹
                 </button>
-                <template x-for="p in getPageNumbers()" :key="p">
+                <!-- 5 номеров текущего окна с анимацией при смене группы -->
+                <template x-for="p in visiblePageNumbers" :key="p">
                     <button @click="goToPage(p - 1)"
+                            x-transition:enter="transition ease-out duration-150"
+                            x-transition:enter-start="opacity-0 scale-90"
+                            x-transition:enter-end="opacity-100 scale-100"
+                            x-transition:leave="transition ease-in duration-100"
+                            x-transition:leave-start="opacity-100 scale-100"
+                            x-transition:leave-end="opacity-0 scale-90"
                             :class="p - 1 === currentPage
-                                ? 'bg-indigo-600 text-white border-indigo-600'
-                                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'"
-                            class="w-9 h-9 border rounded-lg text-sm font-medium transition"
+                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                : 'bg-white text-gray-700 border-gray-200 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600'"
+                            class="w-9 h-9 border rounded-lg text-sm font-medium transition-colors"
                             x-text="p">
                     </button>
                 </template>
-                <button @click="goToPage(currentPage + 1)" :disabled="currentPage >= totalPages - 1"
-                        class="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                <!-- Следующая группа из 5 -->
+                <button @click="goToPage((Math.floor(currentPage / 5) + 1) * 5)"
+                        :disabled="(Math.floor(currentPage / 5) + 1) * 5 >= totalPages"
+                        class="w-9 h-9 flex items-center justify-center border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition">
                     ›
                 </button>
             </div>
@@ -624,15 +658,15 @@
                     </template>
                 </div>
 
-                <div class="flex gap-3">
+                <div class="flex flex-col sm:flex-row gap-2">
                     <textarea x-model="chatInput"
                               @keydown.enter.exact.prevent="sendChat()"
-                              placeholder="Напишите сообщение... (Enter — отправить)"
-                              rows="2"
-                              class="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
+                              placeholder="Напишите сообщение..."
+                              rows="3"
+                              class="w-full sm:flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"></textarea>
                     <button @click="sendChat()"
                             :disabled="!chatInput.trim() || sendingChat"
-                            class="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition self-end">
+                            class="w-full sm:w-auto sm:self-end px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition">
                         <span x-show="!sendingChat">Отправить</span>
                         <span x-show="sendingChat">⏳</span>
                     </button>
@@ -674,15 +708,15 @@
                     </template>
                 </div>
 
-                <div class="flex gap-3">
+                <div class="flex flex-col sm:flex-row gap-2">
                     <textarea x-model="supportInput"
                               @keydown.enter.exact.prevent="sendSupportMsg()"
-                              placeholder="Напишите сообщение в поддержку... (Enter — отправить)"
-                              rows="2"
-                              class="flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"></textarea>
+                              placeholder="Напишите сообщение в поддержку..."
+                              rows="3"
+                              class="w-full sm:flex-1 px-4 py-3 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"></textarea>
                     <button @click="sendSupportMsg()"
                             :disabled="!supportInput.trim() || sendingSupport"
-                            class="px-5 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition self-end">
+                            class="w-full sm:w-auto sm:self-end px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition">
                         <span x-show="!sendingSupport">Отправить</span>
                         <span x-show="sendingSupport">⏳</span>
                     </button>
@@ -937,6 +971,7 @@
             totalElements: 0,
             pageSize: 12,
             CATEGORIES: [''],
+            categoryPage: 0,
 
             cart: null,
             cartCount: 0,
@@ -1042,6 +1077,8 @@
             async selectCategory(cat) {
                 this.selectedCategory = cat;
                 this.currentPage = 0;
+                const idx = this.CATEGORIES.indexOf(cat);
+                if (idx >= 0) this.categoryPage = Math.floor(idx / 5);
                 await this.loadProducts();
             },
 
@@ -1061,12 +1098,27 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             },
 
-            getPageNumbers() {
-                return Array.from({ length: this.totalPages }, (_, i) => i + 1);
+            get visiblePageNumbers() {
+                if (this.totalPages <= 5) {
+                    return Array.from({ length: this.totalPages }, (_, i) => i + 1);
+                }
+                // Фиксированное окно из 5: группа определяется текущей страницей
+                const windowStart = Math.floor(this.currentPage / 5) * 5;
+                const end = Math.min(windowStart + 5, this.totalPages);
+                return Array.from({ length: end - windowStart }, (_, i) => windowStart + i + 1);
             },
 
             get hasFilters() {
                 return !!(this.searchQuery || this.selectedCategory || this.minPrice || this.maxPrice);
+            },
+
+            get pagedCategories() {
+                const start = this.categoryPage * 5;
+                return this.CATEGORIES.slice(start, start + 5);
+            },
+
+            get totalCategoryPages() {
+                return Math.ceil(this.CATEGORIES.length / 5);
             },
 
             incQty(pid) { this.qty[pid] = (this.qty[pid] || 1) + 1; },

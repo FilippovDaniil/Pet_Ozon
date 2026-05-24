@@ -252,6 +252,49 @@ public class AppConfig {
                 log.info("Created extended product catalog: {} total products", productRepository.count());
             }
 
+            if (productRepository.count() < 340) {
+                // ── TechShop — Фото/Видео расширение ─────────────────────────────────────
+                addProduct("Беззеркальная камера Sony Alpha A7 IV", "33 Мп full-frame CMOS, 4K 60fps, 693 точки PDAF, двойной слот SD", "184999.99", 6, seller1, "Фото/Видео");
+                addProduct("Беззеркальная камера Canon EOS R6 Mark II", "24.2 Мп full-frame, 4K 60fps 10-бит, IBIS 8 ступеней, Eye AF", "154999.99", 7, seller1, "Фото/Видео");
+                addProduct("Беззеркальная камера Fujifilm X-T5", "40.2 Мп APS-C, 6.2K RAW, IBIS 7 ступеней, 2 слота UHS-II", "129999.99", 8, seller1, "Фото/Видео");
+                addProduct("Объектив Sony FE 50mm f/1.2 GM", "G Master, 11 лепестков диафрагмы, ZEISS T* покрытие, 778 г", "89999.99", 5, seller1, "Фото/Видео");
+                addProduct("Объектив Sigma 24-70mm f/2.8 DG DN Art", "Беззеркальный, L-mount/Sony E, XD линейный мотор, 830 г", "69999.99", 7, seller1, "Фото/Видео");
+                addProduct("Штатив Joby GorillaPod 5K Kit", "Гибкие ноги, нагрузка 5 кг, шаровая голова с ручкой быстросъёма", "8999.99", 15, seller1, "Фото/Видео");
+                addProduct("Видеосвет Elgato Key Light Air", "1400 люмен, 2900–7000K, Wi-Fi управление, 45 Вт LED панель", "12999.99", 12, seller1, "Фото/Видео");
+                addProduct("Светодиодный осветитель Godox SL60IID", "60 Вт, 2800–6500K, рефлектор 150°, Bowens, DMX управление", "14999.99", 10, seller1, "Фото/Видео");
+                addProduct("Карта памяти Sony SF-G TOUGH 256 ГБ SDXC", "V90, 300 МБ/с чтение, 299 МБ/с запись, IP57, двойная защита", "9999.99", 20, seller1, "Фото/Видео");
+                addProduct("Рюкзак Lowepro Flipside 400 AW III", "Для зеркалки + 3 объектива, доступ сбоку, чехол от дождя, 19 л", "11999.99", 10, seller1, "Фото/Видео");
+                // ── TechShop — Сетевое расширение ────────────────────────────────────────
+                addProduct("Wi-Fi роутер Keenetic Giga KN-1011", "Wi-Fi 6 AX1800, 4×Gigabit LAN, USB 3.0, KeeneticOS, до 700 Мбит", "8999.99", 18, seller1, "Сетевое");
+                addProduct("4G-роутер Keenetic Hero 4G+ KN-2311", "LTE CAT12, Wi-Fi 5 AC1200, Dual-SIM, RJ45 WAN/LAN, батарея", "9999.99", 12, seller1, "Сетевое");
+                addProduct("Коммутатор NETGEAR GS308E 8-port Managed", "8×1G, веб-интерфейс, VLAN, QoS, кабельный тест, пластик", "2999.99", 25, seller1, "Сетевое");
+                addProduct("Wi-Fi адаптер TP-Link Archer T3U Plus USB", "AC1300, USB 3.0, внешняя антенна, MU-MIMO, WPA3", "1499.99", 40, seller1, "Сетевое");
+                addProduct("Патч-корды Cat8 2м UGREEN (5-pack)", "40 Гбит, 2000 МГц, медь OFC, SFTP экранирование, RJ45", "2499.99", 30, seller1, "Сетевое");
+                // ── TechShop — Планшеты расширение ───────────────────────────────────────
+                addProduct("Apple iPad 10-го поколения 64 ГБ", "A14 Bionic, 10.9\" Liquid Retina, Wi-Fi 6, USB-C, TouchID сбоку", "44999.99", 15, seller1, "Планшеты");
+                addProduct("Apple iPad mini 7 256 ГБ", "A17 Pro, 8.3\" Liquid Retina, Wi-Fi 6E, USB-C, Apple Pencil Pro", "74999.99", 10, seller1, "Планшеты");
+                addProduct("Samsung Galaxy Tab A9+", "Snapdragon 695, 11\" 90 Гц TFT, 8/128 ГБ, 7040 мАч, 45 Вт", "24999.99", 20, seller1, "Планшеты");
+                addProduct("Wacom Cintiq 16 Full HD", "Перо 8192 давления, 15.6\" IPS FHD, Pro Pen 2, без батареи", "44999.99", 8, seller1, "Планшеты");
+                addProduct("XP-PEN Artist 12 Pro 2-го поколения", "11.9\" IPS, 8192 давления, наклон ±60°, 8 клавиш+ролик, USB-C", "19999.99", 12, seller1, "Планшеты");
+                // ── TechShop — Умный дом расширение ──────────────────────────────────────
+                addProduct("Умная камера Xiaomi Smart Camera C300 2K", "2K 1296p, 360°, ИК ночное видение, двусторонняя связь, Wi-Fi", "3999.99", 25, seller1, "Умный дом");
+                addProduct("Умная розетка TP-Link Tapo P110", "Wi-Fi, мониторинг потребления, 2300 Вт, расписание, Tapo App", "1499.99", 40, seller1, "Умный дом");
+                addProduct("Умная лампа Philips Hue White&Color E27 4-pack", "806 лм, 16 млн цветов, ZigBee, Matter, 10 000 ч ресурс", "12999.99", 15, seller1, "Умный дом");
+                addProduct("Умный пульт Broadlink RM4 Mini Pro", "ИК+RF 433/315 МГц, Wi-Fi, управление TV/кондиционером, BroadLink", "2499.99", 30, seller1, "Умный дом");
+                addProduct("Датчик протечки Aqara Water Leak Sensor T1", "Zigbee, сигнал 80 дБ, IP67, 2 лет от батареи, HomeKit/Home", "2499.99", 35, seller1, "Умный дом");
+                // ── TechShop — Игровые расширение ────────────────────────────────────────
+                addProduct("Nintendo Switch OLED белая", "7\" OLED экран, Joy-Con, 64 ГБ хранилище, 4–9 ч работы", "34999.99", 15, seller1, "Игровые");
+                addProduct("Sony PlayStation 5 Slim Disk Edition", "AMD Zen 2, RDNA 2, 825 ГБ SSD, 4K 120fps, DualSense", "49999.99", 10, seller1, "Игровые");
+                addProduct("Xbox Series S 512 ГБ", "AMD Zen 2 + RDNA 2, 512 ГБ NVMe, 1440p 120fps, Game Pass", "29999.99", 12, seller1, "Игровые");
+                addProduct("Игровое кресло DXRacer Formula F11", "Экокожа + ткань, поясничная/шейная подушки, 4D подлокотники", "24999.99", 10, seller1, "Игровые");
+                addProduct("Гарнитура Razer Kraken V3 HyperSense", "USB, HyperSense тактильная обратная связь, THX, 50 мм драйвер", "9999.99", 18, seller1, "Игровые");
+
+                log.info("Created thin-category products: {} total products", productRepository.count());
+            }
+
+            // Исправляем ошибочно назначенные категории (идемпотентно).
+            fixProductCategories();
+
             // Fallback: задаём категорию тем товарам, у которых она не указана.
             productRepository.findAll().stream()
                     .filter(p -> p.getCategory() == null)
@@ -322,17 +365,123 @@ public class AppConfig {
         }
     }
 
+    /**
+     * Исправляет неправильно назначенные категории товаров (идемпотентно).
+     * Запускается при каждом старте — безопасно, т.к. просто устанавливает верное значение.
+     */
+    private void fixProductCategories() {
+        long kompId  = categoryService.findOrCreate("Комплектующие").getId();
+        long fotoId  = categoryService.findOrCreate("Фото/Видео").getId();
+        long umId    = categoryService.findOrCreate("Умный дом").getId();
+        long setId   = categoryService.findOrCreate("Сетевое").getId();
+        long igId    = categoryService.findOrCreate("Игровые").getId();
+        long drugId  = categoryService.findOrCreate("Другое").getId();
+
+        // Комплектующие: процессоры, видеокарты, ОЗУ, материнские платы, БП, корпуса, СЖО
+        jdbc.update("""
+            UPDATE products SET category_id = ?
+            WHERE LOWER(name) SIMILAR TO
+                '%(процессор|видеокарта|озу |материнская плата|бп corsair|корпус fractal|сжо nzxt|g\\.skill)%'
+            """, kompId);
+
+        // Фото/Видео: экшн-камеры, дроны, стабилизаторы
+        jdbc.update("""
+            UPDATE products SET category_id = ?
+            WHERE (LOWER(name) LIKE '%gopro%'
+               OR LOWER(name) LIKE '%dji%'
+               OR LOWER(name) LIKE '%стабилизатор%'
+               OR LOWER(name) LIKE '%sony zv-%'
+               OR (LOWER(name) LIKE '%камера%' AND LOWER(name) LIKE '%беззеркальн%')
+               OR (LOWER(name) LIKE '%объектив%')
+               OR LOWER(name) LIKE '%штатив%'
+               OR LOWER(name) LIKE '%видеосвет%'
+               OR LOWER(name) LIKE '%осветитель%'
+               OR LOWER(name) LIKE '%lowepro%')
+            """, fotoId);
+
+        // Умный дом
+        jdbc.update("""
+            UPDATE products SET category_id = ?
+            WHERE (LOWER(name) LIKE '%яндекс станция%'
+               OR LOWER(name) LIKE '%робот-пылесос%'
+               OR LOWER(name) LIKE '%roomba%'
+               OR LOWER(name) LIKE '%умный замок%'
+               OR LOWER(name) LIKE '%google nest%'
+               OR LOWER(name) LIKE '%aqara hub%'
+               OR LOWER(name) LIKE '%govee rgbic%'
+               OR LOWER(name) LIKE '%ecobee%'
+               OR LOWER(name) LIKE '%умная камера%'
+               OR LOWER(name) LIKE '%умная розетка%'
+               OR LOWER(name) LIKE '%умная лампа%'
+               OR LOWER(name) LIKE '%умный пульт%'
+               OR LOWER(name) LIKE '%датчик протечки%')
+            """, umId);
+
+        // Сетевое
+        jdbc.update("""
+            UPDATE products SET category_id = ?
+            WHERE (LOWER(name) LIKE '%asus rt-be96u%'
+               OR LOWER(name) LIKE '%tp-link deco be85%'
+               OR LOWER(name) LIKE '%netgear orbi%'
+               OR LOWER(name) LIKE '%tp-link tl-sg108e%'
+               OR LOWER(name) LIKE '%ubiquiti%'
+               OR LOWER(name) LIKE '%powerline tp-link%'
+               OR (LOWER(name) LIKE '%ethernet адаптер%' AND LOWER(name) LIKE '%ugreen%')
+               OR LOWER(name) LIKE '%keenetic giga%'
+               OR LOWER(name) LIKE '%keenetic hero%'
+               OR LOWER(name) LIKE '%netgear gs308e%'
+               OR LOWER(name) LIKE '%archer t3u%'
+               OR LOWER(name) LIKE '%патч-корды cat8%')
+            """, setId);
+
+        // Игровые
+        jdbc.update("""
+            UPDATE products SET category_id = ?
+            WHERE (LOWER(name) LIKE '%meta quest%'
+               OR LOWER(name) LIKE '%rog ally%'
+               OR LOWER(name) LIKE '%steam deck%'
+               OR LOWER(name) LIKE '%dualsense edge%'
+               OR LOWER(name) LIKE '%xbox elite%'
+               OR LOWER(name) LIKE '%logitech g923%'
+               OR LOWER(name) LIKE '%arctis nova pro%'
+               OR LOWER(name) LIKE '%uppspel%'
+               OR LOWER(name) LIKE '%nintendo switch%'
+               OR LOWER(name) LIKE '%playstation 5%'
+               OR LOWER(name) LIKE '%xbox series s%'
+               OR LOWER(name) LIKE '%dxracer%'
+               OR (LOWER(name) LIKE '%razer kraken%' AND LOWER(name) LIKE '%hypersense%'))
+            """, igId);
+
+        // Другое
+        jdbc.update("""
+            UPDATE products SET category_id = ?
+            WHERE (LOWER(name) LIKE '%kindle%'
+               OR LOWER(name) LIKE '%canon pixma%'
+               OR LOWER(name) LIKE '%xgimi%'
+               OR LOWER(name) LIKE '%power bank baseus%'
+               OR LOWER(name) LIKE '%airtag%')
+            """, drugId);
+
+        log.info("Product categories verified/fixed");
+    }
+
     private String categorizeByName(String name) {
         if (name == null) return "Другое";
         String n = name.toLowerCase();
-        if (n.contains("ноутбук") || n.contains("macbook")) return "Ноутбуки";
+        if (n.contains("ноутбук") || n.contains("macbook") || n.contains("thinkbook") || n.contains("zenbook") || n.contains("spectre") || n.contains("razer blade") || n.contains("matebook")) return "Ноутбуки";
         if (n.contains("монитор")) return "Мониторы";
-        if (n.contains("ssd") || n.contains("hdd") || n.contains("накопитель") || n.contains("flash") || n.contains("nas")) return "Накопители";
-        if (n.contains("смартфон") || n.contains("iphone") || n.contains("galaxy") || n.contains("pixel")) return "Смартфоны";
-        if (n.contains("планшет") || n.contains("ipad") || n.contains("surface") || n.contains("tab")) return "Планшеты";
+        if (n.contains("ssd") || n.contains("hdd") || n.contains("накопитель") || n.contains("flash") || n.contains("nas") || n.contains("microsd")) return "Накопители";
+        if (n.contains("смартфон") || n.contains("iphone") || n.contains("galaxy") || n.contains("pixel") || n.contains("oneplus") || n.contains("xiaomi 14") || n.contains("nothing phone") || n.contains("zenfone") || n.contains("redmi") || n.contains("motorola edge")) return "Смартфоны";
+        if (n.contains("планшет") || n.contains("ipad") || n.contains("surface") || n.contains("galaxy tab") || n.contains("cintiq") || n.contains("xp-pen")) return "Планшеты";
+        if (n.contains("процессор") || n.contains("видеокарта") || n.contains("материнская") || n.contains("озу") || n.startsWith("оперативная") || n.contains("nzxt") || n.contains("fractal design") || n.contains("g.skill") || n.contains("corsair vengeance") || n.contains("asus rog maximus") || n.contains("msi mag")) return "Комплектующие";
+        if (n.contains("gopro") || n.contains("dji") || n.contains("стабилизатор") || n.contains("беззеркальн") || n.contains("объектив") || n.contains("штатив") || n.contains("видеосвет") || n.contains("осветитель") || n.contains("lowepro")) return "Фото/Видео";
+        if (n.contains("роутер") || n.contains("mesh") || n.contains("коммутатор") || n.contains("точка доступа") || n.contains("keenetic") || n.contains("powerline") || n.contains("netgear") || n.contains("ubiquiti") || n.contains("патч-корд") || n.contains("ethernet адаптер") || n.contains("archer t3u")) return "Сетевое";
+        if (n.contains("умн") || n.contains("робот-пылесос") || n.contains("roomba") || n.contains("aqara") || n.contains("google nest") || n.contains("govee") || n.contains("ecobee") || n.contains("датчик протечки") || n.contains("philips hue") || n.contains("broadlink") || n.contains("яндекс станция")) return "Умный дом";
+        if (n.contains("quest") || n.contains("rog ally") || n.contains("steam deck") || n.contains("геймпад") || n.contains("dualsen") || n.contains("xbox elite") || n.contains("игровой стол") || n.contains("игровое кресло") || n.contains("nintendo switch") || n.contains("playstation") || n.contains("xbox series") || n.contains("dxracer") || n.contains("logitech g923")) return "Игровые";
         if (n.contains("наушники") || n.contains("tws") || n.contains("airpods") || n.contains("колонка")
                 || n.contains("саундбар") || n.contains("микрофон") || n.contains("аудиоинтерфейс")
-                || n.contains("синтезатор") || n.contains("рекордер") || n.contains("dj")) return "Аудио";
+                || n.contains("синтезатор") || n.contains("рекордер") || n.contains("виниловый") || n.contains("студийный монитор") || n.contains("midi")) return "Аудио";
+        if (n.contains("kindle") || n.contains("принтер") || n.contains("проектор") || n.contains("power bank") || n.contains("airtag")) return "Другое";
         return "Периферия";
     }
 }

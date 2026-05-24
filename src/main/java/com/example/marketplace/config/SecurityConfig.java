@@ -59,7 +59,7 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
                         // Статические файлы фронтенда — без аутентификации.
-                        .requestMatchers("/*.html", "/js/**", "/css/**", "/images/**").permitAll()
+                        .requestMatchers("/*.html", "/js/**", "/css/**", "/images/**", "/favicon.ico").permitAll()
 
                         // Регистрация и вход — без токена (очевидно).
                         .requestMatchers("/api/auth/**").permitAll()

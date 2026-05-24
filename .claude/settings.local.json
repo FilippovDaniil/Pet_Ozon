@@ -68,7 +68,23 @@
       "PowerShell(Add-Content *)",
       "Bash(.\\\\rancher\\\\build-and-load.ps1)",
       "Bash(.\\\\rancher\\\\deploy.ps1 *)",
-      "PowerShell(.\\\\rancher\\\\deploy.ps1)"
+      "PowerShell(.\\\\rancher\\\\deploy.ps1)",
+      "PowerShell(kubectl get namespaces *)",
+      "PowerShell(Invoke-RestMethod -Uri \"http://localhost:30667/actuator/health\" -Method Get 2>&1)",
+      "PowerShell(docker save marketplace-app:latest -o \"$env:TEMP\\\\marketplace-app.tar\")",
+      "PowerShell(rdctl shell -- sh -c \"docker load < /mnt/c/Users/$env:USERNAME/AppData/Local/Temp/marketplace-app.tar\" 2>&1)",
+      "PowerShell(docker save marketplace-app:latest -o \"$env:TEMP\\\\marketplace-app.tar\"; rdctl shell -- sh -c \"docker load < /mnt/c/Users/$env:USERNAME/AppData/Local/Temp/marketplace-app.tar\")",
+      "PowerShell(kubectl exec *)",
+      "PowerShell(kubectl get pod *)",
+      "PowerShell(kubectl get deployment *)",
+      "PowerShell(docker save marketplace-app:1.0.0 -o \"$env:TEMP\\\\marketplace-app.tar\"; rdctl shell -- sh -c \"docker load < /mnt/c/Users/$env:USERNAME/AppData/Local/Temp/marketplace-app.tar\")",
+      "PowerShell(Invoke-WebRequest -Uri \"http://localhost:30667/favicon.ico\" -Method Head | Select-Object StatusCode, ContentType)",
+      "PowerShell(docker save marketplace-app:1.0.0 -o \"$env:TEMP\\\\marketplace-app.tar\"; Write-Host \"Saved to $env:TEMP\\\\marketplace-app.tar\")",
+      "PowerShell(docker save marketplace-app:1.0.0 -o \"$env:TEMP\\\\marketplace-app.tar\" 2>&1; Write-Host \"Saved image ID: $\\(docker inspect marketplace-app:1.0.0 --format '{{.Id}}'\\)\")",
+      "PowerShell(docker save marketplace-app:1.0.0 -o \"$env:TEMP\\\\marketplace-app.tar\" 2>&1; Write-Host \"Done\")",
+      "PowerShell(\\(Get-Content C:\\\\Users\\\\MaxxPC\\\\.claude\\\\settings.json | Select-String \"PowerShell\"\\).Count)",
+      "Bash(python3 *)",
+      "PowerShell($json = Get-Content C:\\\\Users\\\\MaxxPC\\\\.claude\\\\settings.json -Raw | ConvertFrom-Json; Write-Host \"JSON valid. Allow entries: $\\($json.permissions.allow.Count\\)\")"
     ]
   }
 }
