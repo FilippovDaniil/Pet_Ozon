@@ -1,0 +1,56 @@
+# Dependabot — автоматические PR на обновление зависимостей.
+#
+# Два экосистемы:
+#   github-actions — обновляет версии actions в .github/workflows/*.yml
+#   gradle         — обновляет версии библиотек в build.gradle
+#
+# Dependabot открывает отдельный PR на каждое обновление.
+# CI-пайплайн запускается на этих PR автоматически — если тесты зелёные, можно мержить.
+
+version: 2
+
+updates:
+  # ─── GitHub Actions ──────────────────────────────────────────────────────────
+  # Обновляет: actions/checkout, actions/setup-java, gradle/actions, docker/* и т.д.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Moscow
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+    # Не больше 5 открытых PR одновременно — не засоряем очередь.
+    open-pull-requests-limit: 5
+
+  # ─── Gradle (Java) ───────────────────────────────────────────────────────────
+  # Обновляет: Spring Boot, JWT, Testcontainers, SpringDoc и др.
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/Moscow
+    labels:
+      - dependencies
+      - java
+    commit-message:
+      prefix: "build"
+    open-pull-requests-limit: 10
+    # Группируем патч-обновления в один PR — меньше шума.
+    groups:
+      patch-updates:
+        update-types:
+          - patch
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "io.spring.dependency-management:*"
+      testcontainers:
+        patterns:
+          - "org.testcontainers:*"

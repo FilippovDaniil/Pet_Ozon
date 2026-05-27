@@ -1,0 +1,240 @@
+# GitHub Actions CI/CD Pipeline для Pet_Ozon Marketplace API
+#
+# Граф джобов:
+#   test ──────────────┐
+#                      ├──► build ──► docker (только main/master)
+#   integration-test ──┘
+#
+# Для работы docker-джоба нужно включить GitHub Packages в настройках репозитория.
+# Секреты настраивать не нужно: docker-джоб использует встроенный GITHUB_TOKEN.
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch: # ручной запуск из GitHub UI
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+# ─── Unit Tests ──────────────────────────────────────────────────────────────
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      checks: write # нужен для dorny/test-reporter (публикация результатов)
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: marketplace_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: "1234"
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      # gradle/actions/setup-gradle кеширует ~/.gradle/caches и ~/.gradle/wrapper.
+      # Ключ кеша вычисляется из хешей build.gradle и settings.gradle —
+      # при смене зависимостей кеш инвалидируется автоматически.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        run: ./gradlew test --no-daemon --stacktrace
+        env:
+          # Spring Boot подключается к postgres-сервису, запущенному рядом с джобом.
+          # В отличие от GitLab CI (хост "postgres"), в GitHub Actions сервис доступен на localhost.
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/marketplace_test
+          SPRING_DATASOURCE_USERNAME: postgres
+          SPRING_DATASOURCE_PASSWORD: "1234"
+
+      # Публикует результаты тестов как Check прямо в PR / коммите.
+      # fail-on-error: false — не роняет джоб если XML не найден (новый проект без тестов).
+      - name: Publish unit test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Unit Tests
+          path: build/test-results/test/**/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload HTML test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-report
+          path: build/reports/tests/test/
+          retention-days: 7
+
+  # ─── Integration Tests ───────────────────────────────────────────────────────
+  # Запускается параллельно с unit-тестами.
+  # Использует Testcontainers — Docker доступен на ubuntu-latest без дополнительных настроек.
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      checks: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Testcontainers сам запустит PostgreSQL в Docker и остановит после тестов.
+      # Внешний postgres-сервис не нужен.
+      - name: Run integration tests
+        run: ./gradlew integrationTest --no-daemon --stacktrace
+
+      - name: Publish integration test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Integration Tests
+          path: build/test-results/integrationTest/**/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload HTML integration test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-report
+          path: build/reports/tests/integrationTest/
+          retention-days: 7
+
+  # ─── Build JAR ───────────────────────────────────────────────────────────────
+  # Запускается только после успешного прохождения обоих наборов тестов.
+  build:
+    name: Build JAR
+    runs-on: ubuntu-latest
+    needs: [test, integration-test]
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # -x test: тесты уже прогнаны на предыдущих джобах, пропускаем.
+      - name: Build JAR
+        run: ./gradlew bootJar --no-daemon -x test
+
+      # JAR сохраняется как артефакт: его можно скачать вручную из GitHub UI
+      # или использовать для деплоя без Docker (например, на VPS через SCP).
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs/*.jar
+          retention-days: 1
+
+  # ─── Docker Build & Push ─────────────────────────────────────────────────────
+  # Запускается только при пуше в main/master (не при открытии PR).
+  # Публикует образ в GitHub Container Registry (ghcr.io).
+  docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build
+    if: >-
+      (github.event_name == 'push' &&
+       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')) ||
+      github.event_name == 'workflow_dispatch'
+
+    permissions:
+      contents: read
+      packages: write # нужен для пуша в ghcr.io
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Buildx: поддержка BuildKit + мультиплатформенные сборки + кеш.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Авторизация в ghcr.io через встроенный GITHUB_TOKEN.
+      # Никаких ручных секретов настраивать не нужно.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Автоматически генерирует теги и OCI-метки образа.
+      # Теги: короткий SHA коммита (7 символов) + latest.
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=latest
+
+      # Docker layer cache хранится в GHA Cache.
+      # Dockerfile разделяет слой зависимостей (RUN ./gradlew dependencies) и слой сборки
+      # (RUN ./gradlew bootJar) — при изменении только src/ зависимости берутся из кеша.
+      # Первый запуск: ~5 мин. Повторный (изменился только src/): ~1-2 мин.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
