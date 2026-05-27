@@ -48,7 +48,7 @@ dependencies {
 
     // Loki4j — отправляет логи из Logback напрямую в Grafana Loki (без Promtail).
     // Активируется профилем "docker" в logback-spring.xml.
-    implementation 'com.github.loki4j:loki-logback-appender:1.5.2'
+    implementation 'com.github.loki4j:loki-logback-appender:2.0.3'
 
     // Spring Boot Actuator + Micrometer Prometheus — метрики JVM и HTTP-запросов.
     // Actuator открывает /actuator/prometheus, Prometheus scrapes этот endpoint.
