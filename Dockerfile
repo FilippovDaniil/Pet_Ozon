@@ -12,6 +12,9 @@ COPY gradle/ gradle/
 COPY build.gradle .
 COPY settings.gradle .
 
+# На Windows git не сохраняет бит исполнения — без chmod +x Linux не запустит скрипт.
+RUN chmod +x ./gradlew
+
 # Скачиваем зависимости заранее (используем --no-daemon для меньшего потребления памяти).
 RUN ./gradlew dependencies --no-daemon
 
