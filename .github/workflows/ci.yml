@@ -205,6 +205,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Скачиваем JAR, собранный в предыдущем джобе.
+      # Dockerfile ожидает файл в build/libs/ — именно туда и кладём артефакт.
+      # Без этого шага COPY build/libs/*.jar упадёт с "no such file or directory".
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: build/libs/
+
       # Buildx: поддержка BuildKit + мультиплатформенные сборки + кеш.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -230,9 +239,8 @@ jobs:
             type=raw,value=latest
 
       # Docker layer cache хранится в GHA Cache.
-      # Dockerfile разделяет слой зависимостей (RUN ./gradlew dependencies) и слой сборки
-      # (RUN ./gradlew bootJar) — при изменении только src/ зависимости берутся из кеша.
-      # Первый запуск: ~5 мин. Повторный (изменился только src/): ~1-2 мин.
+      # Dockerfile копирует уже готовый JAR (собранный на шаге build) —
+      # никакой сборки Gradle внутри Docker нет. Сборка занимает ~10 секунд.
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
