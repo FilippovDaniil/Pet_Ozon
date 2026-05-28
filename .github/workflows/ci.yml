@@ -77,7 +77,7 @@ jobs:
       # Публикует результаты тестов как Check прямо в PR / коммите.
       # fail-on-error: false — не роняет джоб если XML не найден (новый проект без тестов).
       - name: Publish unit test results
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: Unit Tests
@@ -126,7 +126,7 @@ jobs:
         run: ./gradlew integrationTest --no-daemon --stacktrace
 
       - name: Publish integration test results
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         if: always()
         # continue-on-error: если XML не найден (0 тестов или тест упал до записи отчёта)
         # — шаг помечается жёлтым, но не роняет джоб.
