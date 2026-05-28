@@ -5,6 +5,7 @@ import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.repository.BnplContractRepository;
 import com.example.marketplace.repository.InvoiceRepository;
 import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.UserRepository;
@@ -33,9 +34,10 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
 
-    @Mock OrderRepository   orderRepository;
-    @Mock UserRepository    userRepository;
-    @Mock InvoiceRepository invoiceRepository;
+    @Mock OrderRepository        orderRepository;
+    @Mock UserRepository         userRepository;
+    @Mock InvoiceRepository      invoiceRepository;
+    @Mock BnplContractRepository bnplContractRepository;
 
     @InjectMocks
     OrderService orderService;

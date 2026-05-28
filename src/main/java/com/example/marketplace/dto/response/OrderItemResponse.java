@@ -17,5 +17,6 @@ public class OrderItemResponse {
     private Long productId;
     private String productName;
     private int quantity;
-    private BigDecimal priceAtOrder;  // историческая цена, зафиксированная при заказе
+    private BigDecimal priceAtOrder;
+    private String itemStatus;  // null для FULL-заказов; PENDING_ISSUE/ISSUED/CANCELLED/RETURNED для BNPL
 }

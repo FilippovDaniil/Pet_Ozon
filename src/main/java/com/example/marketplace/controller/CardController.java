@@ -1,0 +1,52 @@
+package com.example.marketplace.controller;
+
+import com.example.marketplace.dto.response.CardBindingResponse;
+import com.example.marketplace.entity.User;
+import com.example.marketplace.repository.UserRepository;
+import com.example.marketplace.service.CardService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+/**
+ * REST-контроллер привязанных карт.
+ *
+ *   GET    /api/cards          — список карт текущего пользователя
+ *   PATCH  /api/cards/{id}/default — сделать карту дефолтной
+ *   DELETE /api/cards/{id}     — удалить привязку карты
+ */
+@RestController
+@RequestMapping(value = "/api/cards", produces = MediaType.APPLICATION_JSON_VALUE)
+@RequiredArgsConstructor
+public class CardController {
+
+    private final CardService    cardService;
+    private final UserRepository userRepository;
+
+    @GetMapping
+    public List<CardBindingResponse> getCards(@AuthenticationPrincipal UserDetails ud) {
+        return cardService.getCards(resolveUser(ud));
+    }
+
+    @PatchMapping("/{id}/default")
+    public void setDefault(@PathVariable Long id,
+                           @AuthenticationPrincipal UserDetails ud) {
+        cardService.setDefault(id, resolveUser(ud));
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(org.springframework.http.HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id,
+                       @AuthenticationPrincipal UserDetails ud) {
+        cardService.delete(id, resolveUser(ud));
+    }
+
+    private User resolveUser(UserDetails ud) {
+        return userRepository.findByEmail(ud.getUsername())
+                .orElseThrow(() -> new RuntimeException("Пользователь не найден"));
+    }
+}

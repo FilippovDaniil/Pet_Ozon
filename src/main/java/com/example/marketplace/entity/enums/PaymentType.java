@@ -1,0 +1,8 @@
+package com.example.marketplace.entity.enums;
+
+public enum PaymentType {
+    FULL,              // одностадийная полная оплата через Альфа Банк
+    BNPL_4_BIWEEKLY,   // 4 платежа, каждые 2 недели, без комиссии
+    BNPL_4_MONTHLY,    // 4 платежа, ежемесячно, комиссия 10%
+    BNPL_6_MONTHLY     // 6 платежей, ежемесячно, комиссия 15%
+}

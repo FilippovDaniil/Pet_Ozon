@@ -1,6 +1,7 @@
 package com.example.marketplace.entity;
 
 import com.example.marketplace.entity.enums.OrderStatus;
+import com.example.marketplace.entity.enums.PaymentType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -45,6 +46,11 @@ public class Order {
 
     @Enumerated(EnumType.STRING)
     private OrderStatus status;
+
+    // Тип оплаты: FULL (одностадийный) или один из BNPL-продуктов.
+    // null — до момента выбора способа оплаты.
+    @Enumerated(EnumType.STRING)
+    private PaymentType paymentType;
 
     // Итоговая сумма = сумма всех (quantity × priceAtOrder) позиций.
     private BigDecimal totalAmount;

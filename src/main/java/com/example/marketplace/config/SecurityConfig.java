@@ -76,6 +76,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/categories").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/search/**").permitAll()
 
+                        // Callback и fail-редиректы от шлюза Альфа Банка — без авторизации.
+                        // Банк делает browser-redirect, у которого нет JWT-токена.
+                        .requestMatchers("/api/payment/callback", "/api/payment/fail").permitAll()
+
                         // Админские эндпоинты — только для роли ADMIN.
                         // Spring добавит "ROLE_" автоматически: ищет "ROLE_ADMIN".
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

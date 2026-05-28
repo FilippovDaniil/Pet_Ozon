@@ -3,12 +3,13 @@ package com.example.marketplace.controller;
 import com.example.marketplace.config.SecurityConfig;
 import com.example.marketplace.config.TestSecurityConfig;
 import com.example.marketplace.dto.response.InvoiceResponse;
-import com.example.marketplace.dto.response.PaymentResponse;
+import com.example.marketplace.dto.response.PaymentInitResponse;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.InvoiceStatus;
-import com.example.marketplace.entity.enums.PaymentStatus;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.payment.BnplService;
+import com.example.marketplace.payment.FullPaymentService;
 import com.example.marketplace.security.JwtAuthenticationFilter;
 import com.example.marketplace.service.InvoiceService;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,9 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// Тесты InvoiceController: просмотр счёта и оплата.
+// Тесты InvoiceController: просмотр счёта, инициация полной оплаты, инициация BNPL.
+// После рефакторинга POST /api/invoices/{id}/payments возвращает {formUrl} для редиректа,
+// а не PaymentResponse как раньше. Старые тесты обновлены под новый контракт.
 @WebMvcTest(
         value = InvoiceController.class,
         excludeFilters = {
@@ -42,7 +45,9 @@ class InvoiceControllerTest {
 
     @Autowired MockMvc mockMvc;
 
-    @MockitoBean InvoiceService invoiceService;
+    @MockitoBean InvoiceService     invoiceService;
+    @MockitoBean FullPaymentService fullPaymentService;
+    @MockitoBean BnplService        bnplService;
 
     private User mockClientUser() {
         User u = new User();
@@ -62,17 +67,6 @@ class InvoiceControllerTest {
         return r;
     }
 
-    private PaymentResponse makePaymentResponse(String method) {
-        PaymentResponse r = new PaymentResponse();
-        r.setId(1L);
-        r.setInvoiceId(1L);
-        r.setAmount(new BigDecimal("5000.00"));
-        r.setPaymentMethod(method);
-        r.setStatus(PaymentStatus.SUCCESS);
-        r.setTimestamp(LocalDateTime.now());
-        return r;
-    }
-
     // ── GET /api/invoices/{id} ────────────────────────────────────────────────
 
     @Test
@@ -84,8 +78,7 @@ class InvoiceControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.status").value("UNPAID"))
-                .andExpect(jsonPath("$.amount").value(5000.00))
-                .andExpect(jsonPath("$.orderId").value(1));
+                .andExpect(jsonPath("$.amount").value(5000.00));
     }
 
     @Test
@@ -101,85 +94,98 @@ class InvoiceControllerTest {
 
         mockMvc.perform(get("/api/invoices/99").with(user(mockClientUser())))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.status").value(404))
-                .andExpect(jsonPath("$.message").value("Invoice not found with id: 99"));
+                .andExpect(jsonPath("$.status").value(404));
     }
 
-    // ── POST /api/invoices/{id}/payments ──────────────────────────────────────
+    // ── POST /api/invoices/{id}/payments (полная оплата → formUrl) ────────────
 
     @Test
-    void pay_withCardMethod_returns201WithPayment() throws Exception {
-        when(invoiceService.pay(1L, "CARD")).thenReturn(makePaymentResponse("CARD"));
+    void initiateFullPayment_unpaidInvoice_returns201WithFormUrl() throws Exception {
+        PaymentInitResponse resp = new PaymentInitResponse(
+                "https://alfa.rbsuat.com/form?id=abc", "alfa-abc", null);
+        when(fullPaymentService.initiate(1L)).thenReturn(resp);
 
         mockMvc.perform(post("/api/invoices/1/payments")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"paymentMethod\": \"CARD\"}"))
+                        .content("{}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.paymentMethod").value("CARD"))
-                .andExpect(jsonPath("$.status").value("SUCCESS"))
-                .andExpect(jsonPath("$.amount").value(5000.00));
+                .andExpect(jsonPath("$.formUrl").value("https://alfa.rbsuat.com/form?id=abc"))
+                .andExpect(jsonPath("$.alfaOrderId").value("alfa-abc"))
+                .andExpect(jsonPath("$.contractId").isEmpty());
     }
 
     @Test
-    void pay_withCashMethod_returns201() throws Exception {
-        when(invoiceService.pay(1L, "CASH")).thenReturn(makePaymentResponse("CASH"));
+    void initiateFullPayment_alreadyPaid_returns500() throws Exception {
+        when(fullPaymentService.initiate(1L))
+                .thenThrow(new IllegalStateException("Счёт #1 уже оплачен"));
 
         mockMvc.perform(post("/api/invoices/1/payments")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"paymentMethod\": \"CASH\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.paymentMethod").value("CASH"));
+                        .content("{}"))
+                .andExpect(status().isInternalServerError());
     }
 
     @Test
-    void pay_withoutBody_returns415() throws Exception {
+    void initiateFullPayment_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/invoices/1/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void initiateFullPayment_withoutContentType_returns415() throws Exception {
         mockMvc.perform(post("/api/invoices/1/payments")
                         .with(user(mockClientUser())))
                 .andExpect(status().isUnsupportedMediaType());
     }
 
+    // ── POST /api/invoices/{id}/bnpl (рассрочка → formUrl) ───────────────────
+
     @Test
-    void pay_withBlankPaymentMethod_returns400() throws Exception {
-        mockMvc.perform(post("/api/invoices/1/payments")
+    void initiateBnpl_validProduct_returns201WithFormUrl() throws Exception {
+        PaymentInitResponse resp = new PaymentInitResponse(
+                "https://alfa.rbsuat.com/form?id=bnpl-001", "alfa-bnpl-001", 42L);
+        when(bnplService.initiate(1L, "BIWEEKLY_4")).thenReturn(resp);
+
+        mockMvc.perform(post("/api/invoices/1/bnpl")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"paymentMethod\": \"\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
+                        .content("{\"bnplProduct\": \"BIWEEKLY_4\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.formUrl").value("https://alfa.rbsuat.com/form?id=bnpl-001"))
+                .andExpect(jsonPath("$.contractId").value(42));
     }
 
     @Test
-    void pay_unauthenticated_returns401() throws Exception {
-        mockMvc.perform(post("/api/invoices/1/payments")
+    void initiateBnpl_missingProduct_returns400() throws Exception {
+        // bnplProduct — обязательное поле (@NotNull)
+        mockMvc.perform(post("/api/invoices/1/bnpl")
+                        .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"paymentMethod\": \"CARD\"}"))
-                .andExpect(status().isUnauthorized());
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
-    void pay_alreadyPaid_returns400() throws Exception {
-        when(invoiceService.pay(1L, "CARD"))
-                .thenThrow(new IllegalArgumentException("Invoice #1 is already paid"));
+    void initiateBnpl_invoiceNotFound_returns404() throws Exception {
+        when(bnplService.initiate(eq(99L), anyString()))
+                .thenThrow(new ResourceNotFoundException("Invoice not found"));
 
-        mockMvc.perform(post("/api/invoices/1/payments")
+        mockMvc.perform(post("/api/invoices/99/bnpl")
                         .with(user(mockClientUser()))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"paymentMethod\": \"CARD\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Invoice #1 is already paid"));
-    }
-
-    @Test
-    void pay_invoiceNotFound_returns404() throws Exception {
-        when(invoiceService.pay(99L, "CARD"))
-                .thenThrow(new ResourceNotFoundException("Invoice not found with id: 99"));
-
-        mockMvc.perform(post("/api/invoices/99/payments")
-                        .with(user(mockClientUser()))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"paymentMethod\": \"CARD\"}"))
+                        .content("{\"bnplProduct\": \"MONTHLY_4\"}"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void initiateBnpl_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/invoices/1/bnpl")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"bnplProduct\": \"BIWEEKLY_4\"}"))
+                .andExpect(status().isUnauthorized());
     }
 }

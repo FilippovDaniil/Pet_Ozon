@@ -33,6 +33,8 @@ public class TestSecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/categories").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/search/**").permitAll()
+                        // Публичные endpoint-ы платёжного шлюза (bank redirect без JWT)
+                        .requestMatchers("/api/payment/callback", "/api/payment/fail").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/seller/**").hasRole("SELLER")
                         .requestMatchers("/api/accountant/**").hasRole("ACCOUNTANT")

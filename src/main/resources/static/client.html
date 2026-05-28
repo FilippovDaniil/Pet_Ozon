@@ -59,6 +59,13 @@
                     class="px-4 py-2 rounded-lg text-sm transition">
                     Мои заказы
                 </button>
+                <button @click="setTab('bnpl')"
+                    :class="activeTab === 'bnpl'
+                        ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    Рассрочка
+                </button>
                 <button @click="setTab('chat')"
                     :class="activeTab === 'chat'
                         ? 'bg-indigo-50 text-indigo-700 font-semibold'
@@ -531,33 +538,419 @@
                             <!-- Позиции -->
                             <div class="p-4 space-y-2">
                                 <template x-for="item in order.items" :key="item.id">
-                                    <div class="flex justify-between text-sm">
-                                        <span class="text-gray-700" x-text="item.productName"></span>
-                                        <span class="text-gray-500">
+                                    <div class="flex items-center justify-between text-sm gap-2">
+                                        <span class="text-gray-700 flex-1 min-w-0 truncate" x-text="item.productName"></span>
+                                        <span class="text-gray-500 flex-shrink-0">
                                             <span x-text="item.quantity"></span>
                                             × <span x-text="fmt(item.priceAtOrder)"></span>
                                         </span>
+                                        <!-- Статус позиции BNPL -->
+                                        <template x-if="item.itemStatus">
+                                            <div class="flex items-center gap-1 flex-shrink-0">
+                                                <!-- Ожидает выдачи -->
+                                                <template x-if="item.itemStatus === 'PENDING_ISSUE'">
+                                                    <div class="flex gap-1">
+                                                        <button @click.stop="issueItem(order.id, item.id)"
+                                                                class="px-2 py-0.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded font-medium transition">
+                                                            Получить
+                                                        </button>
+                                                        <button @click.stop="cancelItem(order.id, item.id)"
+                                                                class="px-2 py-0.5 text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded font-medium transition">
+                                                            Отменить
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                                <!-- Выдан -->
+                                                <template x-if="item.itemStatus === 'ISSUED'">
+                                                    <div class="flex items-center gap-1">
+                                                        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">✓ Получен</span>
+                                                        <button @click.stop="returnItem(order.id, item.id)"
+                                                                class="px-2 py-0.5 text-xs bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border border-yellow-200 rounded font-medium transition">
+                                                            Вернуть
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                                <!-- Отменён -->
+                                                <template x-if="item.itemStatus === 'CANCELLED'">
+                                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Отменён</span>
+                                                </template>
+                                                <!-- Возвращён -->
+                                                <template x-if="item.itemStatus === 'RETURNED'">
+                                                    <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">Возвращён</span>
+                                                </template>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                             </div>
 
-                            <!-- Адрес + кнопка оплаты -->
+                            <!-- Адрес + кнопки оплаты -->
                             <div class="px-4 pb-4 space-y-3">
                                 <div class="text-xs text-gray-400">
                                     📍 <span x-text="order.shippingAddress || 'Не указан'"></span>
                                 </div>
 
-                                <!-- Кнопка оплаты — только для CREATED статуса с invoiceId -->
-                                <div x-show="order.status === 'CREATED' && order.invoiceId">
-                                    <button @click="openPayModal(order.invoiceId)"
+                                <!-- Метка BNPL-типа -->
+                                <div x-show="order.paymentType && order.paymentType !== 'FULL'"
+                                     class="flex items-center gap-2">
+                                    <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium"
+                                          x-text="bnplLabel(order.paymentType)"></span>
+                                    <span x-show="order.bnplContractId"
+                                          class="text-xs text-gray-400">
+                                        контракт #<span x-text="order.bnplContractId"></span>
+                                    </span>
+                                </div>
+
+                                <!-- Кнопка оплаты — для CREATED без paymentType -->
+                                <div x-show="order.status === 'CREATED' && order.invoiceId && !order.paymentType">
+                                    <button @click.stop="openPayModal(order.invoiceId, order.totalAmount)"
                                             class="w-full py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg text-sm transition">
-                                        💳 Оплатить счёт #<span x-text="order.invoiceId"></span>
+                                        💳 Выбрать способ оплаты
                                     </button>
+                                </div>
+
+                                <!-- BNPL ожидает оплаты (pre-auth не прошёл) -->
+                                <div x-show="order.status === 'CREATED' && order.paymentType && order.paymentType !== 'FULL'">
+                                    <div class="text-xs text-center text-indigo-600 bg-indigo-50 rounded-lg py-2">
+                                        ⏳ Ожидается авторизация платежа…
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </template>
+            </div>
+        </div>
+
+        <!-- ─────────────────── TAB: BNPL ─────────────────────────── -->
+        <div x-show="activeTab === 'bnpl'" class="max-w-2xl space-y-6">
+
+            <!-- ── Мои карты ── -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold text-gray-900">💳 Привязанные карты</h2>
+                    <button @click="loadCards()" class="text-xs text-gray-400 hover:text-gray-600 transition">↻</button>
+                </div>
+
+                <div x-show="loadingCards" class="h-16 bg-white rounded-xl animate-pulse"></div>
+
+                <div x-show="!loadingCards && cards.length === 0"
+                     class="bg-gray-50 rounded-xl p-4 text-center text-sm text-gray-400">
+                    Карты появятся после первой успешной оплаты через Альфа Банк
+                </div>
+
+                <div x-show="!loadingCards && cards.length > 0" class="space-y-2">
+                    <template x-for="card in cards" :key="card.id">
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-3 flex items-center gap-3">
+                            <!-- Иконка -->
+                            <div class="w-10 h-7 rounded-md flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                                 style="background: linear-gradient(135deg,#1a1a2e,#16213e)">
+                                💳
+                            </div>
+                            <!-- Данные -->
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-semibold text-gray-900 font-mono" x-text="card.maskedPan || '****'"></p>
+                                <p class="text-xs text-gray-400" x-text="'Действует до ' + (card.expiry || '–')"></p>
+                            </div>
+                            <!-- Дефолтная -->
+                            <div class="flex items-center gap-2">
+                                <span x-show="card.isDefault"
+                                      class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                                    По умолчанию
+                                </span>
+                                <button x-show="!card.isDefault"
+                                        @click="setDefaultCard(card.id)"
+                                        class="text-xs text-indigo-600 hover:text-indigo-800 transition">
+                                    Сделать основной
+                                </button>
+                                <button @click="removeCard(card.id)"
+                                        class="text-gray-300 hover:text-red-400 transition ml-1 text-lg leading-none">×</button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- ── Мои рассрочки ── -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-bold text-gray-900">📋 Мои рассрочки</h2>
+                    <button @click="loadBnplContracts()"
+                            class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition">
+                        ↻ Обновить
+                    </button>
+                </div>
+
+                <div x-show="loadingBnpl" class="space-y-4">
+                    <template x-for="n in [1,2]" :key="n">
+                        <div class="bg-white rounded-xl p-5 animate-pulse h-24"></div>
+                    </template>
+                </div>
+
+                <div x-show="!loadingBnpl && bnplContracts.length === 0"
+                     class="text-center py-12 text-gray-400">
+                    <div class="text-4xl mb-2">📋</div>
+                    <p>Активных рассрочек нет</p>
+                    <p class="text-sm mt-1">Выберите рассрочку при оплате заказа</p>
+                </div>
+
+                <div x-show="!loadingBnpl && bnplContracts.length > 0" class="space-y-4">
+                    <template x-for="c in bnplContracts" :key="c.id">
+                        <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+
+                            <!-- Шапка контракта -->
+                            <div class="p-4 cursor-pointer hover:bg-gray-50 transition"
+                                 @click="expandedBnpl = expandedBnpl === c.id ? null : c.id">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-3 flex-wrap">
+                                        <span class="text-sm font-bold text-gray-900">Контракт #<span x-text="c.id"></span></span>
+                                        <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                                              :class="{
+                                                  'bg-green-100 text-green-700': c.status === 'ACTIVE',
+                                                  'bg-blue-100 text-blue-700': c.status === 'COMPLETED',
+                                                  'bg-gray-100 text-gray-500': c.status === 'CANCELLED',
+                                                  'bg-yellow-100 text-yellow-700': c.status === 'AWAITING_PAYMENT',
+                                              }"
+                                              x-text="bnplStatusLabel(c.status)"></span>
+                                    </div>
+                                    <div class="flex items-center gap-3">
+                                        <span class="text-sm font-semibold text-gray-900"
+                                              x-text="fmt(c.totalAmountKopecks / 100)"></span>
+                                        <span class="text-gray-300 text-sm"
+                                              x-text="expandedBnpl === c.id ? '▲' : '▼'"></span>
+                                    </div>
+                                </div>
+                                <div class="mt-1 flex items-center gap-3 text-xs text-gray-400">
+                                    <span x-text="c.productDescription"></span>
+                                    <span x-show="c.commissionKopecks > 0" class="text-orange-500">
+                                        + <span x-text="fmt(c.commissionKopecks / 100)"></span> комиссия
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Детали контракта -->
+                            <div x-show="expandedBnpl === c.id" x-transition class="border-t border-gray-100">
+                                <div class="p-4">
+
+                                    <!-- Прогресс-бар -->
+                                    <div class="mb-4">
+                                        <div class="flex justify-between text-xs text-gray-400 mb-1">
+                                            <span>Оплачено</span>
+                                            <span x-text="fmt(c.depositedAmountKopecks / 100) + ' / ' + fmt(c.totalAmountKopecks / 100)"></span>
+                                        </div>
+                                        <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                                            <div class="h-full bg-indigo-500 rounded-full transition-all"
+                                                 :style="`width: ${Math.min(100, Math.round(c.depositedAmountKopecks / c.totalAmountKopecks * 100))}%`"></div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Кнопки действий (только ACTIVE) -->
+                                    <div x-show="c.status === 'ACTIVE'" class="flex gap-2 mb-4">
+                                        <button @click.stop="openPayNowModal(c)"
+                                                :disabled="!hasDefaultCard"
+                                                :title="!hasDefaultCard ? 'Нет привязанной карты' : ''"
+                                                class="flex-1 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium rounded-lg transition">
+                                            💳 Оплатить сейчас
+                                        </button>
+                                        <button @click.stop="openPostponeModal(c)"
+                                                class="flex-1 py-2 text-sm border border-indigo-300 text-indigo-600 hover:bg-indigo-50 font-medium rounded-lg transition">
+                                            ⏰ Перенести взнос
+                                        </button>
+                                    </div>
+
+                                    <!-- График взносов -->
+                                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">График платежей</p>
+                                    <div class="space-y-2">
+                                        <template x-for="inst in c.installments" :key="inst.id">
+                                            <div class="flex items-center justify-between py-2 px-3 rounded-lg gap-2"
+                                                 :class="{
+                                                     'bg-green-50 border border-green-100': inst.status === 'PAID',
+                                                     'bg-red-50 border border-red-100': inst.status === 'OVERDUE',
+                                                     'bg-gray-50 border border-gray-100': inst.status === 'PENDING' || inst.status === 'CANCELLED',
+                                                 }">
+                                                <div class="flex items-center gap-3 flex-1 min-w-0">
+                                                    <span class="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0"
+                                                          :class="{
+                                                              'bg-green-500 text-white': inst.status === 'PAID',
+                                                              'bg-red-500 text-white': inst.status === 'OVERDUE',
+                                                              'bg-gray-300 text-white': inst.status === 'PENDING' || inst.status === 'CANCELLED',
+                                                          }"
+                                                          x-text="inst.installmentNumber"></span>
+                                                    <div class="min-w-0">
+                                                        <p class="text-sm font-semibold text-gray-800"
+                                                           x-text="fmt(inst.amountKopecks / 100)"></p>
+                                                        <div class="flex items-center gap-2">
+                                                            <p class="text-xs text-gray-400"
+                                                               x-text="inst.status === 'PAID' ? '✓ ' + fmtDateShort(inst.paidAt) : 'До ' + fmtDateShort(inst.dueDate)"></p>
+                                                            <!-- Пометка о переносе -->
+                                                            <span x-show="inst.daysPostponed > 0"
+                                                                  class="text-xs text-orange-500"
+                                                                  x-text="'⏰ +' + inst.daysPostponed + 'д'"></span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <span class="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0"
+                                                      :class="{
+                                                          'bg-green-100 text-green-700': inst.status === 'PAID',
+                                                          'bg-red-100 text-red-600': inst.status === 'OVERDUE',
+                                                          'bg-gray-100 text-gray-500': inst.status === 'PENDING',
+                                                          'bg-gray-100 text-gray-400': inst.status === 'CANCELLED',
+                                                      }"
+                                                      x-text="{'PAID':'Оплачен','OVERDUE':'Просрочен','PENDING':'Ожидает','CANCELLED':'Отменён'}[inst.status]"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+
+                                <div class="px-4 pb-4">
+                                    <button @click="setTab('orders')"
+                                            class="text-xs text-indigo-600 hover:underline">
+                                        → Заказ #<span x-text="c.orderId"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ МОДАЛ: ПЕРЕНОС ВЗНОСА ═══════════════════════════════ -->
+        <div x-show="showPostponeModal"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+             @click.self="showPostponeModal = false">
+            <div x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                 class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+                <h3 class="text-lg font-bold text-gray-900 mb-1">⏰ Перенос ближайшего взноса</h3>
+                <p class="text-sm text-gray-500 mb-5">
+                    Контракт #<span x-text="postponeContractId"></span> ·
+                    Лимит:
+                    <span class="font-semibold text-gray-700"
+                          x-text="postponeDaysLeft + ' дн. осталось'"></span>
+                </p>
+
+                <!-- Слайдер дней -->
+                <div class="mb-4">
+                    <div class="flex justify-between text-sm text-gray-600 mb-2">
+                        <label class="font-medium">Перенести на:</label>
+                        <span class="font-bold text-indigo-700" x-text="postponeDays + ' дней'"></span>
+                    </div>
+                    <input type="range" x-model.number="postponeDays"
+                           :min="3" :max="Math.min(14, postponeDaysLeft)"
+                           step="1"
+                           class="w-full h-2 bg-gray-200 rounded-full appearance-none cursor-pointer accent-indigo-600">
+                    <div class="flex justify-between text-xs text-gray-400 mt-1">
+                        <span>3 дня</span>
+                        <span x-text="Math.min(14, postponeDaysLeft) + ' дней'"></span>
+                    </div>
+                </div>
+
+                <!-- Комиссия -->
+                <div class="bg-orange-50 rounded-xl p-3 mb-5 space-y-1">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Сумма взноса</span>
+                        <span class="font-semibold text-gray-900" x-text="fmt(postponeInstAmount / 100)"></span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span class="text-gray-600">Комиссия (0.05%/день)</span>
+                        <span class="font-semibold text-orange-600"
+                              x-text="'+ ' + fmt(Math.round(postponeInstAmount * 0.0005 * postponeDays) / 100)"></span>
+                    </div>
+                    <div class="flex justify-between text-sm border-t border-orange-100 pt-1 mt-1">
+                        <span class="font-semibold text-gray-700">Итого взнос</span>
+                        <span class="font-bold text-gray-900"
+                              x-text="fmt((postponeInstAmount + Math.round(postponeInstAmount * 0.0005 * postponeDays)) / 100)"></span>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1">
+                        Новая дата: <span class="font-medium text-gray-600" x-text="calcNewDueDate()"></span>
+                    </p>
+                </div>
+
+                <div class="flex gap-3">
+                    <button @click="showPostponeModal = false"
+                            class="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
+                        Отмена
+                    </button>
+                    <button @click="confirmPostpone()" :disabled="postponeProcessing"
+                            class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition">
+                        <span x-show="!postponeProcessing">Перенести</span>
+                        <span x-show="postponeProcessing">⏳</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════ МОДАЛ: ОПЛАТА СЕЙЧАС ════════════════════════════════ -->
+        <div x-show="showPayNowModal"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+             @click.self="showPayNowModal = false">
+            <div x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                 class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+                <h3 class="text-lg font-bold text-gray-900 mb-1">💳 Оплатить сейчас</h3>
+                <p class="text-sm text-gray-500 mb-5">Контракт #<span x-text="payNowContractId"></span></p>
+
+                <!-- Ближайший взнос -->
+                <div class="mb-4">
+                    <button @click="payNowMode = 'next'"
+                            :class="payNowMode === 'next' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'"
+                            class="w-full text-left p-3 rounded-xl border-2 transition mb-2">
+                        <div class="flex justify-between">
+                            <div>
+                                <p class="font-semibold text-gray-900 text-sm">Ближайший взнос</p>
+                                <p class="text-xs text-gray-400 mt-0.5">Взнос #<span x-text="payNowNextInstNumber"></span>
+                                    · до <span x-text="payNowNextInstDate"></span></p>
+                            </div>
+                            <p class="font-bold text-indigo-700" x-text="fmt(payNowNextInstAmount / 100)"></p>
+                        </div>
+                    </button>
+                    <button @click="payNowMode = 'custom'"
+                            :class="payNowMode === 'custom' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'"
+                            class="w-full text-left p-3 rounded-xl border-2 transition">
+                        <p class="font-semibold text-gray-900 text-sm">Произвольная сумма</p>
+                        <p class="text-xs text-gray-400 mt-0.5">Покроет несколько взносов сразу</p>
+                    </button>
+                </div>
+
+                <!-- Ввод суммы (custom mode) -->
+                <div x-show="payNowMode === 'custom'" class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Сумма (₽)</label>
+                    <input x-model.number="payNowCustomRub" type="number" min="1" step="1"
+                           :placeholder="fmt(payNowNextInstAmount / 100)"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <p class="text-xs text-gray-400 mt-1">
+                        Минимум: <span x-text="fmt(payNowNextInstAmount / 100)"></span>
+                    </p>
+                </div>
+
+                <!-- Карта -->
+                <div class="bg-gray-50 rounded-xl p-3 mb-5 flex items-center gap-3">
+                    <span class="text-lg">💳</span>
+                    <div class="flex-1">
+                        <p class="text-xs text-gray-500">Спишется с карты</p>
+                        <p class="text-sm font-semibold text-gray-900 font-mono"
+                           x-text="defaultCardPan || 'Нет карты'"></p>
+                    </div>
+                </div>
+
+                <div class="flex gap-3">
+                    <button @click="showPayNowModal = false"
+                            class="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
+                        Отмена
+                    </button>
+                    <button @click="confirmPayNow()" :disabled="payNowProcessing"
+                            class="flex-1 py-2.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition">
+                        <span x-show="!payNowProcessing">Оплатить</span>
+                        <span x-show="payNowProcessing">⏳</span>
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -749,6 +1142,12 @@
                 <span class="text-2xl leading-none">📦</span>
                 <span class="text-xs font-medium">Заказы</span>
             </button>
+            <button @click="setTab('bnpl')"
+                    :class="activeTab === 'bnpl' ? 'text-indigo-600' : 'text-gray-400'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">📋</span>
+                <span class="text-xs font-medium">Рассрочка</span>
+            </button>
             <button @click="setTab('chat')"
                     :class="activeTab === 'chat' ? 'text-indigo-600' : 'text-gray-400'"
                     class="flex flex-col items-center gap-0.5 flex-1 py-2 transition relative">
@@ -761,45 +1160,127 @@
         </div>
     </nav>
 
-    <!-- ═══════════════════════ МОДАЛ ОПЛАТЫ ═════════════════════════════ -->
+    <!-- ═══════════════════════ МОДАЛ ВЫБОРА ОПЛАТЫ ═════════════════════ -->
     <div x-show="showPayModal"
          x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0"
          x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
          class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
          @click.self="showPayModal = false">
 
         <div x-transition:enter="transition ease-out duration-200"
              x-transition:enter-start="opacity-0 scale-95"
              x-transition:enter-end="opacity-100 scale-100"
-             class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+             class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-y-auto"
+             style="max-height:90vh">
 
-            <h3 class="text-lg font-bold text-gray-900 mb-1">Оплата счёта</h3>
-            <p class="text-sm text-gray-500 mb-5">Счёт #<span x-text="payInvoiceId"></span></p>
-
-            <div class="space-y-3 mb-5">
-                <label class="block text-sm font-medium text-gray-700">Способ оплаты</label>
-                <div class="grid grid-cols-2 gap-2">
-                    <template x-for="method in ['CARD', 'CASH', 'CRYPTO', 'TRANSFER']" :key="method">
-                        <button @click="paymentMethod = method"
-                                :class="paymentMethod === method
-                                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-semibold'
-                                    : 'border-gray-200 text-gray-600 hover:border-gray-300'"
-                                class="py-2.5 border-2 rounded-lg text-sm transition">
-                            <span x-text="methodLabel(method)"></span>
-                        </button>
-                    </template>
+            <!-- Шапка -->
+            <div class="flex items-start justify-between px-6 pt-5 pb-4 border-b border-gray-100">
+                <div>
+                    <h3 class="text-lg font-bold text-gray-900">Выберите способ оплаты</h3>
+                    <p class="text-sm text-gray-500 mt-0.5">
+                        Сумма заказа: <span class="font-semibold text-gray-800" x-text="fmt(payOrderTotal)"></span>
+                    </p>
                 </div>
+                <button @click="showPayModal = false"
+                        class="text-gray-400 hover:text-gray-600 transition ml-4 mt-0.5">✕</button>
             </div>
 
-            <div class="flex gap-3">
-                <button @click="showPayModal = false"
-                        class="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
-                    Отмена
+            <div class="px-6 py-4 space-y-3">
+
+                <!-- Полная оплата -->
+                <button @click="doFullPayment()" :disabled="payProcessing"
+                        class="w-full text-left p-4 rounded-xl border-2 border-green-200 bg-green-50 hover:border-green-400 hover:bg-green-100 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="font-semibold text-gray-900 text-sm">💳 Полная оплата</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Оплатить всё сейчас через карту</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-bold text-green-700" x-text="fmt(payOrderTotal)"></p>
+                            <p class="text-xs text-gray-400">один платёж</p>
+                        </div>
+                    </div>
                 </button>
-                <button @click="doPayInvoice()"
-                        class="flex-1 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl text-sm transition">
-                    Оплатить
+
+                <!-- BNPL: 4 платежа × 25%, раз в 2 недели, без комиссии -->
+                <button @click="doBnplPayment('BIWEEKLY_4')" :disabled="payProcessing"
+                        class="w-full text-left p-4 rounded-xl border-2 border-indigo-200 bg-indigo-50 hover:border-indigo-400 hover:bg-indigo-100 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <p class="font-semibold text-gray-900 text-sm">📅 Рассрочка 0% — 4 платежа</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Раз в 2 недели · Без переплаты</p>
+                        </div>
+                        <span class="text-xs bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">0%</span>
+                    </div>
+                    <div class="flex gap-1.5">
+                        <template x-for="i in [1,2,3,4]" :key="i">
+                            <div class="flex-1 bg-white border border-indigo-200 rounded-lg py-1.5 text-center">
+                                <p class="text-xs font-bold text-indigo-700" x-text="fmt(payOrderTotal / 4)"></p>
+                                <p class="text-xs text-gray-400" x-text="i + '-й'"></p>
+                            </div>
+                        </template>
+                    </div>
+                </button>
+
+                <!-- BNPL: 4 платежа, ежемесячно, +10% -->
+                <button @click="doBnplPayment('MONTHLY_4')" :disabled="payProcessing"
+                        class="w-full text-left p-4 rounded-xl border-2 border-purple-200 bg-purple-50 hover:border-purple-400 hover:bg-purple-100 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <p class="font-semibold text-gray-900 text-sm">🗓️ Рассрочка 10% — 4 месяца</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Ежемесячно · Комиссия 10%</p>
+                        </div>
+                        <span class="text-xs bg-yellow-100 text-yellow-700 font-semibold px-2 py-0.5 rounded-full">+10%</span>
+                    </div>
+                    <div class="flex gap-1.5">
+                        <template x-for="i in [1,2,3,4]" :key="i">
+                            <div class="flex-1 bg-white border border-purple-200 rounded-lg py-1.5 text-center">
+                                <p class="text-xs font-bold text-purple-700" x-text="fmt(payOrderTotal * 1.1 / 4)"></p>
+                                <p class="text-xs text-gray-400" x-text="i + ' мес'"></p>
+                            </div>
+                        </template>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2">
+                        Итого: <span class="font-semibold text-gray-600" x-text="fmt(payOrderTotal * 1.1)"></span>
+                    </p>
+                </button>
+
+                <!-- BNPL: 6 платежей, ежемесячно, +15% -->
+                <button @click="doBnplPayment('MONTHLY_6')" :disabled="payProcessing"
+                        class="w-full text-left p-4 rounded-xl border-2 border-orange-200 bg-orange-50 hover:border-orange-400 hover:bg-orange-100 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <p class="font-semibold text-gray-900 text-sm">📆 Рассрочка 15% — 6 месяцев</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Ежемесячно · Комиссия 15%</p>
+                        </div>
+                        <span class="text-xs bg-orange-100 text-orange-700 font-semibold px-2 py-0.5 rounded-full">+15%</span>
+                    </div>
+                    <div class="grid grid-cols-6 gap-1">
+                        <template x-for="i in [1,2,3,4,5,6]" :key="i">
+                            <div class="bg-white border border-orange-200 rounded-lg py-1.5 text-center">
+                                <p class="text-xs font-bold text-orange-700" x-text="fmt(payOrderTotal * 1.15 / 6)"></p>
+                                <p class="text-xs text-gray-400" x-text="i + ' мес'"></p>
+                            </div>
+                        </template>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-2">
+                        Итого: <span class="font-semibold text-gray-600" x-text="fmt(payOrderTotal * 1.15)"></span>
+                    </p>
+                </button>
+            </div>
+
+            <!-- Подвал -->
+            <div class="px-6 pb-5">
+                <div x-show="payProcessing" class="text-center py-2 text-sm text-indigo-600 animate-pulse mb-3">
+                    ⏳ Переход к оплате...
+                </div>
+                <button @click="showPayModal = false" :disabled="payProcessing"
+                        class="w-full py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition disabled:opacity-50">
+                    Отмена
                 </button>
             </div>
         </div>
@@ -985,7 +1466,35 @@
 
             showPayModal: false,
             payInvoiceId: null,
-            paymentMethod: 'CARD',
+            payOrderTotal: 0,
+            payProcessing: false,
+
+            bnplContracts: [],
+            loadingBnpl: false,
+            expandedBnpl: null,
+
+            cards: [],
+            loadingCards: false,
+
+            // Перенос взноса
+            showPostponeModal: false,
+            postponeContractId: null,
+            postponeDays: 3,
+            postponeDaysLeft: 14,
+            postponeInstAmount: 0,
+            postponeInstDueDate: null,
+            postponeProcessing: false,
+
+            // Оплата сейчас
+            showPayNowModal: false,
+            payNowContractId: null,
+            payNowMode: 'next',         // 'next' | 'custom'
+            payNowNextInstAmount: 0,
+            payNowNextInstNumber: 1,
+            payNowNextInstDate: '',
+            payNowCustomRub: '',
+            payNowProcessing: false,
+            defaultCardPan: null,
 
             showReviewsModal: false,
             reviewsProduct: null,
@@ -1046,6 +1555,7 @@
                 if (tab === 'products' && this.products.length === 0) await this.loadProducts();
                 if (tab === 'cart')   await this.loadCart();
                 if (tab === 'orders') await this.loadOrders();
+                if (tab === 'bnpl')   { await this.loadBnplContracts(); await this.loadCards(); }
                 if (tab === 'chat')   await this.loadChatConversations();
             },
 
@@ -1185,19 +1695,196 @@
             },
 
             // ── Оплата ────────────────────────────────────────────
-            openPayModal(invoiceId) {
-                this.payInvoiceId = invoiceId;
-                this.paymentMethod = 'CARD';
-                this.showPayModal = true;
+            openPayModal(invoiceId, totalAmount) {
+                this.payInvoiceId  = invoiceId;
+                this.payOrderTotal = totalAmount || 0;
+                this.payProcessing = false;
+                this.showPayModal  = true;
             },
 
-            async doPayInvoice() {
+            async doFullPayment() {
+                if (this.payProcessing) return;
+                this.payProcessing = true;
                 try {
-                    await api.payInvoice(this.payInvoiceId, this.paymentMethod);
-                    this.showPayModal = false;
-                    this.toast('Оплата прошла успешно!', 'success');
+                    const result = await api.initiateFullPayment(this.payInvoiceId);
+                    if (result?.formUrl) {
+                        window.location.href = result.formUrl;
+                    } else {
+                        this.toast('Не удалось получить ссылку на оплату', 'error');
+                        this.payProcessing = false;
+                    }
+                } catch (e) {
+                    this.toast(e.message, 'error');
+                    this.payProcessing = false;
+                }
+            },
+
+            async doBnplPayment(product) {
+                if (this.payProcessing) return;
+                this.payProcessing = true;
+                try {
+                    const result = await api.initiateBnpl(this.payInvoiceId, product);
+                    if (result?.formUrl) {
+                        window.location.href = result.formUrl;
+                    } else {
+                        this.toast('Не удалось получить ссылку на оплату', 'error');
+                        this.payProcessing = false;
+                    }
+                } catch (e) {
+                    this.toast(e.message, 'error');
+                    this.payProcessing = false;
+                }
+            },
+
+            // ── BNPL: управление позициями ────────────────────────
+            async issueItem(orderId, itemId) {
+                try {
+                    await api.updateItemStatus(orderId, itemId, 'ISSUED');
+                    this.toast('Товар отмечен как полученный', 'success');
                     await this.loadOrders();
                 } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async cancelItem(orderId, itemId) {
+                try {
+                    await api.updateItemStatus(orderId, itemId, 'CANCELLED');
+                    this.toast('Товар отменён', 'success');
+                    await this.loadOrders();
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async returnItem(orderId, itemId) {
+                try {
+                    await api.updateItemStatus(orderId, itemId, 'RETURNED');
+                    this.toast('Возврат оформлен', 'success');
+                    await this.loadOrders();
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── BNPL-кабинет ──────────────────────────────────────
+            async loadBnplContracts() {
+                this.loadingBnpl = true;
+                try {
+                    this.bnplContracts = await api.getBnplContracts() || [];
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingBnpl = false; }
+            },
+
+            // ── Карты ─────────────────────────────────────────────
+            async loadCards() {
+                this.loadingCards = true;
+                try {
+                    this.cards = await api.getCards() || [];
+                    const def = this.cards.find(c => c.isDefault);
+                    this.defaultCardPan = def ? def.maskedPan : null;
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.loadingCards = false; }
+            },
+
+            get hasDefaultCard() {
+                return this.cards.some(c => c.isDefault);
+            },
+
+            async setDefaultCard(cardId) {
+                try {
+                    await api.setDefaultCard(cardId);
+                    await this.loadCards();
+                    this.toast('Карта установлена по умолчанию', 'success');
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async removeCard(cardId) {
+                try {
+                    await api.deleteCard(cardId);
+                    await this.loadCards();
+                    this.toast('Карта удалена', 'success');
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // ── Перенос взноса ─────────────────────────────────────
+            openPostponeModal(contract) {
+                const nextInst = (contract.installments || [])
+                    .filter(i => i.status === 'PENDING')
+                    .sort((a, b) => a.dueDate > b.dueDate ? 1 : -1)[0];
+                if (!nextInst) { this.toast('Нет взносов для переноса', 'error'); return; }
+
+                this.postponeContractId  = contract.id;
+                this.postponeDaysLeft    = nextInst.daysPostponeLeft ?? 14;
+                this.postponeInstAmount  = nextInst.amountKopecks;
+                this.postponeInstDueDate = nextInst.dueDate;
+                this.postponeDays        = Math.min(3, this.postponeDaysLeft);
+                this.postponeProcessing  = false;
+                this.showPostponeModal   = true;
+            },
+
+            calcNewDueDate() {
+                if (!this.postponeInstDueDate) return '';
+                const d = new Date(this.postponeInstDueDate);
+                d.setDate(d.getDate() + this.postponeDays);
+                return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+            },
+
+            async confirmPostpone() {
+                if (this.postponeProcessing) return;
+                this.postponeProcessing = true;
+                try {
+                    await api.postponeInstallment(this.postponeContractId, this.postponeDays);
+                    this.showPostponeModal = false;
+                    this.toast(`Взнос перенесён на ${this.postponeDays} дней`, 'success');
+                    await this.loadBnplContracts();
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.postponeProcessing = false; }
+            },
+
+            // ── Оплата сейчас ──────────────────────────────────────
+            openPayNowModal(contract) {
+                const nextInst = (contract.installments || [])
+                    .filter(i => i.status === 'PENDING')
+                    .sort((a, b) => a.dueDate > b.dueDate ? 1 : -1)[0];
+                if (!nextInst) { this.toast('Нет взносов для оплаты', 'error'); return; }
+
+                this.payNowContractId     = contract.id;
+                this.payNowNextInstAmount = nextInst.amountKopecks;
+                this.payNowNextInstNumber = nextInst.installmentNumber;
+                this.payNowNextInstDate   = this.fmtDateShort(nextInst.dueDate);
+                this.payNowMode           = 'next';
+                this.payNowCustomRub      = '';
+                this.payNowProcessing     = false;
+                this.showPayNowModal      = true;
+            },
+
+            async confirmPayNow() {
+                if (this.payNowProcessing) return;
+                this.payNowProcessing = true;
+                try {
+                    let amountKopecks = null;
+                    if (this.payNowMode === 'custom' && this.payNowCustomRub) {
+                        amountKopecks = Math.round(parseFloat(this.payNowCustomRub) * 100);
+                        if (isNaN(amountKopecks) || amountKopecks <= 0) {
+                            this.toast('Введите корректную сумму', 'error');
+                            return;
+                        }
+                    }
+                    const paid = await api.payInstallmentNow(this.payNowContractId, amountKopecks);
+                    this.showPayNowModal = false;
+                    this.toast(`Оплачено ${paid?.length || 1} взнос(а)`, 'success');
+                    await this.loadBnplContracts();
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.payNowProcessing = false; }
+            },
+
+            bnplStatusLabel(s) {
+                return {
+                    AWAITING_PAYMENT: '⏳ Ожидает оплаты',
+                    ACTIVE:           '✅ Активна',
+                    COMPLETED:        '🏁 Завершена',
+                    CANCELLED:        '✕ Отменена',
+                }[s] || s;
+            },
+
+            fmtDateShort(dt) {
+                if (!dt) return '';
+                return new Date(dt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
             },
 
             // ── Отзывы ────────────────────────────────────────────
@@ -1428,6 +2115,14 @@
 
             statusLabel(s) {
                 return { CREATED: 'Новый', PAID: 'Оплачен', CANCELLED: 'Отменён', DELIVERED: 'Доставлен' }[s] || s;
+            },
+
+            bnplLabel(t) {
+                return {
+                    BNPL_4_BIWEEKLY: '📅 Рассрочка 0% · 4 платежа',
+                    BNPL_4_MONTHLY:  '🗓️ Рассрочка 10% · 4 мес',
+                    BNPL_6_MONTHLY:  '📆 Рассрочка 15% · 6 мес',
+                }[t] || t;
             },
 
             statusBadge(s) {

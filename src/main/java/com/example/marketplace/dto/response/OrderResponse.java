@@ -1,6 +1,7 @@
 package com.example.marketplace.dto.response;
 
 import com.example.marketplace.entity.enums.OrderStatus;
+import com.example.marketplace.entity.enums.PaymentType;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -22,5 +23,7 @@ public class OrderResponse {
     private BigDecimal totalAmount;
     private String shippingAddress;
     private List<OrderItemResponse> items;
-    private Long invoiceId;  // id счёта для оплаты — см. POST /api/invoice/{invoiceId}/pay
+    private Long invoiceId;
+    private PaymentType paymentType;
+    private Long bnplContractId;  // null для FULL-заказов
 }
