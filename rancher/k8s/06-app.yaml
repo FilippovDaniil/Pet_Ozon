@@ -187,7 +187,19 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: marketplace-secrets
-                  key: mail-password        # Значение: "" (пустая строка → письма не отправляются).
+                  key: mail-password
+
+            - name: ALFABANK_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: marketplace-secrets
+                  key: alfabank-username
+
+            - name: ALFABANK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: marketplace-secrets
+                  key: alfabank-password
 
           # ── HEALTH PROBES: как K8s проверяет здоровье пода ───────────────
           #
