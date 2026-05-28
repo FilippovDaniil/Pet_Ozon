@@ -242,7 +242,7 @@ jobs:
       # Dockerfile копирует уже готовый JAR (собранный на шаге build) —
       # никакой сборки Gradle внутри Docker нет. Сборка занимает ~10 секунд.
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
