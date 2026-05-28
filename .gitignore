@@ -45,3 +45,4 @@ bin/
 ### Secrets ###
 .env
 
+*.playwright-mcp
