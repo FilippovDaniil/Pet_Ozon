@@ -131,6 +131,51 @@ public class InvoiceService {
         return r;
     }
 
+    /**
+     * Фиксирует оплату счёта после подтверждения от банка.
+     * Вызывается из FullPaymentService и BnplService — НЕ из контроллера напрямую.
+     */
+    @Transactional
+    public void markAsPaid(Invoice invoice, String paymentMethod) {
+        if (invoice.getStatus() == InvoiceStatus.PAID) return;  // идемпотентность
+
+        invoice.setStatus(InvoiceStatus.PAID);
+        invoice.setPaidAt(LocalDateTime.now());
+        invoiceRepository.save(invoice);
+
+        Order order = invoice.getOrder();
+        order.setStatus(OrderStatus.PAID);
+        orderRepository.save(order);
+
+        for (OrderItem item : order.getItems()) {
+            User seller = item.getProduct().getSeller();
+            if (seller != null) {
+                BigDecimal earnings = item.getPriceAtOrder()
+                        .multiply(BigDecimal.valueOf(item.getQuantity()));
+                BigDecimal current = seller.getBalance() != null ? seller.getBalance() : BigDecimal.ZERO;
+                seller.setBalance(current.add(earnings));
+                userRepository.save(seller);
+            }
+        }
+
+        Payment payment = new Payment();
+        payment.setInvoice(invoice);
+        payment.setAmount(invoice.getAmount());
+        payment.setPaymentMethod(paymentMethod != null ? paymentMethod : "CARD");
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setTimestamp(LocalDateTime.now());
+        paymentRepository.save(payment);
+
+        log.info("ACTION=MARK_INVOICE_PAID invoiceId={} orderId={}", invoice.getId(), order.getId());
+
+        try {
+            User buyer = order.getUser();
+            emailService.sendOrderReceipt(buyer, order, payment.getPaymentMethod());
+        } catch (Exception e) {
+            log.warn("Receipt email skipped for invoiceId={}: {}", invoice.getId(), e.getMessage());
+        }
+    }
+
     public Invoice findEntityById(Long id) {
         return invoiceRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Invoice not found with id: " + id));

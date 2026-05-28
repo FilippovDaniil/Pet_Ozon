@@ -82,8 +82,43 @@ const api = {
     // ── Счета ─────────────────────────────────────────────────────────────
     getInvoice: (id) =>
         apiFetch(`/api/invoices/${id}`),
-    payInvoice: (invoiceId, paymentMethod) =>
-        apiFetch(`/api/invoices/${invoiceId}/payments`, { method: 'POST', body: JSON.stringify({ paymentMethod }) }),
+
+    // Одностадийная полная оплата → возвращает { formUrl }
+    initiateFullPayment: (invoiceId) =>
+        apiFetch(`/api/invoices/${invoiceId}/payments`, { method: 'POST', body: '{}' }),
+
+    // BNPL-рассрочка → возвращает { formUrl, contractId }
+    initiateBnpl: (invoiceId, bnplProduct) =>
+        apiFetch(`/api/invoices/${invoiceId}/bnpl`, { method: 'POST', body: JSON.stringify({ bnplProduct }) }),
+
+    // ── BNPL ──────────────────────────────────────────────────────────────
+    getBnplContracts: () =>
+        apiFetch('/api/bnpl/my'),
+    getBnplContract: (contractId) =>
+        apiFetch(`/api/bnpl/${contractId}`),
+
+    // Изменить статус позиции BNPL-заказа (ISSUED / CANCELLED / RETURNED)
+    updateItemStatus: (orderId, itemId, status) =>
+        apiFetch(`/api/orders/${orderId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+    // Перенести ближайший взнос (days: 3-14)
+    postponeInstallment: (contractId, days) =>
+        apiFetch(`/api/bnpl/${contractId}/postpone`, { method: 'POST', body: JSON.stringify({ days }) }),
+
+    // Оплатить взнос(ы) по привязанной карте
+    payInstallmentNow: (contractId, amountKopecks) =>
+        apiFetch(`/api/bnpl/${contractId}/pay`, {
+            method: 'POST',
+            body: amountKopecks ? JSON.stringify({ amountKopecks }) : '{}'
+        }),
+
+    // ── Привязанные карты ─────────────────────────────────────────────────────
+    getCards: () =>
+        apiFetch('/api/cards'),
+    setDefaultCard: (cardId) =>
+        apiFetch(`/api/cards/${cardId}/default`, { method: 'PATCH', body: '{}' }),
+    deleteCard: (cardId) =>
+        apiFetch(`/api/cards/${cardId}`, { method: 'DELETE' }),
 
     // ── Продавец ──────────────────────────────────────────────────────────
     getSellerProducts: async () => {

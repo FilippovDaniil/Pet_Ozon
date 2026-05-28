@@ -6,6 +6,7 @@ import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.repository.BnplContractRepository;
 import com.example.marketplace.repository.InvoiceRepository;
 import com.example.marketplace.repository.OrderRepository;
 import com.example.marketplace.repository.UserRepository;
@@ -34,9 +35,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OrderService {
 
-    private final OrderRepository orderRepository;
-    private final UserRepository userRepository;
-    private final InvoiceRepository invoiceRepository;
+    private final OrderRepository    orderRepository;
+    private final UserRepository     userRepository;
+    private final InvoiceRepository  invoiceRepository;
+    private final BnplContractRepository bnplContractRepository;
 
     /** Все заказы — только для Admin. Возвращает постранично. */
     @PreAuthorize("hasRole('ADMIN')")
@@ -87,6 +89,7 @@ public class OrderService {
         r.setStatus(order.getStatus());
         r.setTotalAmount(order.getTotalAmount());
         r.setShippingAddress(order.getShippingAddress());
+        r.setPaymentType(order.getPaymentType());
         r.setItems(order.getItems().stream().map(item -> {
             OrderItemResponse ir = new OrderItemResponse();
             ir.setId(item.getId());
@@ -94,11 +97,15 @@ public class OrderService {
             ir.setProductName(item.getProduct().getName());
             ir.setQuantity(item.getQuantity());
             ir.setPriceAtOrder(item.getPriceAtOrder());
+            if (item.getItemStatus() != null) {
+                ir.setItemStatus(item.getItemStatus().name());
+            }
             return ir;
         }).collect(Collectors.toList()));
-        // Добавляем ID счёта в ответ, если он существует.
         invoiceRepository.findByOrder(order)
                 .ifPresent(inv -> r.setInvoiceId(inv.getId()));
+        bnplContractRepository.findByOrder(order)
+                .ifPresent(c -> r.setBnplContractId(c.getId()));
         return r;
     }
 }

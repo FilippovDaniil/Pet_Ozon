@@ -75,6 +75,12 @@ data:
   OPENSEARCH_PORT: "9200"                 # → opensearch.port в application.properties
   OPENSEARCH_SCHEME: "http"               # DISABLE_SECURITY_PLUGIN=true → HTTP без TLS
 
+  # ── Альфа Банк — callback URL-ы ──────────────────────────────────────────
+  # Банк делает browser-redirect: клиент из браузера должен достучаться до этого URL.
+  # Порт 30667 = NodePort (внешний). Порт 8667 = только внутри K8s VM.
+  ALFABANK_RETURN_URL: "http://localhost:30667/api/payment/callback"
+  ALFABANK_FAIL_URL: "http://localhost:30667/api/payment/fail"
+
 ---
 # ── РЕСУРС 2: Deployment ─────────────────────────────────────────────────────
 

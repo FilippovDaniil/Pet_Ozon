@@ -1,5 +1,6 @@
 package com.example.marketplace.entity;
 
+import com.example.marketplace.entity.enums.ItemStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -45,4 +46,9 @@ public class OrderItem {
 
     // Цена за единицу товара на момент оформления заказа — фиксируется в CartService.checkout().
     private BigDecimal priceAtOrder;
+
+    // Актуально только для BNPL-заказов.
+    // Null для заказов с полной оплатой.
+    @Enumerated(EnumType.STRING)
+    private ItemStatus itemStatus;
 }
