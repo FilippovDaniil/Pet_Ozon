@@ -57,7 +57,7 @@ dependencies {
 
     // Swagger UI — автоматически генерирует веб-интерфейс документации из кода.
     // Открыть: http://localhost:8080/swagger-ui.html
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
 
     // Testcontainers — запускает реальные Docker-контейнеры во время тестов.
     // spring-boot-testcontainers: интеграция с Spring Boot (@ServiceConnection).
