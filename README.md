@@ -3041,19 +3041,42 @@ POST /api/bnpl/{contractId}/postpone
 
 ## Привязанные карты
 
-После первой успешной оплаты через Альфа Банк карта автоматически сохраняется.  
-Первая карта пользователя — дефолтная. По дефолтной карте работает досрочная оплата взносов.
+Карты сохраняются двумя способами:
+- **Автоматически** — после первой успешной оплаты или BNPL-депозита через Альфа Банк
+- **Явная привязка** — через `POST /api/cards/bind` (двухстадийный registerPreAuth → deposit → refund 1₽)
+
+Первая карта пользователя становится дефолтной. По дефолтной карте работают:
+- Досрочная оплата взносов BNPL (`POST /api/bnpl/{id}/pay`)
+- Авто-списание взносов по расписанию (планировщик)
 
 ```
-GET /api/cards
-← [
-    {"id": 1, "maskedPan": "411111**1111", "expiry": "12/2034", "isDefault": true},
-    {"id": 2, "maskedPan": "220138**0021", "expiry": "12/2030", "isDefault": false}
-  ]
-
-PATCH /api/cards/2/default    ← сменить дефолтную карту
+POST /api/cards/bind          ← начать привязку → {formUrl} (1₽ pre-auth, возвращается)
+GET /api/cards                ← список карт с maskedPan, expiry, isDefault
+PATCH /api/cards/2/default    ← сделать карту дефолтной
 DELETE /api/cards/1           ← удалить привязку
 ```
+
+**Фронтенд:** в разделе "Мои заказы" → "Карты для оплаты" — кликабельный радио-селектор.
+Клик по карте = выбор дефолтной. Кнопка 🗑 с подтверждением для удаления.
+
+### K8s — доступные сервисы
+
+| Сервис | URL | Описание |
+|--------|-----|---------|
+| Приложение | http://localhost:30667 | Marketplace UI + API |
+| OpenSearch Dashboards | http://localhost:30601 | Просмотр индексов и логов |
+| Grafana | http://localhost:30300 | Дашборды (Loki + Prometheus) |
+| Prometheus | http://localhost:30900 | Метрики |
+| K8s Dashboard | https://localhost:30443 | Управление кластером |
+
+### Логи в OpenSearch Dashboards
+
+Приложение отправляет структурированные логи в OpenSearch через кастомный Logback-аппендер.
+Индекс: `marketplace-logs-YYYY-MM-DD` (ежедневная ротация).
+
+**Как открыть:** http://localhost:30601 → Discover → index pattern `marketplace-logs-*`
+
+Поля для фильтрации: `level`, `user_email`, `role`, `request_id`, `logger`, `message`
 
 ---
 

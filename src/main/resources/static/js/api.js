@@ -115,6 +115,8 @@ const api = {
     // ── Привязанные карты ─────────────────────────────────────────────────────
     getCards: () =>
         apiFetch('/api/cards'),
+    bindCard: () =>
+        apiFetch('/api/cards/bind', { method: 'POST', body: '{}' }),
     setDefaultCard: (cardId) =>
         apiFetch(`/api/cards/${cardId}/default`, { method: 'PATCH', body: '{}' }),
     deleteCard: (cardId) =>
@@ -221,6 +223,19 @@ const api = {
         apiFetch(`/api/products/${productId}/reviews`, {
             method: 'POST',
             body: JSON.stringify({ rating, comment: comment || null }),
+        }),
+
+    // ── Админ: заказы ─────────────────────────────────────────────────────
+    getAdminOrder: (id) =>
+        apiFetch(`/api/admin/orders/${id}`),
+
+    getAdminBnplContract: (contractId) =>
+        apiFetch(`/api/admin/bnpl/${contractId}`),
+
+    adminUpdateItemStatus: (orderId, itemId, status) =>
+        apiFetch(`/api/admin/orders/${orderId}/items/${itemId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status }),
         }),
 
     // ── Админ: счета ──────────────────────────────────────────────────────

@@ -2,10 +2,12 @@ package com.example.marketplace.controller;
 
 import com.example.marketplace.dto.request.CreateProductRequest;
 import com.example.marketplace.dto.request.UpdateOrderStatusRequest;
+import com.example.marketplace.dto.response.BnplContractResponse;
 import com.example.marketplace.dto.response.InvoiceResponse;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.dto.response.SellerInfoResponse;
+import com.example.marketplace.payment.BnplService;
 import com.example.marketplace.service.InvoiceService;
 import com.example.marketplace.service.OrderService;
 import com.example.marketplace.service.ProductService;
@@ -45,6 +47,7 @@ public class AdminController {
     private final OrderService orderService;
     private final InvoiceService invoiceService;
     private final UserService userService;
+    private final BnplService bnplService;
 
     // --- Список продавцов (для выпадающего списка при создании товара) ---
 
@@ -104,8 +107,13 @@ public class AdminController {
     // --- Управление заказами ---
 
     @GetMapping("/orders")
-    public Page<OrderResponse> getAllOrders(@PageableDefault(size = 20) Pageable pageable) {
+    public Page<OrderResponse> getAllOrders(@PageableDefault(size = 100) Pageable pageable) {
         return orderService.getAllOrders(pageable);
+    }
+
+    @GetMapping("/orders/{id}")
+    public OrderResponse getOrderById(@PathVariable Long id) {
+        return orderService.getOrderById(id);
     }
 
     /** PATCH /api/admin/orders/{id} — смена статуса заказа: CREATED → PAID, PAID → DELIVERED и т.д. */
@@ -114,6 +122,11 @@ public class AdminController {
             @PathVariable Long id,
             @Valid @RequestBody UpdateOrderStatusRequest request) {
         return orderService.updateStatus(id, request.getStatus());
+    }
+
+    @GetMapping("/bnpl/{contractId}")
+    public BnplContractResponse getBnplContract(@PathVariable Long contractId) {
+        return bnplService.getContractByIdAdmin(contractId);
     }
 
     // --- Просмотр счетов ---

@@ -23,20 +23,10 @@
         </encoder>
     </appender>
 
-    <!-- ── Профиль "docker": добавляем отправку логов в Loki ────────────── -->
+    <!-- ── Профиль "docker": Loki + OpenSearch ──────────────────────────── -->
     <springProfile name="docker">
 
-        <!--
-          loki4j отправляет батчи логов в Loki по HTTP.
-          Labels — низкокардинальные поля (level, role): идут в индекс Loki.
-          Высококардинальные поля (userId, requestId) — только в тело сообщения.
-
-          ВАЖНО: batchTimeoutMs — максимальное время ожидания перед отправкой батча.
-          Дефолт = 60000 мс (60 сек!) — при таком значении дашборд пустой первые 60 сек.
-          Ставим 5 сек для быстрой обратной связи в разработке.
-        -->
         <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
-            <!-- Отправлять батч каждые 5 сек ИЛИ при накоплении 100 сообщений -->
             <batchMaxItems>100</batchMaxItems>
             <batchTimeoutMs>5000</batchTimeoutMs>
             <http>
@@ -53,14 +43,38 @@
             </format>
         </appender>
 
+        <!--
+          OpenSearch: структурированные логи для Discover.
+          Читает OPENSEARCH_HOST / OPENSEARCH_PORT из env (ConfigMap K8s).
+          Ежедневный индекс: marketplace-logs-YYYY-MM-DD.
+          При недоступности OpenSearch — только пишет ошибку в stderr, не роняет приложение.
+        -->
+        <appender name="OPENSEARCH" class="com.example.marketplace.logging.OpenSearchLogAppender">
+            <host>${OPENSEARCH_HOST:-localhost}</host>
+            <port>${OPENSEARCH_PORT:-9200}</port>
+            <indexPrefix>marketplace-logs</indexPrefix>
+            <batchSize>50</batchSize>
+            <flushIntervalSecs>3</flushIntervalSecs>
+        </appender>
+
+        <!-- AsyncAppender: не блокируем основной поток при отправке в OpenSearch -->
+        <appender name="OPENSEARCH_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="OPENSEARCH"/>
+            <queueSize>512</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <includeCallerData>false</includeCallerData>
+        </appender>
+
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="LOKI"/>
+            <appender-ref ref="OPENSEARCH_ASYNC"/>
         </root>
 
         <logger name="com.example.marketplace" level="DEBUG" additivity="false">
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="LOKI"/>
+            <appender-ref ref="OPENSEARCH_ASYNC"/>
         </logger>
 
     </springProfile>

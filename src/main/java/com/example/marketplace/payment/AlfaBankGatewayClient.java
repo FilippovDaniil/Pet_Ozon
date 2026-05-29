@@ -54,6 +54,22 @@ public class AlfaBankGatewayClient {
         return call("register.do", params);
     }
 
+    /**
+     * Регистрация одностадийного заказа с clientId — обязательно для сохранения привязки карты.
+     * При передаче clientId Альфа Банк возвращает bindingInfo в getOrderStatusExtended
+     * после успешной оплаты, что позволяет сохранить bindingId для рекуррентных платежей.
+     */
+    public JsonNode registerOrderForBinding(String orderNumber, long amountKopecks,
+                                            String returnUrl, String failUrl, String clientId) {
+        Map<String, String> params = baseParams();
+        params.put("orderNumber", orderNumber);
+        params.put("amount",      String.valueOf(amountKopecks));
+        params.put("returnUrl",   returnUrl);
+        params.put("failUrl",     failUrl);
+        params.put("clientId",    clientId);   // связывает платёж с клиентом → создаёт bindingId
+        return call("register.do", params);
+    }
+
     // ─── Двухстадийная регистрация (pre-auth / BNPL) ─────────────────────────
 
     /**
@@ -65,6 +81,22 @@ public class AlfaBankGatewayClient {
         params.put("amount",      String.valueOf(amountKopecks));
         params.put("returnUrl",   returnUrl);
         params.put("failUrl",     failUrl);
+        return call("registerPreAuth.do", params);
+    }
+
+    /**
+     * Pre-auth с clientId специально для привязки карты.
+     * После deposit.do Альфа Банк гарантированно возвращает bindingInfo.bindingId —
+     * не требует UI-тоггла "Сохранить карту" на форме оплаты.
+     */
+    public JsonNode registerPreAuthForBinding(String orderNumber, long amountKopecks,
+                                              String returnUrl, String failUrl, String clientId) {
+        Map<String, String> params = baseParams();
+        params.put("orderNumber", orderNumber);
+        params.put("amount",      String.valueOf(amountKopecks));
+        params.put("returnUrl",   returnUrl);
+        params.put("failUrl",     failUrl);
+        params.put("clientId",    clientId);
         return call("registerPreAuth.do", params);
     }
 
@@ -106,14 +138,19 @@ public class AlfaBankGatewayClient {
 
     /**
      * Оплата по привязке карты (без ввода данных карты клиентом).
-     * Используется для автосписания взносов 2–N.
+     *
+     * ВАЖНО: mdOrder — это orderId от Альфа Банка, полученный через register.do.
+     * Нельзя передавать наш внутренний orderNumber — банк вернёт "mdOrder не задан".
+     * Правильный flow:
+     *   1. registerOrder(orderNumber, amount, ...) → orderId (= mdOrder)
+     *   2. paymentOrderBinding(orderId, amount, bindingId) → instant charge
      */
-    public JsonNode paymentOrderBinding(String orderNumber, long amountKopecks, String bindingId) {
+    public JsonNode paymentOrderBinding(String mdOrder, long amountKopecks, String bindingId) {
         Map<String, String> params = baseParams();
-        params.put("orderNumber", orderNumber);
-        params.put("amount",      String.valueOf(amountKopecks));
-        params.put("bindingId",   bindingId);
-        params.put("ip",          "127.0.0.1");  // обязательный параметр шлюза
+        params.put("mdOrder",   mdOrder);     // Alfa Bank orderId из register.do
+        params.put("amount",    String.valueOf(amountKopecks));
+        params.put("bindingId", bindingId);
+        params.put("ip",        "127.0.0.1"); // обязательный параметр шлюза
         return call("paymentOrderBinding.do", params);
     }
 
@@ -126,6 +163,20 @@ public class AlfaBankGatewayClient {
         Map<String, String> params = baseParams();
         params.put("orderId", alfaOrderId);
         return call("getOrderStatusExtended.do", params);
+    }
+
+    /**
+     * Получить все привязки карт для клиента.
+     * Используется после одностадийного платежа с clientId —
+     * Альфа Банк не всегда возвращает bindingInfo в getOrderStatusExtended,
+     * но getBindings.do гарантированно отдаёт актуальный список привязок.
+     *
+     * Ответ: { "errorCode": "0", "bindings": [ { "bindingId": "...", "maskedPan": "...", "expiryDate": "MMYYYY" } ] }
+     */
+    public JsonNode getBindings(String clientId) {
+        Map<String, String> params = baseParams();
+        params.put("clientId", clientId);
+        return call("getBindings.do", params);
     }
 
     // ─── Вспомогательные методы ───────────────────────────────────────────────

@@ -106,6 +106,10 @@ public class OrderService {
                 .ifPresent(inv -> r.setInvoiceId(inv.getId()));
         bnplContractRepository.findByOrder(order)
                 .ifPresent(c -> r.setBnplContractId(c.getId()));
+        if (order.getUser() != null) {
+            r.setCustomerName(order.getUser().getFullName());
+            r.setCustomerEmail(order.getUser().getEmail());
+        }
         return r;
     }
 }

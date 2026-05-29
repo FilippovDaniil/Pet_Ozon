@@ -324,10 +324,17 @@ public class BnplService {
             throw new IllegalStateException("Нет взносов для оплаты");
         }
 
-        // Определяем какие взносы покрывает сумма
+        // Минимальная сумма 50 ₽ (5000 коп.)
+        if (amountKopecks != null && amountKopecks < 5000) {
+            throw new IllegalStateException("Минимальная сумма оплаты — 50 ₽");
+        }
+
+        // Определяем какие взносы покрывает сумма.
+        // Если сумма меньше одного взноса — платёж принимается как частичный:
+        // depositedAmountKopecks увеличивается, взносы остаются PENDING пока не накопится нужная сумма.
         List<BnplInstallment> toPay;
         if (amountKopecks == null) {
-            toPay = List.of(pending.get(0));
+            toPay = List.of(pending.get(0)); // ближайший взнос
         } else {
             long remaining = amountKopecks;
             toPay = new java.util.ArrayList<>();
@@ -339,18 +346,28 @@ public class BnplService {
                     break;
                 }
             }
-            if (toPay.isEmpty()) {
-                throw new IllegalStateException(
-                        "Сумма меньше размера взноса (" + pending.get(0).getAmountKopecks() + " коп.)");
-            }
+            // toPay может быть пустым если сумма < одного взноса — это частичный платёж, ок
         }
 
-        long totalKopecks = toPay.stream().mapToLong(BnplInstallment::getAmountKopecks).sum();
+        long totalKopecks = toPay.isEmpty()
+                ? (amountKopecks != null ? amountKopecks : pending.get(0).getAmountKopecks())
+                : toPay.stream().mapToLong(BnplInstallment::getAmountKopecks).sum();
         String orderNumber = "INST-" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+        String clientId    = "user-" + user.getId(); // обязателен для paymentOrderBinding.do
 
-        JsonNode result = gateway.paymentOrderBinding(orderNumber, totalKopecks, card.getBindingId());
-        String alfaOrderId = result.path("orderId").asText(null);
+        // Шаг 1: register.do с clientId → получаем mdOrder
+        JsonNode registered = gateway.registerOrderForBinding(
+                orderNumber, totalKopecks, props.getReturnUrl(), props.getFailUrl(), clientId);
+        String mdOrder = registered.path("orderId").asText(null);
+        if (mdOrder == null || mdOrder.isBlank()) {
+            throw new IllegalStateException("Не удалось зарегистрировать заказ в шлюзе");
+        }
 
+        // Шаг 2: мгновенное списание с привязанной карты
+        JsonNode result = gateway.paymentOrderBinding(mdOrder, totalKopecks, card.getBindingId());
+        String alfaOrderId = result.path("orderId").asText(mdOrder);
+
+        // Помечаем полностью покрытые взносы как оплаченные
         java.util.List<BnplInstallmentResponse> paid = new java.util.ArrayList<>();
         for (BnplInstallment inst : toPay) {
             inst.setStatus(BnplInstallmentStatus.PAID);
@@ -360,6 +377,7 @@ public class BnplService {
             paid.add(toInstallmentResponse(inst));
         }
 
+        // Обновляем общую сумму депозита (в т.ч. для частичных платежей)
         contract.setDepositedAmountKopecks(contract.getDepositedAmountKopecks() + totalKopecks);
         boolean allPaid = contract.getInstallments().stream()
                 .allMatch(i -> i.getStatus() == BnplInstallmentStatus.PAID
@@ -372,7 +390,9 @@ public class BnplService {
         log.info("ACTION=BNPL_MANUAL_PAY contractId={} paidInstallments={} totalKopecks={}",
                 contractId, toPay.size(), totalKopecks);
 
-        return paid;
+        return paid.isEmpty()
+                ? contract.getInstallments().stream().map(this::toInstallmentResponse).toList()
+                : paid;
     }
 
     // ─── BNPL-кабинет (чтение) ───────────────────────────────────────────────
@@ -390,6 +410,12 @@ public class BnplService {
         return toResponse(contract);
     }
 
+    public BnplContractResponse getContractByIdAdmin(Long contractId) {
+        BnplContract contract = contractRepo.findById(contractId)
+                .orElseThrow(() -> new ResourceNotFoundException("Контракт не найден: " + contractId));
+        return toResponse(contract);
+    }
+
     // ─── Авто-списание взноса (вызывается планировщиком) ─────────────────────
 
     @Transactional
@@ -403,10 +429,21 @@ public class BnplService {
 
         String orderNumber = "INST-" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
         try {
-            JsonNode result = gateway.paymentOrderBinding(
-                    orderNumber, installment.getAmountKopecks(), contract.getBindingId());
+            // Шаг 1: register.do с clientId → получаем mdOrder
+            String clientId = "user-" + contract.getOrder().getUser().getId();
+            JsonNode registered = gateway.registerOrderForBinding(
+                    orderNumber, installment.getAmountKopecks(),
+                    props.getReturnUrl(), props.getFailUrl(), clientId);
+            String mdOrder = registered.path("orderId").asText(null);
+            if (mdOrder == null || mdOrder.isBlank()) {
+                throw new IllegalStateException("Не удалось зарегистрировать заказ в шлюзе");
+            }
 
-            String alfaOrderId = result.path("orderId").asText(null);
+            // Шаг 2: paymentOrderBinding.do
+            JsonNode result = gateway.paymentOrderBinding(
+                    mdOrder, installment.getAmountKopecks(), contract.getBindingId());
+
+            String alfaOrderId = result.path("orderId").asText(mdOrder);
             installment.setAlfaOrderId(alfaOrderId);
             installment.setStatus(BnplInstallmentStatus.PAID);
             installment.setPaidAt(LocalDateTime.now());

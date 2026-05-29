@@ -74,12 +74,14 @@ data:
   OPENSEARCH_HOST: "opensearch-service"   # DNS-имя K8s Service из 08-opensearch.yaml
   OPENSEARCH_PORT: "9200"                 # → opensearch.port в application.properties
   OPENSEARCH_SCHEME: "http"               # DISABLE_SECURITY_PLUGIN=true → HTTP без TLS
+  OPENSEARCH_DASHBOARDS_URL: "http://opensearch-dashboards-service:5601"  # для авто-создания index pattern
 
   # ── Альфа Банк — callback URL-ы ──────────────────────────────────────────
   # Банк делает browser-redirect: клиент из браузера должен достучаться до этого URL.
   # Порт 30667 = NodePort (внешний). Порт 8667 = только внутри K8s VM.
   ALFABANK_RETURN_URL: "http://localhost:30667/api/payment/callback"
   ALFABANK_FAIL_URL: "http://localhost:30667/api/payment/fail"
+  ALFABANK_CARD_BIND_RETURN_URL: "http://localhost:30667/api/payment/card-bind-callback"
 
 ---
 # ── РЕСУРС 2: Deployment ─────────────────────────────────────────────────────

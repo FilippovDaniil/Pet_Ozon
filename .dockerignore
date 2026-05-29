@@ -1,6 +1,7 @@
 .gradle/
 build/
 !build/libs/*.jar
+build/libs/*-plain.jar
 .git/
 .idea/
 *.iml

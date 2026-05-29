@@ -78,7 +78,7 @@ public class SecurityConfig {
 
                         // Callback и fail-редиректы от шлюза Альфа Банка — без авторизации.
                         // Банк делает browser-redirect, у которого нет JWT-токена.
-                        .requestMatchers("/api/payment/callback", "/api/payment/fail").permitAll()
+                        .requestMatchers("/api/payment/callback", "/api/payment/fail", "/api/payment/card-bind-callback").permitAll()
 
                         // Админские эндпоинты — только для роли ADMIN.
                         // Spring добавит "ROLE_" автоматически: ищет "ROLE_ADMIN".

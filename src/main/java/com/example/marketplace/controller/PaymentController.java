@@ -2,6 +2,7 @@ package com.example.marketplace.controller;
 
 import com.example.marketplace.payment.BnplService;
 import com.example.marketplace.payment.FullPaymentService;
+import com.example.marketplace.service.CardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -26,6 +27,7 @@ public class PaymentController {
 
     private final FullPaymentService fullPaymentService;
     private final BnplService        bnplService;
+    private final CardService        cardService;
 
     /**
      * Универсальный callback от банка.
@@ -45,6 +47,47 @@ public class PaymentController {
         } catch (Exception e) {
             log.error("Payment callback error for orderId={}: {}", orderId, e.getMessage());
             return failHtml("Ошибка обработки платежа: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Callback после прохождения формы привязки карты.
+     * Проверяет статус, сохраняет карту, отменяет списание 1₽.
+     */
+    @GetMapping(value = "/card-bind-callback", produces = "text/html;charset=UTF-8")
+    public String cardBindCallback(@RequestParam String orderId) {
+        log.info("ACTION=CARD_BIND_CALLBACK alfaOrderId={}", orderId);
+        try {
+            String result = cardService.confirmBinding(orderId);
+            return switch (result) {
+                case "completed" -> htmlPage(
+                        "✅ Карта успешно привязана!",
+                        "#22c55e",
+                        "Вернуться в личный кабинет",
+                        "/client.html");
+                case "failed" -> htmlPage(
+                        "❌ Оплата отклонена банком. Попробуйте снова.",
+                        "#ef4444",
+                        "Вернуться в личный кабинет",
+                        "/client.html");
+                case "no_binding", "completed_no_card" -> htmlPage(
+                        "⚠️ Оплата прошла, но карта не привязана. Попробуйте ещё раз.",
+                        "#f59e0b",
+                        "Вернуться в личный кабинет",
+                        "/client.html");
+                default -> htmlPage(
+                        "⏳ Карта обрабатывается. Обновите страницу через момент.",
+                        "#f59e0b",
+                        "Вернуться в личный кабинет",
+                        "/client.html");
+            };
+        } catch (IllegalArgumentException e) {
+            // orderId не принадлежит bind-запросу — пробуем обычный callback
+            return callback(orderId);
+        } catch (Exception e) {
+            log.error("Card bind callback error for orderId={}: {}", orderId, e.getMessage());
+            return htmlPage("❌ Ошибка при привязке карты: " + e.getMessage(),
+                    "#ef4444", "Вернуться", "/client.html");
         }
     }
 

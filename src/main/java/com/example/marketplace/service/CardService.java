@@ -1,9 +1,14 @@
 package com.example.marketplace.service;
 
+import com.example.marketplace.config.AlfaBankProperties;
 import com.example.marketplace.dto.response.CardBindingResponse;
+import com.example.marketplace.dto.response.PaymentInitResponse;
+import com.example.marketplace.entity.CardBindRequest;
 import com.example.marketplace.entity.CardBinding;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.exception.ResourceNotFoundException;
+import com.example.marketplace.payment.AlfaBankGatewayClient;
+import com.example.marketplace.repository.CardBindRequestRepository;
 import com.example.marketplace.repository.CardBindingRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
@@ -13,13 +18,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CardService {
 
-    private final CardBindingRepository cardRepo;
+    private final CardBindingRepository    cardRepo;
+    private final CardBindRequestRepository bindRequestRepo;
+    private final AlfaBankGatewayClient    gateway;
+    private final AlfaBankProperties       props;
 
     /**
      * Сохраняет привязку карты из ответа getOrderStatusExtended.
@@ -80,6 +89,197 @@ public class CardService {
         return cardRepo.findByUserAndIsDefaultTrue(user);
     }
 
+    // ── Привязка карты без оплаты ─────────────────────────────────────────────
+
+    /**
+     * Инициирует привязку карты: регистрирует платёж в 1₽, возвращает formUrl.
+     * После прохождения формы банк редиректит на card-bind-callback,
+     * где платёж отменяется через reverse.do, а карта сохраняется.
+     */
+    @Transactional
+    public PaymentInitResponse initiateBinding(User user) {
+        String orderNumber = "BIND-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        // registerPreAuth (двухстадийный): холдируем 1₽.
+        // После того как клиент платит, мы сами вызываем deposit.do →
+        // Альфа Банк гарантированно возвращает bindingInfo без UI-тоггла "Сохранить карту".
+        // Затем сразу refund.do — возвращаем 1₽ клиенту.
+        String clientId = "user-" + user.getId();
+        JsonNode response = gateway.registerPreAuthForBinding(
+                orderNumber,
+                100L,
+                props.getCardBindReturnUrl(),
+                props.getFailUrl(),
+                clientId
+        );
+        String alfaOrderId = response.path("orderId").asText();
+        String formUrl     = response.path("formUrl").asText();
+
+        CardBindRequest req = new CardBindRequest();
+        req.setUser(user);
+        req.setOrderNumber(orderNumber);
+        req.setAlfaOrderId(alfaOrderId);
+        bindRequestRepo.save(req);
+
+        log.info("ACTION=CARD_BIND_INITIATED userId={} orderNumber={}", user.getId(), orderNumber);
+        return new PaymentInitResponse(formUrl, alfaOrderId, null);
+    }
+
+    /**
+     * Подтверждает привязку карты после callback от банка.
+     * Сохраняет CarBinding, отменяет списание 1₽ через reverse.do.
+     * Возвращает "completed" / "failed" / "pending".
+     */
+    @Transactional
+    public String confirmBinding(String alfaOrderId) {
+        CardBindRequest req = bindRequestRepo.findByAlfaOrderId(alfaOrderId)
+                .orElseThrow(() -> new IllegalArgumentException("not a card bind request: " + alfaOrderId));
+
+        if (!"PENDING".equals(req.getStatus())) {
+            return req.getStatus().toLowerCase();
+        }
+
+        JsonNode status  = gateway.getOrderStatusExtended(alfaOrderId);
+        int orderStatus  = status.path("orderStatus").asInt(-1);
+
+        // orderStatus=1 (APPROVED) — pre-auth прошёл, деньги захолдированы.
+        // Делаем deposit.do → после него bindingInfo гарантированно появляется в ответе.
+        if (orderStatus == 1) {
+            log.info("ACTION=CARD_BIND_DEPOSIT orderId={}", alfaOrderId);
+            try {
+                gateway.deposit(alfaOrderId, 100L); // подтверждаем 1₽
+            } catch (Exception e) {
+                log.error("Deposit failed for card bind orderId={}: {}", alfaOrderId, e.getMessage());
+                req.setStatus("FAILED");
+                bindRequestRepo.save(req);
+                return "failed";
+            }
+            // Перечитываем статус — теперь bindingInfo должен быть заполнен
+            status = gateway.getOrderStatusExtended(alfaOrderId);
+            orderStatus = status.path("orderStatus").asInt(-1);
+        }
+
+        if (orderStatus == 2) { // DEPOSITED — оплата/депозит прошёл
+            String bindingId = status.path("bindingInfo").path("bindingId").asText(null);
+            log.info("ACTION=CARD_BIND_CONFIRM orderId={} bindingId={}", alfaOrderId, bindingId);
+
+            if (bindingId != null && !bindingId.isBlank()) {
+                saveFromStatusResponse(req.getUser(), status);
+            } else {
+                // Fallback 1: getBindings.do
+                String clientId = "user-" + req.getUser().getId();
+                log.info("ACTION=CARD_BIND_FALLBACK_GETBINDINGS clientId={}", clientId);
+                bindingId = saveFromGetBindings(req.getUser(), clientId);
+
+                if (bindingId == null || bindingId.isBlank()) {
+                    // Fallback 2: cardAuthInfo
+                    log.info("ACTION=CARD_BIND_FALLBACK_CARDAUTHINFO orderId={}", alfaOrderId);
+                    saveFromCardAuthInfo(req.getUser(), alfaOrderId, status);
+                }
+            }
+
+            req.setStatus("COMPLETED");
+            bindRequestRepo.save(req);
+
+            // Возвращаем 1₽ клиенту через refund
+            try {
+                gateway.refund(alfaOrderId, 100L);
+                log.info("ACTION=CARD_BIND_REFUNDED orderId={}", alfaOrderId);
+            } catch (Exception e) {
+                log.warn("Could not refund card bind payment {}: {}", alfaOrderId, e.getMessage());
+            }
+
+            return "completed";
+        } else if (orderStatus == 6) { // DECLINED
+            req.setStatus("FAILED");
+            bindRequestRepo.save(req);
+            return "failed";
+        }
+        return "pending";
+    }
+
+    /**
+     * Получает список привязок клиента через getBindings.do и сохраняет новые.
+     * Возвращает bindingId последней сохранённой привязки или null.
+     */
+    private String saveFromGetBindings(User user, String clientId) {
+        try {
+            JsonNode response = gateway.getBindings(clientId);
+            JsonNode bindings = response.path("bindings");
+            if (!bindings.isArray() || bindings.isEmpty()) {
+                log.warn("ACTION=CARD_BIND_EMPTY_BINDINGS clientId={}", clientId);
+                return null;
+            }
+
+            String lastSaved = null;
+            for (JsonNode binding : bindings) {
+                String bindingId = binding.path("bindingId").asText(null);
+                if (bindingId == null || bindingId.isBlank()) continue;
+                if (cardRepo.existsByBindingId(bindingId)) continue; // уже есть
+
+                String maskedPan = binding.path("maskedPan").asText(null);
+                if (maskedPan == null || maskedPan.isBlank()) {
+                    maskedPan = binding.path("label").asText("****");
+                }
+                String expiry = binding.path("expiryDate").asText(null);
+
+                boolean isFirst = cardRepo.findByUserAndIsDefaultTrue(user).isEmpty();
+                CardBinding card = new CardBinding();
+                card.setUser(user);
+                card.setBindingId(bindingId);
+                card.setMaskedPan(maskedPan);
+                card.setExpiry(expiry);
+                card.setDefault(isFirst);
+                cardRepo.save(card);
+                lastSaved = bindingId;
+                log.info("ACTION=CARD_SAVED_FROM_GETBINDINGS userId={} maskedPan={} isDefault={}",
+                        user.getId(), maskedPan, isFirst);
+            }
+            return lastSaved;
+        } catch (Exception e) {
+            log.error("Failed to get bindings for clientId={}: {}", clientId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Сохраняет карту из cardAuthInfo ответа getOrderStatusExtended.
+     * Используется как последний fallback когда bindingInfo и getBindings.do недоступны (UAT-ограничение).
+     *
+     * cardAuthInfo.expiration формат: YYYYMM ("203412" = декабрь 2034)
+     * Конвертируем в MMYYYY ("122034") для совместимости с CardBinding.getExpiryFormatted().
+     *
+     * bindingId = "CARDAUTH-{alfaOrderId}" — синтетический уникальный ID.
+     * В production этот fallback не будет срабатывать: реальный bindingId придёт из bindingInfo.
+     */
+    private void saveFromCardAuthInfo(User user, String alfaOrderId, JsonNode statusNode) {
+        String maskedPan = statusNode.path("cardAuthInfo").path("maskedPan").asText(null);
+        if (maskedPan == null || maskedPan.isBlank()) {
+            log.warn("ACTION=CARD_BIND_NO_CARDAUTHINFO orderId={}", alfaOrderId);
+            return;
+        }
+
+        String syntheticBindingId = "CARDAUTH-" + alfaOrderId.replace("-", "").substring(0, 16);
+        if (cardRepo.existsByBindingId(syntheticBindingId)) {
+            log.info("Card already saved for orderId={}", alfaOrderId);
+            return;
+        }
+
+        String expiry = normalizeExpiry(
+                statusNode.path("cardAuthInfo").path("expiration").asText(null));
+
+        boolean isFirst = cardRepo.findByUserAndIsDefaultTrue(user).isEmpty();
+        CardBinding card = new CardBinding();
+        card.setUser(user);
+        card.setBindingId(syntheticBindingId);
+        card.setMaskedPan(maskedPan);
+        card.setExpiry(expiry);
+        card.setDefault(isFirst);
+        cardRepo.save(card);
+
+        log.info("ACTION=CARD_SAVED_FROM_CARDAUTHINFO userId={} maskedPan={} isDefault={}",
+                user.getId(), maskedPan, isFirst);
+    }
+
     private String extractMaskedPan(JsonNode statusNode) {
         // Сначала ищем в bindingInfo.label, потом в cardAuthInfo.pan
         String label = statusNode.path("bindingInfo").path("label").asText(null);
@@ -88,11 +288,27 @@ public class CardService {
     }
 
     private String extractExpiry(JsonNode statusNode) {
-        // expiration в форматах MMYYYY или YYYYMM — Альфа Банк возвращает MMYYYY
         String exp = statusNode.path("bindingInfo").path("expiryDate").asText(null);
         if (exp == null || exp.isBlank()) {
             exp = statusNode.path("cardAuthInfo").path("expiration").asText(null);
         }
+        return normalizeExpiry(exp);
+    }
+
+    /**
+     * Нормализует срок действия карты в формат MMYYYY.
+     * Альфа Банк может возвращать как MMYYYY ("122034"), так и YYYYMM ("203412").
+     * Если первые два символа > 12 — это год, значит формат YYYYMM → конвертируем.
+     */
+    private String normalizeExpiry(String exp) {
+        if (exp == null || exp.length() != 6) return exp;
+        try {
+            int firstTwo = Integer.parseInt(exp.substring(0, 2));
+            if (firstTwo > 12) {
+                // YYYYMM → MMYYYY: "203412" → "122034"
+                return exp.substring(4) + exp.substring(0, 4);
+            }
+        } catch (NumberFormatException ignored) {}
         return exp;
     }
 

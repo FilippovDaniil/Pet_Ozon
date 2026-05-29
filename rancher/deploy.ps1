@@ -127,16 +127,25 @@ if ($LASTEXITCODE -ne 0) {
     Write-Ok "Dashboard ready"
 }
 
+Write-Step "Waiting for OpenSearch Dashboards (180s)"
+kubectl rollout status deployment/opensearch-dashboards -n $Namespace --timeout=180s
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "  WARNING: OpenSearch Dashboards not ready (non-critical)" -ForegroundColor Yellow
+} else {
+    Write-Ok "OpenSearch Dashboards ready"
+}
+
 # Summary
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
 Write-Host "  DEPLOY COMPLETE" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  App:         http://localhost:30667/login.html" -ForegroundColor White
-Write-Host "  Grafana:     http://localhost:30300  (admin / admin)" -ForegroundColor White
-Write-Host "  Prometheus:  http://localhost:30900" -ForegroundColor White
-Write-Host "  Dashboard:   https://localhost:30443" -ForegroundColor White
+Write-Host "  App:                   http://localhost:30667/login.html" -ForegroundColor White
+Write-Host "  OpenSearch Dashboards: http://localhost:30601" -ForegroundColor Cyan
+Write-Host "  Grafana:               http://localhost:30300  (admin / admin)" -ForegroundColor White
+Write-Host "  Prometheus:            http://localhost:30900" -ForegroundColor White
+Write-Host "  K8s Dashboard:         https://localhost:30443" -ForegroundColor White
 Write-Host ""
 Write-Host "  Dashboard token: .\rancher\deploy.ps1 --token" -ForegroundColor Gray
 Write-Host "  Pod status:      kubectl get pods -n marketplace" -ForegroundColor Gray

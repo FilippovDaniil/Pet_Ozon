@@ -19,6 +19,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 @Configuration
 @RequiredArgsConstructor
@@ -307,6 +312,10 @@ public class AppConfig {
             // Если OpenSearch недоступен — productSearchService логирует warning и продолжает.
             productSearchService.reindexAll(productRepository.findAllForReindex());
 
+            // Создаём index pattern в OpenSearch Dashboards (если Dashboards доступен).
+            // Без этого Discover показывает "No index pattern" при первом входе.
+            createOpenSearchIndexPattern();
+
             log.info("=== Marketplace ready ===");
             log.info("  client@example.com   / pass → покупатель");
             log.info("  seller1@example.com  / pass → TechShop");
@@ -346,6 +355,54 @@ public class AppConfig {
         // Находим или создаём Category по имени.
         p.setCategory(categoryService.findOrCreate(categoryName));
         productRepository.save(p);
+    }
+
+    /**
+     * Создаёт index pattern "marketplace-logs-*" в OpenSearch Dashboards через Saved Objects API.
+     * Вызывается при старте — idempotent: если pattern уже есть, 409 Conflict игнорируется.
+     *
+     * Адрес Dashboards читается из env OPENSEARCH_DASHBOARDS_URL (K8s ConfigMap).
+     * В локальной разработке env не задан → метод молча пропускает.
+     */
+    private void createOpenSearchIndexPattern() {
+        String dashUrl = System.getenv("OPENSEARCH_DASHBOARDS_URL");
+        if (dashUrl == null || dashUrl.isBlank()) return; // не K8s-среда
+
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        try {
+            // Создаём index pattern для логов
+            String logsBody = """
+                    {"attributes":{"title":"marketplace-logs-*","timeFieldName":"@timestamp"}}
+                    """.strip();
+            sendDashboardsRequest(client, dashUrl + "/api/saved_objects/index-pattern", logsBody);
+
+            // Создаём index pattern для товаров (OpenSearch-индекс из ProductSearchService)
+            String productsBody = """
+                    {"attributes":{"title":"products","timeFieldName":null}}
+                    """.strip();
+            sendDashboardsRequest(client, dashUrl + "/api/saved_objects/index-pattern", productsBody);
+
+            log.info("OpenSearch Dashboards index patterns created (or already exist)");
+        } catch (Exception e) {
+            log.warn("Could not create OpenSearch Dashboards index patterns: {}", e.getMessage());
+        }
+    }
+
+    private void sendDashboardsRequest(HttpClient client, String url, String body) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("osd-xsrf", "true")    // обязательный заголовок OpenSearch Dashboards API
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .timeout(Duration.ofSeconds(5))
+                .build();
+        HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+        // 200/201 = создан, 409 = уже существует — оба варианта нормальные
+        if (res.statusCode() >= 400 && res.statusCode() != 409) {
+            log.warn("Dashboards API {} → {}", url, res.statusCode());
+        }
     }
 
     /**

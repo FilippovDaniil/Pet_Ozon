@@ -26,4 +26,6 @@ public class OrderResponse {
     private Long invoiceId;
     private PaymentType paymentType;
     private Long bnplContractId;  // null для FULL-заказов
+    private String customerName;
+    private String customerEmail;
 }

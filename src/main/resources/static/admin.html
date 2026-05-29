@@ -214,12 +214,35 @@
 
         <!-- ─────────────────── TAB: ЗАКАЗЫ ─────────────────────────── -->
         <div x-show="activeTab === 'orders'">
-            <div class="flex items-center justify-between mb-6">
-                <h2 class="text-xl font-bold text-gray-900">Все заказы</h2>
-                <button @click="loadOrders()"
-                        class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition flex items-center gap-1.5">
-                    ↻ Обновить
-                </button>
+            <!-- Заголовок + фильтры -->
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+                <h2 class="text-xl font-bold text-gray-900 flex-1">Все заказы
+                    <span class="text-sm font-normal text-gray-400 ml-2"
+                          x-text="'(' + filteredOrders.length + ')'"></span>
+                </h2>
+                <div class="flex gap-2 flex-wrap">
+                    <!-- Фильтр по статусу -->
+                    <select x-model="orderFilter.status"
+                            class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                        <option value="">Все статусы</option>
+                        <option value="CREATED">Новые</option>
+                        <option value="PAID">Оплачены</option>
+                        <option value="DELIVERED">Доставлены</option>
+                        <option value="CANCELLED">Отменены</option>
+                    </select>
+                    <!-- Поиск -->
+                    <input x-model="orderFilter.search" type="text" placeholder="ID, клиент, адрес…"
+                           class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 w-44">
+                    <button x-show="orderFilter.status || orderFilter.search"
+                            @click="orderFilter.status=''; orderFilter.search=''"
+                            class="text-xs text-gray-500 hover:text-red-500 px-2 py-1.5 border border-gray-200 rounded-lg transition">
+                        Сбросить
+                    </button>
+                    <button @click="loadOrders()"
+                            class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition flex items-center gap-1">
+                        ↻
+                    </button>
+                </div>
             </div>
 
             <div x-show="loadingOrders" class="bg-white rounded-xl p-8 text-center text-gray-400">
@@ -233,17 +256,23 @@
                         <tr>
                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-12">ID</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Дата</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Клиент</th>
                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Статус</th>
                             <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Сумма</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Адрес</th>
-                            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Изменить статус</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Тип оплаты</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide w-8">→</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
-                        <template x-for="order in orders" :key="order.id">
-                            <tr class="hover:bg-gray-50 transition">
+                        <template x-for="order in filteredOrders" :key="order.id">
+                            <tr class="hover:bg-indigo-50 transition cursor-pointer"
+                                @click="openOrderModal(order)">
                                 <td class="px-4 py-3 text-gray-400 font-mono text-xs" x-text="order.id"></td>
                                 <td class="px-4 py-3 text-gray-500 text-xs hidden sm:table-cell" x-text="fmtDate(order.orderDate)"></td>
+                                <td class="px-4 py-3">
+                                    <div class="text-xs font-medium text-gray-800" x-text="order.customerName || '—'"></div>
+                                    <div class="text-xs text-gray-400" x-text="order.customerEmail || ''"></div>
+                                </td>
                                 <td class="px-4 py-3">
                                     <span :class="statusBadge(order.status)"
                                           class="text-xs px-2.5 py-1 rounded-full font-medium"
@@ -251,32 +280,250 @@
                                     </span>
                                 </td>
                                 <td class="px-4 py-3 text-right font-semibold text-gray-900" x-text="fmt(order.totalAmount)"></td>
-                                <td class="px-4 py-3 text-gray-400 text-xs truncate max-w-xs hidden lg:table-cell"
-                                    x-text="order.shippingAddress || '—'"></td>
-                                <td class="px-4 py-3">
-                                    <div class="flex items-center gap-1.5">
-                                        <select x-model="orderStatusEdits[order.id]"
-                                                class="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 flex-1">
-                                            <option value="CREATED">Новый</option>
-                                            <option value="PAID">Оплачен</option>
-                                            <option value="CANCELLED">Отменён</option>
-                                            <option value="DELIVERED">Доставлен</option>
-                                        </select>
-                                        <button @click="saveOrderStatus(order)"
-                                                :disabled="orderStatusEdits[order.id] === order.status"
-                                                class="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-300
-                                                       text-white text-xs rounded-lg transition flex-shrink-0">
-                                            ✓
-                                        </button>
-                                    </div>
+                                <td class="px-4 py-3 hidden lg:table-cell">
+                                    <span x-show="!order.paymentType || order.paymentType === 'FULL'"
+                                          class="text-xs text-gray-400">Полная</span>
+                                    <span x-show="order.paymentType && order.paymentType !== 'FULL'"
+                                          class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium"
+                                          x-text="bnplLabel(order.paymentType)"></span>
                                 </td>
+                                <td class="px-4 py-3 text-center text-gray-400 text-xs">→</td>
                             </tr>
                         </template>
-                        <tr x-show="!loadingOrders && orders.length === 0">
-                            <td colspan="6" class="px-4 py-12 text-center text-gray-400">Заказов пока нет</td>
+                        <tr x-show="!loadingOrders && filteredOrders.length === 0">
+                            <td colspan="7" class="px-4 py-12 text-center text-gray-400">
+                                <span x-show="orders.length === 0">Заказов пока нет</span>
+                                <span x-show="orders.length > 0">Нет заказов по фильтру</span>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
+            </div>
+        </div>
+
+        <!-- ═══════════════════ МОДАЛ: ДЕТАЛИ ЗАКАЗА (ADMIN) ═══════════════════════ -->
+        <div x-show="showOrderModal"
+             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+             @click.self="showOrderModal = false">
+            <div x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+                 class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-y-auto"
+                 style="max-height:90vh">
+
+                <template x-if="selectedOrder">
+                    <div>
+                        <!-- Шапка модала -->
+                        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900">
+                                    Заказ #<span x-text="selectedOrder.id"></span>
+                                </h3>
+                                <p class="text-xs text-gray-400 mt-0.5" x-text="fmtDate(selectedOrder.orderDate)"></p>
+                            </div>
+                            <button @click="showOrderModal = false"
+                                    class="text-gray-400 hover:text-gray-700 text-2xl leading-none px-2">×</button>
+                        </div>
+
+                        <div class="p-6 space-y-5">
+
+                            <!-- Клиент + метаданные -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="bg-gray-50 rounded-xl p-3">
+                                    <p class="text-xs text-gray-500 mb-1">Клиент</p>
+                                    <p class="text-sm font-semibold text-gray-900" x-text="selectedOrder.customerName || '—'"></p>
+                                    <p class="text-xs text-gray-400" x-text="selectedOrder.customerEmail || ''"></p>
+                                </div>
+                                <div class="bg-gray-50 rounded-xl p-3">
+                                    <p class="text-xs text-gray-500 mb-1">Адрес доставки</p>
+                                    <p class="text-sm text-gray-800" x-text="selectedOrder.shippingAddress || 'Не указан'"></p>
+                                </div>
+                            </div>
+
+                            <!-- Статус + смена -->
+                            <div class="bg-gray-50 rounded-xl p-4">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-xs text-gray-500 mb-1">Статус заказа</p>
+                                        <span :class="statusBadge(selectedOrder.status)"
+                                              class="text-xs px-2.5 py-1 rounded-full font-medium"
+                                              x-text="statusLabel(selectedOrder.status)"></span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <select x-model="orderModalNewStatus"
+                                                class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
+                                            <option value="CREATED">Новый</option>
+                                            <option value="PAID">Оплачен</option>
+                                            <option value="DELIVERED">Доставлен</option>
+                                            <option value="CANCELLED">Отменён</option>
+                                        </select>
+                                        <button @click="saveOrderStatusFromModal()"
+                                                :disabled="orderModalNewStatus === selectedOrder.status"
+                                                class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-300 text-white text-sm rounded-lg transition">
+                                            Сохранить
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Позиции заказа -->
+                            <div>
+                                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Состав заказа</p>
+                                <div class="space-y-1.5">
+                                    <template x-for="item in selectedOrder.items" :key="item.id">
+                                        <div class="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg text-sm gap-2">
+                                            <span class="text-gray-800 flex-1 truncate" x-text="item.productName"></span>
+                                            <span class="text-gray-500 flex-shrink-0">
+                                                <span x-text="item.quantity"></span> ×
+                                                <span x-text="fmt(item.priceAtOrder)"></span>
+                                            </span>
+                                            <!-- BNPL статус позиции -->
+                                            <template x-if="item.itemStatus">
+                                                <span class="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0"
+                                                      :class="{
+                                                          'bg-yellow-100 text-yellow-700': item.itemStatus === 'PENDING_ISSUE',
+                                                          'bg-green-100 text-green-700':  item.itemStatus === 'ISSUED',
+                                                          'bg-gray-100 text-gray-500':    item.itemStatus === 'CANCELLED',
+                                                          'bg-orange-100 text-orange-600': item.itemStatus === 'RETURNED',
+                                                      }"
+                                                      x-text="{'PENDING_ISSUE':'Ожидает выдачи','ISSUED':'Выдан','CANCELLED':'Отменён','RETURNED':'Возвращён'}[item.itemStatus]"></span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <div class="flex justify-between px-3 py-2 text-sm font-bold text-gray-900">
+                                        <span>Итого</span>
+                                        <span x-text="fmt(selectedOrder.totalAmount)"></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- BNPL-рассрочка (если есть контракт) -->
+                            <div x-show="selectedOrder.bnplContractId">
+                                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                                    📋 Рассрочка · контракт #<span x-text="selectedOrder.bnplContractId"></span>
+                                </p>
+
+                                <!-- Загружается -->
+                                <div x-show="loadingOrderBnpl" class="bg-indigo-50 rounded-xl p-4 text-center text-indigo-400 text-sm">
+                                    <span class="inline-block animate-spin mr-1">⏳</span> Загрузка…
+                                </div>
+
+                                <!-- Данные BNPL -->
+                                <template x-if="!loadingOrderBnpl && selectedOrderBnpl">
+                                    <div class="bg-indigo-50 rounded-xl p-4 space-y-3">
+                                        <!-- Шапка -->
+                                        <div class="flex items-center gap-3 flex-wrap">
+                                            <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                                                  :class="{
+                                                      'bg-green-100 text-green-700':   selectedOrderBnpl.status === 'ACTIVE',
+                                                      'bg-blue-100 text-blue-700':     selectedOrderBnpl.status === 'COMPLETED',
+                                                      'bg-gray-100 text-gray-500':     selectedOrderBnpl.status === 'CANCELLED',
+                                                      'bg-yellow-100 text-yellow-700': selectedOrderBnpl.status === 'AWAITING_PAYMENT',
+                                                  }"
+                                                  x-text="{ACTIVE:'✅ Активна',COMPLETED:'🏁 Завершена',CANCELLED:'✕ Отменена',AWAITING_PAYMENT:'⏳ Ожидает оплаты'}[selectedOrderBnpl.status] || selectedOrderBnpl.status"></span>
+                                            <span class="text-xs text-gray-600" x-text="selectedOrderBnpl.productDescription"></span>
+                                            <span class="text-xs text-gray-600 ml-auto">
+                                                Итого: <strong x-text="fmt(selectedOrderBnpl.totalAmountKopecks / 100)"></strong>
+                                                <span x-show="selectedOrderBnpl.commissionKopecks > 0" class="text-orange-600">
+                                                    (комиссия <span x-text="fmt(selectedOrderBnpl.commissionKopecks / 100)"></span>)
+                                                </span>
+                                            </span>
+                                        </div>
+
+                                        <!-- Прогресс-бар -->
+                                        <div>
+                                            <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                                <span>Оплачено</span>
+                                                <span x-text="fmt(selectedOrderBnpl.depositedAmountKopecks / 100) + ' / ' + fmt(selectedOrderBnpl.totalAmountKopecks / 100)"></span>
+                                            </div>
+                                            <div class="h-2 bg-white/70 rounded-full overflow-hidden">
+                                                <div class="h-full bg-indigo-500 rounded-full"
+                                                     :style="`width: ${Math.min(100, Math.round(selectedOrderBnpl.depositedAmountKopecks / selectedOrderBnpl.totalAmountKopecks * 100))}%`"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Таблица взносов -->
+                                        <div class="space-y-1">
+                                            <template x-for="inst in selectedOrderBnpl.installments" :key="inst.id">
+                                                <div class="flex items-center gap-3 py-1.5 px-2 rounded-lg text-xs"
+                                                     :class="{
+                                                         'bg-green-100': inst.status === 'PAID',
+                                                         'bg-red-100':   inst.status === 'OVERDUE',
+                                                         'bg-white/60':  inst.status === 'PENDING' || inst.status === 'CANCELLED',
+                                                     }">
+                                                    <span class="w-5 h-5 rounded-full font-bold flex items-center justify-center flex-shrink-0 text-xs"
+                                                          :class="{
+                                                              'bg-green-500 text-white': inst.status === 'PAID',
+                                                              'bg-red-500 text-white':   inst.status === 'OVERDUE',
+                                                              'bg-gray-400 text-white':  inst.status === 'PENDING' || inst.status === 'CANCELLED',
+                                                          }"
+                                                          x-text="inst.installmentNumber"></span>
+                                                    <span class="font-semibold text-gray-800 w-20" x-text="fmt(inst.amountKopecks / 100)"></span>
+                                                    <span class="text-gray-500 flex-1"
+                                                          x-text="inst.status === 'PAID' ? '✓ Оплачен ' + fmtDate(inst.paidAt) : 'До ' + fmtDate(inst.dueDate)"></span>
+                                                    <span x-show="inst.daysPostponed > 0" class="text-orange-500"
+                                                          x-text="'⏰ +' + inst.daysPostponed + 'д'"></span>
+                                                    <span class="px-2 py-0.5 rounded-full font-medium"
+                                                          :class="{
+                                                              'bg-green-200 text-green-800': inst.status === 'PAID',
+                                                              'bg-red-200 text-red-700':     inst.status === 'OVERDUE',
+                                                              'bg-gray-200 text-gray-600':   inst.status === 'PENDING',
+                                                              'bg-gray-200 text-gray-400':   inst.status === 'CANCELLED',
+                                                          }"
+                                                          x-text="{'PAID':'Оплачен','OVERDUE':'Просрочен','PENDING':'Ожидает','CANCELLED':'Отменён'}[inst.status]"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <!-- Управление позициями BNPL (выдача/отмена) -->
+                            <div x-show="selectedOrder.bnplContractId && selectedOrder.items.some(i => i.itemStatus)">
+                                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Управление товарами</p>
+                                <div class="space-y-1.5">
+                                    <template x-for="item in selectedOrder.items.filter(i => i.itemStatus)" :key="item.id">
+                                        <div class="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg text-sm gap-2">
+                                            <span class="flex-1 truncate text-gray-800" x-text="item.productName"></span>
+                                            <div class="flex items-center gap-1 flex-shrink-0">
+                                                <template x-if="item.itemStatus === 'PENDING_ISSUE'">
+                                                    <div class="flex gap-1">
+                                                        <button @click="adminIssueItem(selectedOrder.id, item.id)"
+                                                                class="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded font-medium transition">
+                                                            Выдать
+                                                        </button>
+                                                        <button @click="adminCancelItem(selectedOrder.id, item.id)"
+                                                                class="px-2 py-1 text-xs border border-red-300 text-red-600 hover:bg-red-50 rounded font-medium transition">
+                                                            Отменить
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                                <template x-if="item.itemStatus === 'ISSUED'">
+                                                    <div class="flex items-center gap-1">
+                                                        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Выдан</span>
+                                                        <button @click="adminReturnItem(selectedOrder.id, item.id)"
+                                                                class="px-2 py-1 text-xs border border-yellow-300 text-yellow-700 hover:bg-yellow-50 rounded font-medium transition">
+                                                            Возврат
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                                <template x-if="item.itemStatus === 'CANCELLED'">
+                                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Отменён</span>
+                                                </template>
+                                                <template x-if="item.itemStatus === 'RETURNED'">
+                                                    <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">Возвращён</span>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                        </div><!-- /p-6 -->
+                    </div>
+                </template>
             </div>
         </div>
 
@@ -735,6 +982,14 @@
             orders: [],
             orderStatusEdits: {},
             loadingOrders: false,
+            orderFilter: { status: '', search: '' },
+
+            // Модал деталей заказа
+            showOrderModal: false,
+            selectedOrder: null,
+            selectedOrderBnpl: null,
+            loadingOrderBnpl: false,
+            orderModalNewStatus: '',
 
             invoices: [],
             loadingInvoices: false,
@@ -786,6 +1041,23 @@
 
             get totalSupportUnread() {
                 return this.supportConversations.reduce((s, c) => s + (c.unreadCount || 0), 0);
+            },
+
+            get filteredOrders() {
+                let list = this.orders;
+                if (this.orderFilter.status) {
+                    list = list.filter(o => o.status === this.orderFilter.status);
+                }
+                const q = (this.orderFilter.search || '').toLowerCase().trim();
+                if (q) {
+                    list = list.filter(o =>
+                        String(o.id).includes(q) ||
+                        (o.customerName  || '').toLowerCase().includes(q) ||
+                        (o.customerEmail || '').toLowerCase().includes(q) ||
+                        (o.shippingAddress || '').toLowerCase().includes(q)
+                    );
+                }
+                return list;
             },
 
             async setTab(tab) {
@@ -947,12 +1219,19 @@
                 finally { this.loadingReviews = false; }
             },
 
+            bnplLabel(t) {
+                return {
+                    BNPL_4_BIWEEKLY: '0% · 4×',
+                    BNPL_4_MONTHLY:  '10% · 4мес',
+                    BNPL_6_MONTHLY:  '15% · 6мес',
+                }[t] || t || '';
+            },
+
             // ── Заказы ────────────────────────────────────────────
             async loadOrders() {
                 this.loadingOrders = true;
                 try {
                     this.orders = await api.getAllOrders();
-                    // Инициализируем selects текущими статусами
                     this.orders.forEach(o => {
                         if (this.orderStatusEdits[o.id] === undefined)
                             this.orderStatusEdits[o.id] = o.status;
@@ -961,12 +1240,81 @@
                 finally { this.loadingOrders = false; }
             },
 
+            async openOrderModal(order) {
+                this.selectedOrder     = order;
+                this.selectedOrderBnpl = null;
+                this.orderModalNewStatus = order.status;
+                this.showOrderModal    = true;
+
+                if (order.bnplContractId) {
+                    this.loadingOrderBnpl = true;
+                    try {
+                        this.selectedOrderBnpl = await api.getAdminBnplContract(order.bnplContractId);
+                    } catch (e) { this.toast('Не удалось загрузить данные рассрочки', 'error'); }
+                    finally { this.loadingOrderBnpl = false; }
+                }
+            },
+
+            async saveOrderStatusFromModal() {
+                if (!this.selectedOrder || this.orderModalNewStatus === this.selectedOrder.status) return;
+                try {
+                    const updated = await api.updateOrderStatus(this.selectedOrder.id, this.orderModalNewStatus);
+                    this.selectedOrder = updated;
+                    // Обновляем в основном списке
+                    const idx = this.orders.findIndex(o => o.id === updated.id);
+                    if (idx !== -1) this.orders[idx] = updated;
+                    this.orders = [...this.orders];
+                    this.orderStatusEdits[updated.id] = updated.status;
+                    this.toast(`Статус заказа #${updated.id} изменён`, 'success');
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            // Управление позициями BNPL из модала администратора
+            async adminIssueItem(orderId, itemId) {
+                try {
+                    await api.adminUpdateItemStatus(orderId, itemId, 'ISSUED');
+                    this.toast('Товар выдан', 'success');
+                    await this._reloadModalOrder(orderId);
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async adminCancelItem(orderId, itemId) {
+                try {
+                    await api.adminUpdateItemStatus(orderId, itemId, 'CANCELLED');
+                    this.toast('Товар отменён', 'success');
+                    await this._reloadModalOrder(orderId);
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async adminReturnItem(orderId, itemId) {
+                try {
+                    await api.adminUpdateItemStatus(orderId, itemId, 'RETURNED');
+                    this.toast('Возврат оформлен', 'success');
+                    await this._reloadModalOrder(orderId);
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async _reloadModalOrder(orderId) {
+                try {
+                    const fresh = await api.getAdminOrder(orderId);
+                    if (fresh) {
+                        this.selectedOrder = fresh;
+                        const idx = this.orders.findIndex(o => o.id === orderId);
+                        if (idx !== -1) this.orders[idx] = fresh;
+                        this.orders = [...this.orders];
+                    }
+                    if (this.selectedOrder?.bnplContractId) {
+                        this.selectedOrderBnpl = await api.getAdminBnplContract(this.selectedOrder.bnplContractId);
+                    }
+                } catch {}
+            },
+
             async saveOrderStatus(order) {
                 try {
                     const updated = await api.updateOrderStatus(order.id, this.orderStatusEdits[order.id]);
                     const idx = this.orders.findIndex(o => o.id === order.id);
                     if (idx !== -1) this.orders[idx] = updated;
-                    this.orders = [...this.orders]; // trigger reactivity
+                    this.orders = [...this.orders];
                     this.toast(`Статус заказа #${order.id} изменён`, 'success');
                 } catch (e) { this.toast(e.message, 'error'); }
             },

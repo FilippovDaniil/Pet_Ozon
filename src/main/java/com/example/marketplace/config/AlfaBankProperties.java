@@ -20,4 +20,5 @@ public class AlfaBankProperties {
     private String password;
     private String returnUrl;
     private String failUrl;
+    private String cardBindReturnUrl;
 }
