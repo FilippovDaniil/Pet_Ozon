@@ -87,7 +87,29 @@
       "PowerShell($json = Get-Content C:\\\\Users\\\\MaxxPC\\\\.claude\\\\settings.json -Raw | ConvertFrom-Json; Write-Host \"JSON valid. Allow entries: $\\($json.permissions.allow.Count\\)\")",
       "Bash(Select-Object Name, PSIsContainer)",
       "Bash(node *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "PowerShell(curl -s -o $null -w \"%{http_code}\" http://localhost:30667/login.html 2>&1)",
+      "PowerShell(\\(Invoke-WebRequest -Uri \"http://localhost:30667/login.html\" -UseBasicParsing\\).StatusCode 2>&1)",
+      "PowerShell(java *)",
+      "Read(//c/Program Files/Eclipse Adoptium//**)",
+      "Read(//c/Program Files/Java//**)",
+      "Read(//c/Program Files/**)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Users\\\\MaxxPC\\\\.jdks\\\\jdk-21.0.10\"; cd C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon; .\\\\gradlew.bat bootJar -x test --no-daemon 2>&1 | Select-Object -Last 15)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell($env:JAVA_HOME = \"$env:USERPROFILE\\\\.jdks\\\\ms-21.0.10\"; cd C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon; .\\\\gradlew.bat bootJar -x test --no-daemon 2>&1 | Select-Object -Last 10)",
+      "PowerShell(2>&1 *)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_take_screenshot",
+      "PowerShell($env:JAVA_HOME = \"$env:USERPROFILE\\\\.jdks\\\\ms-21.0.10\"; cd C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon; .\\\\gradlew.bat bootJar -x test --no-daemon 2>&1 | Select-Object -Last 5)",
+      "PowerShell($env:JAVA_HOME = \"$env:USERPROFILE\\\\.jdks\\\\ms-21.0.10\"; cd C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon; .\\\\gradlew.bat bootJar -x test --no-daemon 2>&1 | Select-Object -Last 8)",
+      "PowerShell($env:JAVA_HOME = \"$env:USERPROFILE\\\\.jdks\\\\ms-21.0.10\"; cd C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon; .\\\\gradlew.bat bootJar -x test --no-daemon 2>&1 | Select-String -Pattern \"error:\" | Select-Object -First 10)",
+      "PowerShell($env:JAVA_HOME = \"$env:USERPROFILE\\\\.jdks\\\\ms-21.0.10\"; cd C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon; .\\\\gradlew.bat bootJar -x test --no-daemon 2>&1 | Select-Object -Last 4)",
+      "PowerShell(\\(Invoke-WebRequest -Uri \"http://localhost:30667/api/payment/card-bind-callback?orderId=020e54f8-4f8e-7a76-b55f-661f026ae058\" -UseBasicParsing\\).Content.Substring\\(0, 300\\) 2>&1)",
+      "PowerShell(Select-String *)",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_type"
     ]
   }
 }
