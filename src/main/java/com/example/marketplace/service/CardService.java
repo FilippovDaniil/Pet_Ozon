@@ -20,6 +20,18 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Управление привязанными картами пользователей и их сохранение после оплаты.
+ *
+ * Отвечает за весь жизненный цикл карты:
+ *   • привязку без покупки (initiateBinding/confirmBinding — холд 1₽ → deposit → refund);
+ *   • авто-сохранение после оплаты заказа (saveAfterPayment);
+ *   • резолв реального bindingId для тихих списаний (resolveChargeableBindingId);
+ *   • CRUD карт в личном кабинете (список, выбор дефолтной, удаление).
+ *
+ * Из-за различий production/UAT источник данных карты ищется по цепочке
+ * bindingInfo → cardAuthInfo → getBindings (см. saveAfterPayment / confirmBinding).
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -90,11 +102,13 @@ public class CardService {
         }
     }
 
+    /** Карты пользователя для личного кабинета (дефолтная — первой). */
     public List<CardBindingResponse> getCards(User user) {
         return cardRepo.findByUserOrderByIsDefaultDescCreatedAtDesc(user)
                 .stream().map(this::toResponse).toList();
     }
 
+    /** Делает карту дефолтной: снимает флаг со всех карт владельца и ставит на выбранную. */
     @Transactional
     public void setDefault(Long cardId, User user) {
         CardBinding card = cardRepo.findById(cardId)
@@ -107,6 +121,7 @@ public class CardService {
         cardRepo.save(card);
     }
 
+    /** Удаляет карту пользователя (с проверкой владельца). */
     @Transactional
     public void delete(Long cardId, User user) {
         CardBinding card = cardRepo.findById(cardId)
@@ -117,6 +132,7 @@ public class CardService {
         cardRepo.delete(card);
     }
 
+    /** Дефолтная карта пользователя — с неё идут авто-списания и админ-оплата. */
     public Optional<CardBinding> getDefault(User user) {
         return cardRepo.findByUserAndIsDefaultTrue(user);
     }
@@ -374,6 +390,7 @@ public class CardService {
         return exp;
     }
 
+    /** Маппинг сущности карты в безопасный для UI DTO (без bindingId, срок в MM/YYYY). */
     public CardBindingResponse toResponse(CardBinding c) {
         return new CardBindingResponse(
                 c.getId(),

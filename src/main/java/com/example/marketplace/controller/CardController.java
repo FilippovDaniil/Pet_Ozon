@@ -59,6 +59,7 @@ public class CardController {
         return cardService.initiateBinding(resolveUser(ud));
     }
 
+    /** Достаёт сущность User по email из JWT-принципала. */
     private User resolveUser(UserDetails ud) {
         return userRepository.findByEmail(ud.getUsername())
                 .orElseThrow(() -> new RuntimeException("Пользователь не найден"));

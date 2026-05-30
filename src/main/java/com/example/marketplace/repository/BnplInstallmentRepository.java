@@ -10,10 +10,15 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Репозиторий взносов (строк графика) BNPL-контракта.
+ */
 public interface BnplInstallmentRepository extends JpaRepository<BnplInstallment, Long> {
 
+    // Весь график контракта по порядку номеров взносов.
     List<BnplInstallment> findByContractOrderByInstallmentNumberAsc(BnplContract contract);
 
+    // Конкретный взнос контракта по его номеру.
     Optional<BnplInstallment> findByContractAndInstallmentNumber(BnplContract contract, int number);
 
     // Взносы, которые нужно списать сегодня (для планировщика).

@@ -81,6 +81,7 @@ public class BnplController {
         applyItemStatus(orderId, itemId, request.status());
     }
 
+    /** Диспетчер статуса позиции: направляет в нужный метод BnplService (deposit/reverse/refund). */
     private void applyItemStatus(Long orderId, Long itemId, String status) {
         switch (status.toUpperCase()) {
             case "ISSUED"    -> bnplService.issueItem(orderId, itemId);
@@ -91,6 +92,7 @@ public class BnplController {
         }
     }
 
+    /** Достаёт сущность User по email из JWT-принципала. */
     private User resolveUser(UserDetails ud) {
         return userRepository.findByEmail(ud.getUsername())
                 .orElseThrow(() -> new RuntimeException("Пользователь не найден"));

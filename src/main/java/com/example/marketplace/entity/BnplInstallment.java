@@ -26,6 +26,7 @@ public class BnplInstallment {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Контракт-владелец, к графику которого относится этот взнос.
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "contract_id", nullable = false)
     private BnplContract contract;

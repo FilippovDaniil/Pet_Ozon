@@ -55,6 +55,12 @@ public class BnplService {
 
     // ─── Инициация ────────────────────────────────────────────────────────────
 
+    /**
+     * Запускает оформление рассрочки по счёту.
+     * Холдирует на форме банка ТОЛЬКО первый взнос (total / N), создаёт контракт
+     * в статусе AWAITING_PAYMENT и возвращает formUrl для редиректа клиента.
+     * График и активация — позже, в confirmPreAuth() после прохождения формы.
+     */
     @Transactional
     public PaymentInitResponse initiate(Long invoiceId, String bnplProductName) {
         Invoice invoice = invoiceService.findEntityById(invoiceId);
@@ -443,6 +449,11 @@ public class BnplService {
 
     // ─── Авто-списание взноса (вызывается планировщиком) ─────────────────────
 
+    /**
+     * Тихое авто-списание одного взноса с привязанной карты (вызывает BnplSchedulerService).
+     * Списывает min(сумма взноса, остаток контракта) через MIT (tii=U) без 3DS,
+     * пишет платёж в журнал и пересчитывает статусы. При сбое — взнос становится OVERDUE.
+     */
     @Transactional
     public void processInstallment(BnplInstallment installment) {
         BnplContract contract = installment.getContract();
@@ -610,6 +621,11 @@ public class BnplService {
         }
     }
 
+    /**
+     * Строит график из N равных взносов. Сумма делится поровну (base),
+     * остаток от деления (rem) добавляется к последнему взносу, чтобы Σ взносов = total.
+     * Первый взнос — сегодня, остальные — с шагом intervalDays продукта.
+     */
     private void buildInstallmentSchedule(BnplContract contract) {
         int    n       = contract.getInstallmentCount();
         long   total   = contract.getTotalAmountKopecks();
@@ -621,7 +637,8 @@ public class BnplService {
             BnplInstallment inst = new BnplInstallment();
             inst.setContract(contract);
             inst.setInstallmentNumber(i);
-            inst.setAmountKopecks(i == n ? base + rem : base);
+            inst.setAmountKopecks(i == n ? base + rem : base);   // последнему взносу — остаток
+            // Взнос №1 — сразу, остальные сдвигаются на (i-1) интервалов вперёд.
             inst.setDueDate(i == 1 ? date : date.plusDays((long) (i - 1) * contract.getProduct().intervalDays));
             inst.setStatus(BnplInstallmentStatus.PENDING);
             installmentRepo.save(inst);
@@ -668,6 +685,7 @@ public class BnplService {
         }
     }
 
+    /** Находит позицию заказа по id и проверяет, что она принадлежит этому заказу. */
     private OrderItem getOwnedItem(Long orderId, Long itemId) {
         Order order = orderRepo.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Заказ не найден: " + orderId));
@@ -677,6 +695,7 @@ public class BnplService {
                 .orElseThrow(() -> new ResourceNotFoundException("Позиция не найдена: " + itemId));
     }
 
+    /** Возвращает BNPL-контракт заказа или бросает, если рассрочка не оформлена. */
     private BnplContract getContract(Order order) {
         return contractRepo.findByOrder(order)
                 .orElseThrow(() -> new IllegalStateException("BNPL-контракт не найден для заказа #" + order.getId()));

@@ -121,6 +121,7 @@ public class PaymentController {
                 "/client.html");
     }
 
+    /** Собирает простую HTML-страницу результата (цвет, текст, кнопка) через Tailwind CDN. */
     private String htmlPage(String message, String color, String btnText, String btnHref) {
         return """
                 <!DOCTYPE html>

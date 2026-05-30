@@ -51,7 +51,9 @@ public class FullPaymentService {
             throw new IllegalStateException("Счёт #" + invoiceId + " уже оплачен");
         }
 
+        // Префикс FP- (Full Payment) + 16 символов UUID — уникальный orderNumber для шлюза.
         String orderNumber = "FP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+        // Шлюз принимает сумму в копейках, поэтому рубли × 100.
         long   amountKopecks = invoice.getAmount()
                 .multiply(BigDecimal.valueOf(100))
                 .longValue();

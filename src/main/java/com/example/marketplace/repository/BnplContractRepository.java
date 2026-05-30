@@ -10,10 +10,15 @@ import org.springframework.data.jpa.repository.Query;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Репозиторий BNPL-контрактов (1:1 с заказом).
+ */
 public interface BnplContractRepository extends JpaRepository<BnplContract, Long> {
 
+    // Контракт по заказу (связь 1:1).
     Optional<BnplContract> findByOrder(Order order);
 
+    // Контракт по UUID pre-auth заказа банка — нужен в callback после redirect.
     Optional<BnplContract> findByAlfaPreAuthOrderId(String alfaPreAuthOrderId);
 
     // Все контракты клиента для отображения в личном кабинете.

@@ -15,10 +15,10 @@ import org.springframework.stereotype.Component;
 @Setter
 public class AlfaBankProperties {
 
-    private String gatewayUrl  = "https://alfa.rbsuat.com/payment/rest/";
-    private String userName;
-    private String password;
-    private String returnUrl;
-    private String failUrl;
-    private String cardBindReturnUrl;
+    private String gatewayUrl  = "https://alfa.rbsuat.com/payment/rest/";  // базовый URL API шлюза (UAT по умолчанию)
+    private String userName;          // логин мерчанта (секрет, из env/Secret)
+    private String password;          // пароль мерчанта (секрет, из env/Secret)
+    private String returnUrl;         // куда банк вернёт браузер после успешной оплаты
+    private String failUrl;           // куда банк вернёт браузер при отклонении
+    private String cardBindReturnUrl; // returnUrl отдельно для сценария привязки карты
 }

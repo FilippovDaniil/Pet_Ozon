@@ -185,13 +185,18 @@ public class AlfaBankGatewayClient {
 
     // ─── Вспомогательные методы ───────────────────────────────────────────────
 
+    /** Базовый набор параметров для любого вызова шлюза — логин/пароль мерчанта. */
     private Map<String, String> baseParams() {
-        Map<String, String> p = new LinkedHashMap<>();
+        Map<String, String> p = new LinkedHashMap<>();   // LinkedHashMap — сохраняет порядок параметров
         p.put("userName", props.getUserName());
         p.put("password", props.getPassword());
         return p;
     }
 
+    /**
+     * Единая точка вызова шлюза: form-urlencoded POST + разбор JSON + проверка errorCode.
+     * При errorCode != "0" или сетевой ошибке бросает RuntimeException.
+     */
     private JsonNode call(String method, Map<String, String> params) {
         String body = params.entrySet().stream()
                 .map(e -> URLEncoder.encode(e.getKey(),   StandardCharsets.UTF_8)

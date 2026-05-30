@@ -54,20 +54,23 @@ public class OpenSearchLogAppender extends AppenderBase<ILoggingEvent> {
                 .build();
     }
 
+    /** Старт аппендера: поднимаем фоновый daemon-поток, который периодически шлёт батчи. */
     @Override
     public void start() {
         super.start();
         scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "os-log-flusher");
-            t.setDaemon(true);
+            t.setDaemon(true);   // daemon — не мешает JVM завершиться
             return t;
         });
+        // Периодический сброс буфера независимо от его наполнения.
         scheduler.scheduleAtFixedRate(this::flush, flushIntervalSecs, flushIntervalSecs, TimeUnit.SECONDS);
     }
 
+    /** Остановка: дослать остаток буфера и погасить планировщик. */
     @Override
     public void stop() {
-        flush();
+        flush();   // не теряем последние накопленные логи
         if (scheduler != null) scheduler.shutdown();
         super.stop();
     }
@@ -80,8 +83,10 @@ public class OpenSearchLogAppender extends AppenderBase<ILoggingEvent> {
         if (buffer.size() >= batchSize) flush();
     }
 
+    /** Отправляет накопленный буфер в OpenSearch через _bulk API одним запросом. */
     private synchronized void flush() {
         if (buffer.isEmpty()) return;
+        // Снимаем копию и сразу освобождаем буфер, чтобы append() не ждал сетевой запрос.
         List<String> batch = new ArrayList<>(buffer);
         buffer.clear();
 
