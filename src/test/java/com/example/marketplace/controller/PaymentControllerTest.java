@@ -19,8 +19,11 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// Тесты PaymentController: публичный callback и fail endpoint.
-// Эти endpoint-ы не требуют аутентификации — банк делает browser-redirect без JWT.
+/**
+ * Тесты PaymentController: публичный callback и fail endpoint.
+ * Эти endpoint-ы не требуют аутентификации — банк делает browser-redirect без JWT.
+ * SecurityConfig и JWT-фильтр исключены, вместо них — TestSecurityConfig.
+ */
 @WebMvcTest(
         value = PaymentController.class,
         excludeFilters = {
@@ -51,6 +54,7 @@ class PaymentControllerTest {
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("Оплата прошла успешно")));
     }
 
+    // Полная оплата отклонена → HTML с сообщением «Оплата отклонена».
     @Test
     void callback_fullPaymentFailed_returnsFailHtml() throws Exception {
         when(bnplService.confirmPreAuth("alfa-456"))
@@ -76,6 +80,7 @@ class PaymentControllerTest {
         verify(fullPaymentService, never()).confirm(anyString());
     }
 
+    // Платёж ещё не финализирован → сообщение «обрабатывается».
     @Test
     void callback_pending_returnsPendingMessage() throws Exception {
         when(bnplService.confirmPreAuth("alfa-pend"))
@@ -109,6 +114,7 @@ class PaymentControllerTest {
 
     // ── GET /api/payment/fail ─────────────────────────────────────────────────
 
+    // fail-endpoint с orderId → HTML «Оплата не завершена».
     @Test
     void fail_withOrderId_returnsFailHtml() throws Exception {
         mockMvc.perform(get("/api/payment/fail").param("orderId", "alfa-000"))

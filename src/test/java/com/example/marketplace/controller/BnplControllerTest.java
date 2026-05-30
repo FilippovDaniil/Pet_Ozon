@@ -29,7 +29,10 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// Тесты BnplController: список контрактов, перенос взноса, досрочная оплата, статусы позиций.
+/**
+ * Тесты BnplController: список контрактов, перенос взноса, досрочная оплата, статусы позиций.
+ * Валидация тела (@Valid) проверяется отдельно от бизнес-ошибок сервиса (мокается BnplService).
+ */
 @WebMvcTest(
         value = BnplController.class,
         excludeFilters = {
@@ -60,6 +63,7 @@ class BnplControllerTest {
 
     // ── GET /api/bnpl/my ──────────────────────────────────────────────────────
 
+    // Авторизованный клиент получает массив своих контрактов.
     @Test
     void myContracts_authenticated_returnsList() throws Exception {
         User user = mockUser();
@@ -71,6 +75,7 @@ class BnplControllerTest {
                 .andExpect(jsonPath("$").isArray());
     }
 
+    // Без аутентификации — 401.
     @Test
     void myContracts_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/bnpl/my"))
@@ -79,6 +84,7 @@ class BnplControllerTest {
 
     // ── POST /api/bnpl/{id}/postpone ──────────────────────────────────────────
 
+    // Перенос в допустимых пределах → 200 + обновлённый взнос (daysPostponed/Left пересчитаны).
     @Test
     void postpone_validDays_returns200WithUpdatedInstallment() throws Exception {
         User user = mockUser();
@@ -115,6 +121,7 @@ class BnplControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    // Превышен суммарный лимит переноса (бизнес-ошибка сервиса) → 500.
     @Test
     void postpone_limitExceeded_returns500() throws Exception {
         User user = mockUser();
@@ -129,6 +136,7 @@ class BnplControllerTest {
                 .andExpect(status().isInternalServerError());
     }
 
+    // Перенос без аутентификации — 401.
     @Test
     void postpone_unauthenticated_returns401() throws Exception {
         mockMvc.perform(post("/api/bnpl/10/postpone")
@@ -139,6 +147,7 @@ class BnplControllerTest {
 
     // ── POST /api/bnpl/{id}/pay ───────────────────────────────────────────────
 
+    // Пустое тело → оплачивается ближайший взнос, 201 Created.
     @Test
     void payNow_noBody_paysNextInstallment() throws Exception {
         User user = mockUser();
@@ -157,6 +166,7 @@ class BnplControllerTest {
                 .andExpect(jsonPath("$[0].status").value("PAID"));
     }
 
+    // Произвольная сумма может покрыть несколько взносов → список из нескольких PAID.
     @Test
     void payNow_withAmount_returnsMultiplePaid() throws Exception {
         User user = mockUser();
@@ -176,6 +186,7 @@ class BnplControllerTest {
                 .andExpect(jsonPath("$.length()").value(2));
     }
 
+    // Нет привязанной карты (ошибка сервиса) → 500.
     @Test
     void payNow_noCard_returns500() throws Exception {
         User user = mockUser();
@@ -192,6 +203,7 @@ class BnplControllerTest {
 
     // ── PATCH /api/orders/{id}/items/{itemId} ─────────────────────────────────
 
+    // status=ISSUED → делегирование issueItem.
     @Test
     void updateItemStatus_issue_callsIssueItem() throws Exception {
         doNothing().when(bnplService).issueItem(5L, 50L);
@@ -205,6 +217,7 @@ class BnplControllerTest {
         verify(bnplService).issueItem(5L, 50L);
     }
 
+    // status=CANCELLED → делегирование cancelItem.
     @Test
     void updateItemStatus_cancel_callsCancelItem() throws Exception {
         doNothing().when(bnplService).cancelItem(5L, 50L);
@@ -218,6 +231,7 @@ class BnplControllerTest {
         verify(bnplService).cancelItem(5L, 50L);
     }
 
+    // status=RETURNED → делегирование returnItem.
     @Test
     void updateItemStatus_return_callsReturnItem() throws Exception {
         doNothing().when(bnplService).returnItem(5L, 50L);
@@ -241,6 +255,7 @@ class BnplControllerTest {
                 .andExpect(status().is4xxClientError());
     }
 
+    // Админский путь PATCH /api/admin/orders/... тоже вызывает issueItem.
     @Test
     void adminUpdateItemStatus_issue_callsIssueItem() throws Exception {
         doNothing().when(bnplService).issueItem(5L, 50L);

@@ -23,8 +23,11 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-// Юнит-тесты сервиса привязанных карт.
-// Проверяем сохранение привязок из ответа банка, управление дефолтной картой, удаление.
+/**
+ * Юнит-тесты сервиса привязанных карт (Mockito, без Spring-контекста).
+ * Проверяем сохранение привязок из ответа банка (production bindingInfo и UAT cardAuthInfo),
+ * управление дефолтной картой, удаление и форматирование срока действия.
+ */
 @ExtendWith(MockitoExtension.class)
 class CardServiceTest {
 
@@ -101,6 +104,7 @@ class CardServiceTest {
         verify(cardRepo).save(argThat(c -> !c.isDefault() && "binding-002".equals(c.getBindingId())));
     }
 
+    // Карта уже сохранена → save не вызывается (нет дублей).
     @Test
     void saveFromStatusResponse_existingCard_skips() throws Exception {
         User user = makeUser(1L);
@@ -113,6 +117,7 @@ class CardServiceTest {
         verify(cardRepo, never()).save(any());
     }
 
+    // Нет bindingId в ответе → сохранять нечего.
     @Test
     void saveFromStatusResponse_noBindingId_skips() throws Exception {
         User user = makeUser(1L);
@@ -163,6 +168,7 @@ class CardServiceTest {
 
     // ── getCards ──────────────────────────────────────────────────────────────
 
+    // Список карт возвращается в порядке репозитория (дефолтная первой).
     @Test
     void getCards_returnsSortedList() {
         User user = makeUser(1L);
@@ -180,6 +186,7 @@ class CardServiceTest {
 
     // ── setDefault ────────────────────────────────────────────────────────────
 
+    // Установка дефолтной: сначала сброс флага у всех карт, затем флаг на выбранной.
     @Test
     void setDefault_changesDefaultCard() {
         User user = makeUser(1L);
@@ -194,6 +201,7 @@ class CardServiceTest {
         verify(cardRepo).save(argThat(CardBinding::isDefault));
     }
 
+    // Чужая карта → IllegalStateException «Нет доступа».
     @Test
     void setDefault_wrongOwner_throwsException() {
         User owner = makeUser(1L);
@@ -207,6 +215,7 @@ class CardServiceTest {
                 .hasMessageContaining("Нет доступа");
     }
 
+    // Несуществующая карта → ResourceNotFoundException.
     @Test
     void setDefault_cardNotFound_throwsResourceNotFoundException() {
         User user = makeUser(1L);
@@ -218,6 +227,7 @@ class CardServiceTest {
 
     // ── delete ────────────────────────────────────────────────────────────────
 
+    // Удаление своей карты → вызов repo.delete.
     @Test
     void delete_ownCard_succeeds() {
         User user = makeUser(1L);
@@ -230,6 +240,7 @@ class CardServiceTest {
         verify(cardRepo).delete(card);
     }
 
+    // Удаление чужой карты → исключение, repo.delete не вызывается.
     @Test
     void delete_otherUsersCard_throwsException() {
         User owner = makeUser(1L);

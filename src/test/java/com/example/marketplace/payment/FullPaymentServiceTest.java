@@ -32,8 +32,12 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-// Юнит-тесты сервиса полной одностадийной оплаты через Альфа Банк.
-// Проверяем инициацию платежа и обработку callback.
+/**
+ * Юнит-тесты сервиса полной одностадийной оплаты через Альфа Банк.
+ * Проверяем инициацию платежа, обработку callback (DEPOSITED/DECLINED/pending/идемпотентность)
+ * и оплату админом с дефолтной карты.
+ * LENIENT — общие стабы в @BeforeEach не используются в тестах с ранним throw.
+ */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class FullPaymentServiceTest {
@@ -73,6 +77,7 @@ class FullPaymentServiceTest {
 
     // ── initiate ─────────────────────────────────────────────────────────────
 
+    // Неоплаченный счёт → регистрация в шлюзе + сохранение записи + возврат formUrl.
     @Test
     void initiate_unpaidInvoice_registersOrderAndReturnsFormUrl() throws Exception {
         Invoice invoice = makeInvoice(1L, InvoiceStatus.UNPAID, new BigDecimal("1000.00"));
@@ -94,6 +99,7 @@ class FullPaymentServiceTest {
         verify(alfaBankOrderRepo).save(any(AlfaBankOrder.class));
     }
 
+    // Уже оплаченный счёт → исключение, шлюз не вызывается.
     @Test
     void initiate_alreadyPaidInvoice_throwsIllegalState() {
         Invoice invoice = makeInvoice(1L, InvoiceStatus.PAID, new BigDecimal("1000.00"));
@@ -201,6 +207,7 @@ class FullPaymentServiceTest {
         verify(gateway, never()).getOrderStatusExtended(anyString()); // повторный запрос к банку не нужен
     }
 
+    // Неизвестный orderId → IllegalArgumentException (даёт callback'у попробовать BNPL).
     @Test
     void confirm_unknownOrderId_throwsException() {
         when(alfaBankOrderRepo.findByAlfaOrderId("unknown")).thenReturn(Optional.empty());
@@ -235,6 +242,7 @@ class FullPaymentServiceTest {
         verify(invoiceService).markAsPaid(invoice, "CARD");
     }
 
+    // Нет дефолтной карты → исключение, списание не выполняется.
     @Test
     void payByDefaultCard_noCard_throws() {
         Invoice invoice = makeInvoice(1L, InvoiceStatus.UNPAID, new BigDecimal("500.00"));
@@ -247,6 +255,7 @@ class FullPaymentServiceTest {
         verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
     }
 
+    // Счёт уже оплачен → исключение до обращения к карте.
     @Test
     void payByDefaultCard_alreadyPaid_throws() {
         Invoice invoice = makeInvoice(1L, InvoiceStatus.PAID, new BigDecimal("500.00"));

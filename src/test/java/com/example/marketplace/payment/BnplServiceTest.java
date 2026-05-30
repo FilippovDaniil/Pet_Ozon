@@ -33,10 +33,16 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-// Юнит-тесты ключевых методов BnplService:
-// — перенос взноса (postponeInstallment)
-// — досрочная оплата (payInstallmentsNow)
-// — управление статусом товаров (issueItem, cancelItem, returnItem)
+/**
+ * Юнит-тесты ключевых методов BnplService (Mockito, без Spring-контекста):
+ *   — перенос взноса (postponeInstallment): лимит 14 дней, комиссия, накопление;
+ *   — досрочная/произвольная оплата (payInstallmentsNow): точное списание, частичный платёж,
+ *     резолв реального bindingId, отказ при 3DS;
+ *   — авто-списание планировщиком (processInstallment): успех / 3DS→OVERDUE / нет связки→skip;
+ *   — статусы позиций (issue/cancel/return): reverse/refund доли, авто-закрытие заказа;
+ *   — новый флоу инициации (initiate / confirmPreAuth): списывается ТОЛЬКО первый взнос.
+ * LENIENT — часть общих стабов не используется в тестах с ранним throw.
+ */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class BnplServiceTest {
@@ -208,6 +214,7 @@ class BnplServiceTest {
                 .hasMessageContaining("не активен");
     }
 
+    // Перенос на чужом контракте → IllegalStateException «Нет доступа».
     @Test
     void postponeInstallment_wrongOwner_throwsException() {
         User owner = makeUser(1L);
@@ -398,6 +405,7 @@ class BnplServiceTest {
         verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
     }
 
+    // Оплата по неактивному контракту (COMPLETED) → исключение «не активен».
     @Test
     void payInstallmentsNow_inactiveContract_throws() {
         User user = makeUser(1L);

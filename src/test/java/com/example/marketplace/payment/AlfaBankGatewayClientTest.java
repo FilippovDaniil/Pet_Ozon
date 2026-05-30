@@ -65,6 +65,7 @@ class AlfaBankGatewayClientTest {
 
     // ── tii=U: тихий MIT ───────────────────────────────────────────────────────
 
+    // Ключевой тест: рекуррентное списание уходит с tii=U и без CVC.
     @Test
     void paymentOrderBinding_sendsTiiU_andNoCvc() {
         responseJson = "{\"errorCode\":0,\"orderId\":\"pay-1\"}";
@@ -82,6 +83,7 @@ class AlfaBankGatewayClientTest {
         assertThat(body).contains("userName=test-api");
     }
 
+    // JSON-ответ шлюза корректно разбирается в JsonNode.
     @Test
     void paymentOrderBinding_returnsParsedResponse() {
         responseJson = "{\"errorCode\":0,\"orderId\":\"pay-77\",\"info\":\"Ваш платёж обработан\"}";
@@ -93,6 +95,7 @@ class AlfaBankGatewayClientTest {
 
     // ── обработка errorCode ──────────────────────────────────────────────────────
 
+    // Отсутствие errorCode = успех (дефолт "0"), исключения быть не должно.
     @Test
     void call_missingErrorCode_treatedAsSuccess() {
         // Альфа Банк не включает errorCode при успехе → дефолт "0", без исключения
@@ -103,6 +106,7 @@ class AlfaBankGatewayClientTest {
         assertThat(res.path("orderId").asText()).isEqualTo("x");
     }
 
+    // Ненулевой errorCode → RuntimeException с текстом ошибки из errorMessage.
     @Test
     void call_nonZeroErrorCode_throwsWithMessage() {
         responseJson = "{\"errorCode\":\"2\",\"errorMessage\":\"Связка не найдена\"}";
@@ -112,6 +116,7 @@ class AlfaBankGatewayClientTest {
                 .hasMessageContaining("Связка не найдена");
     }
 
+    // register.do с привязкой обязан передавать clientId.
     @Test
     void registerOrderForBinding_sendsClientId() {
         responseJson = "{\"errorCode\":0,\"orderId\":\"md-9\",\"formUrl\":\"http://f\"}";

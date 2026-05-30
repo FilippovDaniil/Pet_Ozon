@@ -28,7 +28,11 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-// Тесты CardController: список карт, смена дефолтной, удаление.
+/**
+ * Тесты CardController: список карт, смена дефолтной, удаление.
+ * @WebMvcTest со срезом web-слоя; SecurityConfig и JWT-фильтр заменены TestSecurityConfig,
+ * аутентификация подставляется через .with(user(...)).
+ */
 @WebMvcTest(
         value = CardController.class,
         excludeFilters = {
@@ -57,6 +61,7 @@ class CardControllerTest {
 
     // ── GET /api/cards ────────────────────────────────────────────────────────
 
+    // Авторизованный клиент получает список своих карт (дефолтная — первой).
     @Test
     void getCards_authenticated_returnsCardList() throws Exception {
         User user = mockUser();
@@ -74,12 +79,14 @@ class CardControllerTest {
                 .andExpect(jsonPath("$[1].maskedPan").value("555555**4444"));
     }
 
+    // Без аутентификации — 401.
     @Test
     void getCards_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/cards"))
                 .andExpect(status().isUnauthorized());
     }
 
+    // Нет карт — пустой JSON-массив (не ошибка).
     @Test
     void getCards_emptyList_returnsEmptyArray() throws Exception {
         User user = mockUser();
@@ -93,6 +100,7 @@ class CardControllerTest {
 
     // ── PATCH /api/cards/{id}/default ─────────────────────────────────────────
 
+    // Смена дефолтной своей карты → 200, вызов делегируется сервису.
     @Test
     void setDefault_ownCard_returns200() throws Exception {
         User user = mockUser();
@@ -108,6 +116,7 @@ class CardControllerTest {
         verify(cardService).setDefault(5L, user);
     }
 
+    // Карта не найдена → ResourceNotFoundException → 404 (имя метода историческое, фактически 404).
     @Test
     void setDefault_cardNotFound_returns500() throws Exception {
         User user = mockUser();
@@ -123,6 +132,7 @@ class CardControllerTest {
 
     // ── DELETE /api/cards/{id} ────────────────────────────────────────────────
 
+    // Удаление своей карты → 204 No Content.
     @Test
     void deleteCard_ownCard_returns204() throws Exception {
         User user = mockUser();
@@ -134,6 +144,7 @@ class CardControllerTest {
                 .andExpect(status().isNoContent());
     }
 
+    // Удаление без аутентификации — 401.
     @Test
     void deleteCard_unauthenticated_returns401() throws Exception {
         mockMvc.perform(delete("/api/cards/3"))
