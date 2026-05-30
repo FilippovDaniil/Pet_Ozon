@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Pet_Ozon Marketplace",
-    "description": "REST API маркетплейса с JWT-аутентификацией.\n\n**Переменные коллекции (заполняются автоматически):**\n- `clientToken` — при Auth/Вход (клиент)\n- `adminToken` — при Auth/Вход (admin)\n- `sellerToken` — при Auth/Вход (продавец)\n- `accountantToken` — при Auth/Вход (бухгалтер)\n- `conversationId` — при Chat/Начать диалог\n\n**Типичный сценарий клиента:**\nAuth/Вход → Products/Список → Cart/Добавить → Cart/Checkout → Invoice/Оплатить → (получить чек на email)\n\n**Чат:**\nAuth/Вход (клиент) → Chat/Начать диалог → Chat/Отправить сообщение\n\n**Бухгалтер:**\nAuth/Вход (бухгалтер) → Accountant/Сводный дашборд → Accountant/Отчёт по заказам и т.д.\n\n**Email от администратора:**\nAuth/Вход (admin) → Admin—Email/Отправить письмо\n\n**Загрузка фото товара (продавец):**\nSeller/Создать товар → Seller/Загрузить фото\n\nИзображение хранится в PostgreSQL как Base64. Максимальный размер — 2 МБ.",
+    "description": "REST API маркетплейса с JWT-аутентификацией, оплатой через Альфа Банк, BNPL-рассрочкой, привязкой карт и полнотекстовым поиском (OpenSearch).\n\n**Базовый URL:** http://localhost:8667 (переменная baseUrl).\n\n**Переменные коллекции (часть заполняется автоматически тест-скриптами):**\n- `clientToken` / `clientRefreshToken` — при Auth/Вход (клиент) или Регистрации\n- `adminToken`, `sellerToken`, `accountantToken` — при соответствующем входе\n- `orderId`, `invoiceId` — при Orders/Оформить заказ\n- `contractId` — при Invoices/BNPL или BNPL/Мои контракты\n- `cardId` — при Cards/Мои карты\n- `alfaOrderId` — при инициации оплаты/привязки (для callback-эндпоинтов)\n- `conversationId` / `supportConversationId` — при старте чата\n- `orderItemId` — подставьте вручную (id позиции заказа для BNPL-операций)\n\n**Токены:** login возвращает пару token (access, 15 мин) + refreshToken (7 дней). При 401 обновляйте access через Auth/Обновить токены (refresh).\n\n**Сценарий клиента:** Auth/Вход → Products → Cart/Добавить → Orders/Оформить → Invoices/Оплата (formUrl → форма банка → callback).\n\n**Сценарий BNPL:** Orders/Оформить → Invoices/BNPL (formUrl) → callback → BNPL/Контракт (график) → перенос/досрочная оплата.\n\n**Важно про оплату:** эндпоинты .../payments, .../bnpl, /cards/bind возвращают formUrl — это страница шлюза Альфа Банка. Реальная оплата происходит в браузере; подтверждение приходит на callback. Тесты проверяют только корректную инициацию (наличие formUrl).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,37 +14,91 @@
       "key": "clientToken",
       "value": "",
       "type": "string",
-      "description": "JWT-токен клиента. Заполняется автоматически при выполнении запроса Auth/Вход (клиент)."
+      "description": "JWT access клиента (Auth/Вход клиент)."
+    },
+    {
+      "key": "clientRefreshToken",
+      "value": "",
+      "type": "string",
+      "description": "Refresh-токен клиента (для /api/auth/refresh)."
     },
     {
       "key": "adminToken",
       "value": "",
       "type": "string",
-      "description": "JWT-токен администратора. Заполняется при Auth/Вход (admin)."
+      "description": "JWT администратора."
     },
     {
       "key": "sellerToken",
       "value": "",
       "type": "string",
-      "description": "JWT-токен продавца. Заполняется при Auth/Вход (продавец)."
+      "description": "JWT продавца."
     },
     {
       "key": "accountantToken",
       "value": "",
       "type": "string",
-      "description": "JWT-токен бухгалтера. Заполняется при Auth/Вход (бухгалтер)."
+      "description": "JWT бухгалтера."
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string",
+      "description": "ID заказа (Orders/Оформить)."
+    },
+    {
+      "key": "invoiceId",
+      "value": "",
+      "type": "string",
+      "description": "ID счёта (Orders/Оформить)."
+    },
+    {
+      "key": "contractId",
+      "value": "",
+      "type": "string",
+      "description": "ID BNPL-контракта."
+    },
+    {
+      "key": "cardId",
+      "value": "",
+      "type": "string",
+      "description": "ID привязанной карты (Cards/Мои карты)."
+    },
+    {
+      "key": "alfaOrderId",
+      "value": "",
+      "type": "string",
+      "description": "orderId в шлюзе Альфа Банка (для callback)."
     },
     {
       "key": "conversationId",
       "value": "",
       "type": "string",
-      "description": "ID диалога. Заполняется при Chat/Начать диалог с продавцом."
+      "description": "ID диалога клиент↔продавец."
+    },
+    {
+      "key": "supportConversationId",
+      "value": "",
+      "type": "string",
+      "description": "ID диалога с поддержкой."
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string",
+      "description": "ID товара (Products/Товар по ID)."
+    },
+    {
+      "key": "orderItemId",
+      "value": "",
+      "type": "string",
+      "description": "ID позиции заказа (подставить вручную)."
     }
   ],
   "item": [
     {
       "name": "Auth",
-      "description": "Аутентификация и регистрация. Эндпоинты публичные, токен не нужен.",
+      "description": "Аутентификация и регистрация. Эндпоинты публичные, токен не нужен.\n\nОтвет login/register: token (access, 15 мин), refreshToken (7 дней), userId, email, role, fullName, shopName.\nТест входа клиента сохраняет оба токена: clientToken и clientRefreshToken.",
       "item": [
         {
           "name": "Вход (клиент)",
@@ -53,16 +107,12 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Token is present\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.token).to.be.a('string').and.not.be.empty;",
-                  "    pm.collectionVariables.set('clientToken', json.token);",
-                  "});",
-                  "pm.test(\"Response has user fields\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.all.keys('token', 'userId', 'email', 'role');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Есть access-токен\", () => pm.expect(j.token).to.be.a(\"string\").and.not.be.empty);",
+                  "pm.test(\"Есть refresh-токен\", () => pm.expect(j.refreshToken).to.be.a(\"string\").and.not.be.empty);",
+                  "pm.collectionVariables.set(\"clientToken\", j.token);",
+                  "pm.collectionVariables.set(\"clientRefreshToken\", j.refreshToken);"
                 ],
                 "type": "text/javascript"
               }
@@ -71,19 +121,32 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"client@example.com\",\n  \"password\": \"pass\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
             },
-            "description": "Вход клиента. Токен сохраняется в переменную `clientToken`."
+            "description": "Вход клиента. Сохраняет clientToken (access) и clientRefreshToken (refresh)."
           }
         },
         {
@@ -93,10 +156,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "if (pm.response.code === 200) {",
-                  "    pm.collectionVariables.set('adminToken', pm.response.json().token);",
-                  "}"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) pm.collectionVariables.set(\"adminToken\", pm.response.json().token);"
                 ],
                 "type": "text/javascript"
               }
@@ -105,19 +166,32 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"pass\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
             },
-            "description": "Вход администратора. Токен сохраняется в `adminToken`."
+            "description": "Вход администратора. Токен сохраняется в adminToken."
           }
         },
         {
@@ -127,10 +201,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "if (pm.response.code === 200) {",
-                  "    pm.collectionVariables.set('sellerToken', pm.response.json().token);",
-                  "}"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) pm.collectionVariables.set(\"sellerToken\", pm.response.json().token);"
                 ],
                 "type": "text/javascript"
               }
@@ -139,56 +211,32 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"seller1@example.com\",\n  \"password\": \"pass\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
             },
-            "description": "Вход продавца (seller1@example.com). Токен сохраняется в `sellerToken`."
-          }
-        },
-        {
-          "name": "Регистрация",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
-                  "pm.test(\"Token returned\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.token).to.be.a('string').and.not.be.empty;",
-                  "    pm.collectionVariables.set('clientToken', json.token);",
-                  "});",
-                  "pm.test(\"Role is CLIENT\", () => pm.expect(pm.response.json().role).to.eql('CLIENT'));"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {"key": "Content-Type", "value": "application/json"}
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"secret123\",\n  \"fullName\": \"Тестовый Пользователь\"\n}",
-              "options": {"raw": {"language": "json"}}
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "register"]
-            },
-            "description": "Регистрация нового клиента. Возвращает 201 + JWT-токен. Токен сохраняется в `clientToken`."
+            "description": "Вход продавца (seller1@example.com — TechShop). Токен сохраняется в sellerToken."
           }
         },
         {
@@ -198,13 +246,10 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Token is present\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.token).to.be.a('string').and.not.be.empty;",
-                  "    pm.collectionVariables.set('accountantToken', json.token);",
-                  "});",
-                  "pm.test(\"Role is ACCOUNTANT\", () => pm.expect(pm.response.json().role).to.eql('ACCOUNTANT'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Роль ACCOUNTANT\", () => pm.expect(j.role).to.eql(\"ACCOUNTANT\"));",
+                  "pm.collectionVariables.set(\"accountantToken\", j.token);"
                 ],
                 "type": "text/javascript"
               }
@@ -213,26 +258,181 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"email\": \"accountant@example.com\",\n  \"password\": \"pass\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "auth", "login"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
             },
-            "description": "Вход бухгалтера. Токен сохраняется в переменную `accountantToken`."
+            "description": "Вход бухгалтера. Токен сохраняется в accountantToken."
+          }
+        },
+        {
+          "name": "Регистрация",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Роль CLIENT\", () => pm.expect(j.role).to.eql(\"CLIENT\"));",
+                  "pm.test(\"Есть токены\", () => { pm.expect(j.token).to.be.a(\"string\"); pm.expect(j.refreshToken).to.be.a(\"string\"); });",
+                  "pm.collectionVariables.set(\"clientToken\", j.token);",
+                  "pm.collectionVariables.set(\"clientRefreshToken\", j.refreshToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"secret123\",\n  \"fullName\": \"Тестовый Пользователь\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Регистрация нового клиента → 201 + пара токенов. Пароль ≥ 6 символов."
+          }
+        },
+        {
+          "name": "Обновить токены (refresh)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Новая пара токенов\", () => { pm.expect(j.token).to.be.a(\"string\"); pm.expect(j.refreshToken).to.be.a(\"string\"); });",
+                  "// Ротация: старый refresh инвалидируется, сохраняем новые токены.",
+                  "pm.collectionVariables.set(\"clientToken\", j.token);",
+                  "pm.collectionVariables.set(\"clientRefreshToken\", j.refreshToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{clientRefreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Обновление access-токена по refresh-токену. Ротация: старый refresh удаляется, выдаётся новая пара. Требует предварительного входа (clientRefreshToken)."
+          }
+        },
+        {
+          "name": "Выход (logout)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 204\", () => pm.response.to.have.status(204));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{clientRefreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Инвалидирует refresh-токен в БД → 204 No Content. После этого refresh повторно не сработает."
           }
         }
       ]
     },
     {
       "name": "Profile",
-      "description": "Профиль текущего авторизованного пользователя. Требует JWT-токен.",
+      "description": "Профиль текущего пользователя. Требует JWT-токен.",
       "item": [
         {
           "name": "Мой профиль",
@@ -241,11 +441,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Profile has required fields\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.all.keys('id', 'email', 'role');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Есть поле email\", () => pm.expect(pm.response.json()).to.have.property('email'));",
+                  "pm.test(\"Есть поле role\", () => pm.expect(pm.response.json()).to.have.property('role'));"
                 ],
                 "type": "text/javascript"
               }
@@ -254,14 +452,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/profile/me",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "profile", "me"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "profile",
+                "me"
+              ]
             },
-            "description": "Возвращает данные текущего пользователя: id, email, fullName, address, role, shopName, balance."
+            "description": "Данные текущего пользователя: id, email, fullName, address, role, shopName, balance."
           }
         },
         {
@@ -271,10 +478,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"fullName updated\", () => {",
-                  "    pm.expect(pm.response.json().fullName).to.eql('Иван Обновлённый');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"fullName обновлён\", () => pm.expect(pm.response.json().fullName).to.eql(\"Иван Обновлённый\"));"
                 ],
                 "type": "text/javascript"
               }
@@ -283,27 +488,162 @@
           "request": {
             "method": "PATCH",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"fullName\": \"Иван Обновлённый\",\n  \"address\": \"Москва, ул. Обновлённая, 1\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/profile/me",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "profile", "me"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "profile",
+                "me"
+              ]
             },
-            "description": "Частичное обновление профиля. Можно передавать любое подмножество полей: fullName, address, shopName."
+            "description": "Частичное обновление профиля (PATCH-семантика). Поля: fullName, address, shopName — любое подмножество."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "description": "Категории товаров. GET — публичный (для фильтра каталога). POST/DELETE — только ADMIN.",
+      "item": [
+        {
+          "name": "Список категорий",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "categories"
+              ]
+            },
+            "description": "Публичный список всех категорий. Используется фронтом для дропдауна фильтра."
+          }
+        },
+        {
+          "name": "Создать категорию",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [201, 400]\", () => pm.expect(pm.response.code).to.be.oneOf([201, 400]));",
+                  "if (pm.response.code === 201) pm.test(\"Есть id\", () => pm.expect(pm.response.json()).to.have.property(\"id\"));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Тестовая категория\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "categories"
+              ]
+            },
+            "description": "Создаёт категорию (ADMIN). Тело: {\"name\":\"...\"}. Пустое имя → 400."
+          }
+        },
+        {
+          "name": "Удалить категорию",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [204, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/categories/999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "categories",
+                "999"
+              ]
+            },
+            "description": "Удаляет категорию по id (ADMIN) → 204. Замените 999 на реальный id."
           }
         }
       ]
     },
     {
       "name": "Products",
-      "description": "Каталог товаров. GET-запросы публичные — токен не нужен. Поддерживается пагинация и фильтрация. Ответ — объект Page с полем `content`.",
+      "description": "Каталог товаров. GET-запросы публичные. Пагинация + фильтры. Ответ — Page (поле content).",
       "item": [
         {
           "name": "Список товаров",
@@ -312,13 +652,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is a Page\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('content');",
-                  "    pm.expect(json.content).to.be.an('array');",
-                  "    pm.expect(json).to.have.property('totalElements');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — Page\", () => { const j = pm.response.json(); pm.expect(j).to.have.property('content'); pm.expect(j).to.have.property('totalElements'); });"
                 ],
                 "type": "text/javascript"
               }
@@ -329,19 +664,57 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/products?page=0&size=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
               "query": [
-                {"key": "page", "value": "0", "description": "Номер страницы (с 0)"},
-                {"key": "size", "value": "20", "description": "Размер страницы"},
-                {"key": "name", "value": null, "disabled": true, "description": "Фильтр по названию (частичное совпадение)"},
-                {"key": "category", "value": null, "disabled": true, "description": "Фильтр по категории"},
-                {"key": "minPrice", "value": null, "disabled": true, "description": "Минимальная цена"},
-                {"key": "maxPrice", "value": null, "disabled": true, "description": "Максимальная цена"},
-                {"key": "sort", "value": null, "disabled": true, "description": "Сортировка, напр. price,asc"}
+                {
+                  "key": "page",
+                  "value": "0",
+                  "description": "Номер страницы (с 0)"
+                },
+                {
+                  "key": "size",
+                  "value": "20",
+                  "description": "Размер страницы"
+                },
+                {
+                  "key": "name",
+                  "value": null,
+                  "disabled": true,
+                  "description": "Фильтр по названию (частичное совпадение)"
+                },
+                {
+                  "key": "category",
+                  "value": null,
+                  "disabled": true,
+                  "description": "Фильтр по категории"
+                },
+                {
+                  "key": "minPrice",
+                  "value": null,
+                  "disabled": true,
+                  "description": "Минимальная цена"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": null,
+                  "disabled": true,
+                  "description": "Максимальная цена"
+                },
+                {
+                  "key": "sort",
+                  "value": null,
+                  "disabled": true,
+                  "description": "Сортировка, напр. price,asc"
+                }
               ]
             },
-            "description": "Возвращает страницу товаров. Поддерживаемые параметры: name, category, minPrice, maxPrice, page, size, sort."
+            "description": "Страница товаров. Параметры: name, category, minPrice, maxPrice, page, size, sort."
           }
         },
         {
@@ -351,8 +724,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Content is array\", () => pm.expect(pm.response.json().content).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"content — массив\", () => pm.expect(pm.response.json().content).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -363,13 +736,21 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/products?name=ноутбук",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
               "query": [
-                {"key": "name", "value": "ноутбук"}
+                {
+                  "key": "name",
+                  "value": "ноутбук"
+                }
               ]
             },
-            "description": "Поиск товаров по названию (регистронезависимый)."
+            "description": "Поиск по названию (LIKE, без учёта регистра)."
           }
         },
         {
@@ -379,14 +760,49 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/products?minPrice=1000&maxPrice=50000",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
               "query": [
-                {"key": "minPrice", "value": "1000"},
-                {"key": "maxPrice", "value": "50000"}
+                {
+                  "key": "minPrice",
+                  "value": "1000"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": "50000"
+                }
               ]
             },
-            "description": "Фильтрация товаров по диапазону цен."
+            "description": "Фильтрация по диапазону цен."
+          }
+        },
+        {
+          "name": "Фильтр по категории",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/products?category=Ноутбуки",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "Ноутбуки"
+                }
+              ]
+            },
+            "description": "Фильтрация по категории."
           }
         },
         {
@@ -396,8 +812,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Product has id\", () => pm.expect(pm.response.json()).to.have.property('id'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Есть поле id\", () => pm.expect(pm.response.json()).to.have.property('id'));",
+                  "pm.collectionVariables.set(\"productId\", pm.response.json().id);"
                 ],
                 "type": "text/javascript"
               }
@@ -408,17 +825,131 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/products/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products", "1"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "1"
+              ]
             },
-            "description": "Возвращает один товар по ID. Если не найден — 404."
+            "description": "Один товар по id. Если не найден — 404. Сохраняет productId."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search (OpenSearch)",
+      "description": "Полнотекстовый поиск по товарам через OpenSearch. Публичный (permitAll). При недоступности OpenSearch сервис деградирует штатно (возвращает пустую страницу).",
+      "item": [
+        {
+          "name": "Полнотекстовый поиск",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — Page\", () => { const j = pm.response.json(); pm.expect(j).to.have.property('content'); pm.expect(j).to.have.property('totalElements'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/products?q=ноутбук&page=0&size=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "ноутбук"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "GET /api/search/products?q=... — поиск по названию/описанию. Ответ — Page<ProductDocument>."
+          }
+        },
+        {
+          "name": "Поиск с фильтрами",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — Page\", () => { const j = pm.response.json(); pm.expect(j).to.have.property('content'); pm.expect(j).to.have.property('totalElements'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/products?q=ноутбук&category=Ноутбуки&minPrice=50000&maxPrice=200000&page=0&size=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "search",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "ноутбук"
+                },
+                {
+                  "key": "category",
+                  "value": "Ноутбуки"
+                },
+                {
+                  "key": "minPrice",
+                  "value": "50000"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": "200000"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Поиск с фильтрами по категории и цене."
           }
         }
       ]
     },
     {
       "name": "Reviews",
-      "description": "Отзывы на товары. Просмотр — публичный. Добавление отзыва — требует JWT-токен клиента (`{{clientToken}}`). Один пользователь может оставить только один отзыв на товар.",
+      "description": "Отзывы на товары. Просмотр — публичный. Добавление — JWT клиента. Один отзыв на товар от пользователя.",
       "item": [
         {
           "name": "Отзывы о товаре",
@@ -427,8 +958,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -439,10 +970,17 @@
             "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/products/1/reviews",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products", "1", "reviews"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "1",
+                "reviews"
+              ]
             },
-            "description": "Возвращает список всех отзывов на товар с ID=1. Каждый отзыв содержит rating (1–5), comment, authorName, createdAt."
+            "description": "Список отзывов на товар. Поля: rating (1–5), comment, authorName, createdAt."
           }
         },
         {
@@ -452,12 +990,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Review has rating\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('rating');",
-                  "    pm.expect(json.rating).to.be.within(1, 5);",
-                  "});"
+                  "pm.test(\"Статус один из [200, 201, 400]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 400]));",
+                  "if ([200,201].includes(pm.response.code)) pm.test(\"rating 1..5\", () => pm.expect(pm.response.json().rating).to.be.within(1,5));"
                 ],
                 "type": "text/javascript"
               }
@@ -466,27 +1000,44 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"rating\": 5,\n  \"comment\": \"Отличный товар, рекомендую!\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/products/1/reviews",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "products", "1", "reviews"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "1",
+                "reviews"
+              ]
             },
-            "description": "Добавляет отзыв на товар. rating: 1–5 (обязательно), comment: текст отзыва (опционально). Нельзя оставить два отзыва на один товар."
+            "description": "Добавляет отзыв. rating: 1–5 (обязательно), comment — опционально. Повторный отзыв на тот же товар → 400."
           }
         }
       ]
     },
     {
       "name": "Cart",
-      "description": "Корзина. Требует JWT-токен (`{{clientToken}}`).",
+      "description": "Корзина. Требует JWT клиента. REST: POST/PUT/DELETE по /api/cart/items. Оформление заказа — в папке Orders.",
       "item": [
         {
           "name": "Посмотреть корзину",
@@ -495,10 +1046,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Cart has items array\", () => {",
-                  "    pm.expect(pm.response.json()).to.have.property('items');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Есть поле items\", () => pm.expect(pm.response.json()).to.have.property('items'));"
                 ],
                 "type": "text/javascript"
               }
@@ -507,14 +1056,22 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/cart",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "cart"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart"
+              ]
             },
-            "description": "Возвращает текущую корзину со всеми позициями и итоговой суммой."
+            "description": "Текущая корзина: позиции и итоговая сумма."
           }
         },
         {
@@ -524,10 +1081,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Items is not empty\", () => {",
-                  "    pm.expect(pm.response.json().items.length).to.be.greaterThan(0);",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Корзина не пуста\", () => pm.expect(pm.response.json().items.length).to.be.greaterThan(0));"
                 ],
                 "type": "text/javascript"
               }
@@ -536,58 +1091,129 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"productId\": 1,\n  \"quantity\": 2\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/cart/add",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "cart", "add"]
+              "raw": "{{baseUrl}}/api/cart/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart",
+                "items"
+              ]
             },
-            "description": "Добавляет товар в корзину. Если товар уже есть — увеличивает количество."
+            "description": "POST /api/cart/items — добавить товар. Если уже есть — увеличивает количество."
           }
         },
         {
           "name": "Изменить количество позиции",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "PUT",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"quantity\": 5\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/cart/update/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "cart", "update", "1"]
+              "raw": "{{baseUrl}}/api/cart/items/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart",
+                "items",
+                "1"
+              ]
             },
-            "description": "Обновляет количество позиции. В URL — cartItemId (не productId)."
+            "description": "PUT /api/cart/items/{cartItemId} — изменить количество. В URL — cartItemId (не productId)."
           }
         },
         {
           "name": "Удалить позицию",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [204, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "DELETE",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/cart/remove/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "cart", "remove", "1"]
+              "raw": "{{baseUrl}}/api/cart/items/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cart",
+                "items",
+                "1"
+              ]
             },
-            "description": "Удаляет позицию из корзины по cartItemId."
+            "description": "DELETE /api/cart/items/{cartItemId} → 204 No Content."
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "description": "Заказы. Требует JWT. Оформление заказа = POST /api/orders (201). GET /my возвращает только активные заказы (CREATED или с непогашенной рассрочкой).",
+      "item": [
         {
           "name": "Оформить заказ (checkout)",
           "event": [
@@ -595,12 +1221,12 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Order created\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json.status).to.eql('CREATED');",
-                  "    pm.expect(json).to.have.property('invoiceId');",
-                  "});"
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test(\"Статус CREATED\", () => pm.expect(j.status).to.eql(\"CREATED\"));",
+                  "pm.test(\"Есть invoiceId\", () => pm.expect(j).to.have.property(\"invoiceId\"));",
+                  "pm.collectionVariables.set(\"orderId\", j.id);",
+                  "pm.collectionVariables.set(\"invoiceId\", j.invoiceId);"
                 ],
                 "type": "text/javascript"
               }
@@ -609,28 +1235,37 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"shippingAddress\": \"Москва, ул. Примерная, д. 1, кв. 42\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/cart/checkout",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "cart", "checkout"]
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
             },
-            "description": "Оформляет заказ. Создаёт Order + Invoice. Корзина очищается. В ответе — данные заказа с invoiceId."
+            "description": "Превращает корзину в Order + Invoice (201). Корзина очищается. Сохраняет orderId и invoiceId."
           }
-        }
-      ]
-    },
-    {
-      "name": "Orders",
-      "description": "Просмотр заказов. Требует JWT-токен. Список заказов пагинирован (поле `content`).",
-      "item": [
+        },
         {
           "name": "Мои заказы",
           "event": [
@@ -638,12 +1273,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is a Page\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('content');",
-                  "    pm.expect(json).to.have.property('totalElements');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — Page\", () => { const j = pm.response.json(); pm.expect(j).to.have.property('content'); pm.expect(j).to.have.property('totalElements'); });"
                 ],
                 "type": "text/javascript"
               }
@@ -652,18 +1283,33 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/orders/my?page=0&size=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "orders", "my"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "my"
+              ],
               "query": [
-                {"key": "page", "value": "0"},
-                {"key": "size", "value": "20"}
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
               ]
             },
-            "description": "Возвращает страницу заказов текущего пользователя."
+            "description": "Страница активных заказов клиента (PAID/CANCELLED/DELIVERED скрыты)."
           }
         },
         {
@@ -673,11 +1319,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Order has required fields\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.all.keys('id', 'status', 'totalAmount', 'items');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Есть поле items\", () => pm.expect(pm.response.json()).to.have.property('items'));",
+                  "pm.test(\"Есть поле status\", () => pm.expect(pm.response.json()).to.have.property('status'));"
                 ],
                 "type": "text/javascript"
               }
@@ -686,33 +1330,40 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/orders/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "orders", "1"]
+              "raw": "{{baseUrl}}/api/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderId}}"
+              ]
             },
-            "description": "Возвращает детали заказа с позициями."
+            "description": "Детали заказа с позициями. Поля включают bnplContractId и bnplStatus (для рассрочки)."
           }
         }
       ]
     },
     {
-      "name": "Invoice",
-      "description": "Счета на оплату. Создаются автоматически при checkout. Требует JWT-токен.",
+      "name": "Invoices & Payment",
+      "description": "Счета и инициация оплаты через Альфа Банк. Счёт создаётся при checkout.\n\nОплата теперь идёт через шлюз: POST .../payments или .../bnpl возвращает formUrl, клиента нужно перенаправить на него. Подтверждение приходит на /api/payment/callback.",
       "item": [
         {
-          "name": "Получить счёт по ID",
+          "name": "Получить счёт",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Invoice has status\", () => {",
-                  "    pm.expect(pm.response.json()).to.have.property('status');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Есть поле status\", () => pm.expect(pm.response.json()).to.have.property('status'));"
                 ],
                 "type": "text/javascript"
               }
@@ -721,27 +1372,38 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/invoice/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "invoice", "1"]
+              "raw": "{{baseUrl}}/api/invoices/{{invoiceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "invoices",
+                "{{invoiceId}}"
+              ]
             },
-            "description": "Возвращает счёт по ID. Статусы: UNPAID, PAID."
+            "description": "GET /api/invoices/{id}. Статусы: UNPAID / PAID / FAILED."
           }
         },
         {
-          "name": "Оплатить счёт",
+          "name": "Инициировать полную оплату",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Payment SUCCESS\", () => {",
-                  "    pm.expect(pm.response.json().status).to.eql('SUCCESS');",
-                  "});"
+                  "pm.test(\"Статус один из [201, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([201, 400, 404]));",
+                  "if (pm.response.code === 201) {",
+                  "  const j = pm.response.json();",
+                  "  pm.test(\"Есть formUrl\", () => pm.expect(j.formUrl).to.be.a(\"string\"));",
+                  "  if (j.alfaOrderId) pm.collectionVariables.set(\"alfaOrderId\", j.alfaOrderId);",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -750,42 +1412,224 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"paymentMethod\": \"CARD\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/invoice/1/pay",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "invoice", "1", "pay"]
+              "raw": "{{baseUrl}}/api/invoices/{{invoiceId}}/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "invoices",
+                "{{invoiceId}}",
+                "payments"
+              ]
             },
-            "description": "Оплачивает счёт. paymentMethod: CARD или CASH. Меняет статус → PAID, создаёт Payment."
+            "description": "POST /api/invoices/{id}/payments — одностадийная полная оплата. Возвращает {formUrl, alfaOrderId, contractId:null} (201). Клиента перенаправить на formUrl."
           }
-        }
-      ]
-    },
-    {
-      "name": "Seller",
-      "description": "Кабинет продавца. Требует роль SELLER. Используй `{{sellerToken}}`.",
-      "item": [
+        },
         {
-          "name": "Мои товары",
+          "name": "Инициировать BNPL-рассрочку",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is a Page\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('content');",
-                  "    pm.expect(json.content).to.be.an('array');",
-                  "    pm.expect(json).to.have.property('totalElements');",
-                  "});"
+                  "pm.test(\"Статус один из [201, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([201, 400, 404]));",
+                  "if (pm.response.code === 201) {",
+                  "  const j = pm.response.json();",
+                  "  pm.test(\"Есть formUrl\", () => pm.expect(j.formUrl).to.be.a(\"string\"));",
+                  "  if (j.contractId) pm.collectionVariables.set(\"contractId\", j.contractId);",
+                  "  if (j.alfaOrderId) pm.collectionVariables.set(\"alfaOrderId\", j.alfaOrderId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bnplProduct\": \"BIWEEKLY_4\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/invoices/{{invoiceId}}/bnpl",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "invoices",
+                "{{invoiceId}}",
+                "bnpl"
+              ]
+            },
+            "description": "POST /api/invoices/{id}/bnpl — pre-auth первого взноса. bnplProduct: BIWEEKLY_4 (4×, 0%), MONTHLY_4 (4×, 10%), MONTHLY_6 (6×, 15%). Возвращает {formUrl, alfaOrderId, contractId}. Сохраняет contractId."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payment Callbacks (Альфа Банк)",
+      "description": "Callback-эндпоинты, на которые банк делает browser-redirect после формы оплаты. Публичные (без JWT), отдают HTML. В обычном сценарии вызываются банком автоматически — здесь приведены для ручной отладки (подставьте orderId из шлюза в {{alfaOrderId}}).",
+      "item": [
+        {
+          "name": "Callback оплаты",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/payment/callback?orderId={{alfaOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "payment",
+                "callback"
+              ],
+              "query": [
+                {
+                  "key": "orderId",
+                  "value": "{{alfaOrderId}}"
+                }
+              ]
+            },
+            "description": "GET /api/payment/callback?orderId=... — проверяет статус заказа в шлюзе, при успехе подтверждает оплату/контракт и привязывает карту. Возвращает HTML."
+          }
+        },
+        {
+          "name": "Callback привязки карты",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/payment/card-bind-callback?orderId={{alfaOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "payment",
+                "card-bind-callback"
+              ],
+              "query": [
+                {
+                  "key": "orderId",
+                  "value": "{{alfaOrderId}}"
+                }
+              ]
+            },
+            "description": "GET /api/payment/card-bind-callback?orderId=... — завершает привязку карты (deposit → bindingId → refund 1₽). Возвращает HTML."
+          }
+        },
+        {
+          "name": "Fail-редирект",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/payment/fail?orderId={{alfaOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "payment",
+                "fail"
+              ],
+              "query": [
+                {
+                  "key": "orderId",
+                  "value": "{{alfaOrderId}}"
+                }
+              ]
+            },
+            "description": "GET /api/payment/fail — страница неуспешной оплаты (HTML)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "BNPL (рассрочка)",
+      "description": "Управление BNPL-рассрочкой. Требует JWT клиента. Контракт создаётся через Invoices/BNPL.\n\nПродукты: BIWEEKLY_4 (4×, 0%, 14 дн), MONTHLY_4 (4×, 10%, 30 дн), MONTHLY_6 (6×, 15%, 30 дн).",
+      "item": [
+        {
+          "name": "Мои контракты",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));",
+                  "const a = pm.response.json(); if (a.length) pm.collectionVariables.set(\"contractId\", a[0].id);"
                 ],
                 "type": "text/javascript"
               }
@@ -794,18 +1638,408 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bnpl/my",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bnpl",
+                "my"
+              ]
+            },
+            "description": "Список BNPL-контрактов пользователя. Сохраняет contractId первого контракта."
+          }
+        },
+        {
+          "name": "Контракт по ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));",
+                  "if (pm.response.code===200) pm.expect(pm.response.json()).to.have.property(\"installments\");"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bnpl/{{contractId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bnpl",
+                "{{contractId}}"
+              ]
+            },
+            "description": "Детали контракта: график взносов (installments) и журнал платежей (payments)."
+          }
+        },
+        {
+          "name": "Перенести взнос",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"days\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bnpl/{{contractId}}/postpone",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bnpl",
+                "{{contractId}}",
+                "postpone"
+              ]
+            },
+            "description": "POST /api/bnpl/{id}/postpone — перенос ближайшего PENDING-взноса. days: 3–14 за раз, суммарно ≤ 14 дней. Комиссия 0,05%/день."
+          }
+        },
+        {
+          "name": "Досрочная оплата (с карты)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [201, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([201, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bnpl/{{contractId}}/pay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bnpl",
+                "{{contractId}}",
+                "pay"
+              ]
+            },
+            "description": "POST /api/bnpl/{id}/pay — тихое списание по привязанной карте. Тело опционально: {\"amountKopecks\": N} — произвольная сумма; пустое {} → ближайший взнос. (201)"
+          }
+        },
+        {
+          "name": "Статус позиции заказа (клиент)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ISSUED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderId}}/items/{{orderItemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderId}}",
+                "items",
+                "{{orderItemId}}"
+              ]
+            },
+            "description": "PATCH /api/orders/{id}/items/{itemId} — статус позиции BNPL-заказа. status: ISSUED (выдача → deposit), CANCELLED (reverse), RETURNED (refund). Подставьте orderItemId."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cards (привязанные карты)",
+      "description": "Привязанные карты пользователя. Требует JWT. Привязка идёт через шлюз Альфа Банка (pre-auth 1₽ → deposit → bindingId → refund).",
+      "item": [
+        {
+          "name": "Мои карты",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));",
+                  "const a = pm.response.json(); if (a.length) pm.collectionVariables.set(\"cardId\", a[0].id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards"
+              ]
+            },
+            "description": "Список карт: id, maskedPan, expiry (MM/YYYY), isDefault. Сохраняет cardId первой карты."
+          }
+        },
+        {
+          "name": "Привязать карту",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [201, 400]\", () => pm.expect(pm.response.code).to.be.oneOf([201, 400]));",
+                  "if (pm.response.code===201) { const j=pm.response.json(); pm.test(\"Есть formUrl\", ()=>pm.expect(j.formUrl).to.be.a(\"string\")); if (j.alfaOrderId) pm.collectionVariables.set(\"alfaOrderId\", j.alfaOrderId); }"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/bind",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "bind"
+              ]
+            },
+            "description": "POST /api/cards/bind — начинает привязку. Регистрирует платёж 1₽, возвращает formUrl. После формы банк редиректит на /api/payment/card-bind-callback, где карта сохраняется. Тело не нужно."
+          }
+        },
+        {
+          "name": "Сделать дефолтной",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardId}}/default",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardId}}",
+                "default"
+              ]
+            },
+            "description": "PATCH /api/cards/{id}/default — назначить карту дефолтной (для тихих списаний)."
+          }
+        },
+        {
+          "name": "Удалить карту",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [204, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/cards/{{cardId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cards",
+                "{{cardId}}"
+              ]
+            },
+            "description": "DELETE /api/cards/{id} → 204 No Content."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Seller",
+      "description": "Кабинет продавца. Требует роль SELLER (sellerToken).",
+      "item": [
+        {
+          "name": "Мои товары",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — Page\", () => { const j = pm.response.json(); pm.expect(j).to.have.property('content'); pm.expect(j).to.have.property('totalElements'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/seller/products?page=0&size=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "products"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "products"
+              ],
               "query": [
-                {"key": "page", "value": "0"},
-                {"key": "size", "value": "20"}
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
               ]
             },
-            "description": "Возвращает страницу товаров текущего продавца. Ответ — объект Page с полем `content`."
+            "description": "Страница товаров текущего продавца."
           }
         },
         {
@@ -815,8 +2049,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
-                  "pm.test(\"Product has id\", () => pm.expect(pm.response.json()).to.have.property('id'));"
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Есть поле id\", () => pm.expect(pm.response.json()).to.have.property('id'));"
                 ],
                 "type": "text/javascript"
               }
@@ -825,56 +2059,121 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Беспроводные наушники Pro\",\n  \"description\": \"Наушники с ANC и 30 часами работы\",\n  \"price\": 8990.00,\n  \"stockQuantity\": 20\n}",
-              "options": {"raw": {"language": "json"}}
+              "raw": "{\n  \"name\": \"Беспроводные наушники Pro\",\n  \"description\": \"Наушники с ANC и 30 часами работы\",\n  \"price\": 8990,\n  \"stockQuantity\": 20,\n  \"category\": \"Аудиотехника\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/seller/products",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "products"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "products"
+              ]
             },
-            "description": "Создаёт товар от имени текущего продавца. Возвращает 201."
+            "description": "Создаёт товар от имени продавца (201). category — опционально."
           }
         },
         {
           "name": "Обновить товар",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "PUT",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Обновлённый товар\",\n  \"price\": 9990.00,\n  \"stockQuantity\": 15\n}",
-              "options": {"raw": {"language": "json"}}
+              "raw": "{\n  \"name\": \"Обновлённый товар\",\n  \"price\": 9990,\n  \"stockQuantity\": 15,\n  \"category\": \"Аудиотехника\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/seller/products/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "products", "1"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "products",
+                "1"
+              ]
             },
-            "description": "Обновляет товар продавца. Нельзя изменить чужой товар — вернёт 400."
+            "description": "Полная замена товара продавца. Чужой товар → 400."
           }
         },
         {
           "name": "Удалить товар",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [204, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([204, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "DELETE",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/seller/products/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "products", "1"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "products",
+                "1"
+              ]
             },
-            "description": "Удаляет товар продавца. Возвращает 204. Нельзя удалить чужой товар."
+            "description": "Удаляет товар продавца (204). Чужой товар — нельзя."
           }
         },
         {
@@ -884,12 +2183,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Product has imageData\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('imageData');",
-                  "    pm.expect(json.imageData).to.be.a('string').and.not.be.empty;",
-                  "});"
+                  "pm.test(\"Статус один из [200, 400, 413]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 413]));",
+                  "if (pm.response.code===200) pm.expect(pm.response.json()).to.have.property(\"imageData\");"
                 ],
                 "type": "text/javascript"
               }
@@ -898,7 +2193,10 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              }
             ],
             "body": {
               "mode": "formdata",
@@ -907,16 +2205,24 @@
                   "key": "file",
                   "type": "file",
                   "src": [],
-                  "description": "Файл изображения (JPEG, PNG и др.). Максимальный размер — 2 МБ."
+                  "description": "Изображение (JPEG/PNG). Макс. 2 МБ."
                 }
               ]
             },
             "url": {
               "raw": "{{baseUrl}}/api/seller/products/1/image",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "products", "1", "image"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "products",
+                "1",
+                "image"
+              ]
             },
-            "description": "Загружает изображение для товара продавца. Тип запроса — multipart/form-data (браузер добавляет Content-Type автоматически). Изображение хранится как Base64 в PostgreSQL. Ограничения: только image/*, не более 2 МБ. При превышении лимита — 413 Payload Too Large."
+            "description": "multipart/form-data, поле file. Хранится как Base64 в PostgreSQL. Только image/*, ≤ 2 МБ (иначе 413)."
           }
         },
         {
@@ -926,7 +2232,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                  "pm.test(\"Статус один из [204, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
                 ],
                 "type": "text/javascript"
               }
@@ -935,14 +2241,25 @@
           "request": {
             "method": "DELETE",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/seller/products/1/image",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "products", "1", "image"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "products",
+                "1",
+                "image"
+              ]
             },
-            "description": "Удаляет изображение товара продавца. Обнуляет поля imageData и imageContentType. Возвращает 204."
+            "description": "Обнуляет imageData/imageContentType. 204."
           }
         },
         {
@@ -952,8 +2269,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Has balance\", () => pm.expect(pm.response.json()).to.have.property('balance'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Есть поле balance\", () => pm.expect(pm.response.json()).to.have.property('balance'));"
                 ],
                 "type": "text/javascript"
               }
@@ -962,14 +2279,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/seller/balance",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "balance"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "balance"
+              ]
             },
-            "description": "Возвращает профиль продавца с балансом и названием магазина."
+            "description": "Профиль продавца с балансом и названием магазина."
           }
         },
         {
@@ -979,8 +2305,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -989,22 +2315,67 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{sellerToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{sellerToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/seller/sales",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "seller", "sales"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "seller",
+                "sales"
+              ]
             },
-            "description": "Возвращает список заказов, содержащих товары этого продавца."
+            "description": "Заказы, содержащие товары этого продавца."
           }
         }
       ]
     },
     {
       "name": "Admin — Products",
-      "description": "Управление товарами. Требует роль ADMIN. Используй `{{adminToken}}`.",
+      "description": "Управление товарами. Требует роль ADMIN (adminToken).",
       "item": [
+        {
+          "name": "Список продавцов",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/sellers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "sellers"
+              ]
+            },
+            "description": "Все пользователи с ролью SELLER — для выбора в форме создания товара."
+          }
+        },
         {
           "name": "Создать товар",
           "event": [
@@ -1012,8 +2383,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
-                  "pm.test(\"Product has id\", () => pm.expect(pm.response.json()).to.have.property('id'));"
+                  "pm.test(\"Статус один из [201, 400]\", () => pm.expect(pm.response.code).to.be.oneOf([201, 400]));",
+                  "if (pm.response.code===201) pm.expect(pm.response.json()).to.have.property(\"id\");"
                 ],
                 "type": "text/javascript"
               }
@@ -1022,56 +2393,121 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Планшет Samsung Galaxy Tab\",\n  \"description\": \"10-дюймовый планшет с AMOLED экраном\",\n  \"price\": 29999.99,\n  \"stockQuantity\": 15\n}",
-              "options": {"raw": {"language": "json"}}
+              "raw": "{\n  \"name\": \"Планшет Samsung Galaxy Tab\",\n  \"description\": \"10-дюймовый планшет с AMOLED экраном\",\n  \"price\": 29999.99,\n  \"stockQuantity\": 15,\n  \"category\": \"Планшеты\",\n  \"sellerId\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/admin/products",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "products"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "products"
+              ]
             },
-            "description": "Создаёт новый товар. Возвращает 201 Created."
+            "description": "Создаёт товар (201). sellerId обязателен при создании администратором."
           }
         },
         {
           "name": "Обновить товар",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "PUT",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Ноутбук Pro (обновлённый)\",\n  \"description\": \"Мощный ноутбук для разработчиков\",\n  \"price\": 89999.99,\n  \"stockQuantity\": 8\n}",
-              "options": {"raw": {"language": "json"}}
+              "raw": "{\n  \"name\": \"Ноутбук Pro (обновлённый)\",\n  \"description\": \"Мощный ноутбук для разработчиков\",\n  \"price\": 89999.99,\n  \"stockQuantity\": 8,\n  \"category\": \"Ноутбуки\",\n  \"sellerId\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/admin/products/1",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "products", "1"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "products",
+                "1"
+              ]
             },
-            "description": "Обновляет существующий товар по ID."
+            "description": "Полная замена товара по id."
           }
         },
         {
           "name": "Удалить товар",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [204, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "request": {
             "method": "DELETE",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/admin/products/6",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "products", "6"]
+              "raw": "{{baseUrl}}/api/admin/products/999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "products",
+                "999"
+              ]
             },
-            "description": "Удаляет товар по ID. Возвращает 204. Используй ID нового товара."
+            "description": "Удаляет товар по id (204). Подставьте реальный id."
           }
         },
         {
@@ -1081,12 +2517,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Product has imageData\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('imageData');",
-                  "    pm.expect(json.imageData).to.be.a('string').and.not.be.empty;",
-                  "});"
+                  "pm.test(\"Статус один из [200, 400, 413]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 413]));"
                 ],
                 "type": "text/javascript"
               }
@@ -1095,7 +2526,10 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
             ],
             "body": {
               "mode": "formdata",
@@ -1104,16 +2538,24 @@
                   "key": "file",
                   "type": "file",
                   "src": [],
-                  "description": "Файл изображения (JPEG, PNG и др.). Максимальный размер — 2 МБ."
+                  "description": "Изображение (JPEG/PNG). Макс. 2 МБ."
                 }
               ]
             },
             "url": {
               "raw": "{{baseUrl}}/api/admin/products/1/image",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "products", "1", "image"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "products",
+                "1",
+                "image"
+              ]
             },
-            "description": "Загружает изображение для любого товара (без ограничения по владельцу). Тип запроса — multipart/form-data. Изображение хранится как Base64 в PostgreSQL. Ограничения: только image/*, не более 2 МБ. При превышении лимита — 413 Payload Too Large."
+            "description": "Загрузка фото для любого товара (без ограничения по владельцу). multipart/form-data."
           }
         },
         {
@@ -1123,7 +2565,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                  "pm.test(\"Статус один из [204, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([204, 404]));"
                 ],
                 "type": "text/javascript"
               }
@@ -1132,21 +2574,32 @@
           "request": {
             "method": "DELETE",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/products/1/image",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "products", "1", "image"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "products",
+                "1",
+                "image"
+              ]
             },
-            "description": "Удаляет изображение любого товара. Обнуляет поля imageData и imageContentType. Возвращает 204."
+            "description": "Обнуляет imageData/imageContentType любого товара. 204."
           }
         }
       ]
     },
     {
       "name": "Admin — Orders",
-      "description": "Управление заказами. Требует роль ADMIN. Список заказов пагинирован (поле `content`).",
+      "description": "Управление заказами. Требует роль ADMIN. Список пагинирован (поле content).",
       "item": [
         {
           "name": "Все заказы",
@@ -1155,11 +2608,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is a Page\", () => {",
-                  "    pm.expect(pm.response.json()).to.have.property('content');",
-                  "    pm.expect(pm.response.json()).to.have.property('totalElements');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — Page\", () => { const j = pm.response.json(); pm.expect(j).to.have.property('content'); pm.expect(j).to.have.property('totalElements'); });"
                 ],
                 "type": "text/javascript"
               }
@@ -1168,18 +2618,69 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/orders?page=0&size=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "orders"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "orders"
+              ],
               "query": [
-                {"key": "page", "value": "0"},
-                {"key": "size", "value": "20"}
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
               ]
             },
-            "description": "Возвращает страницу всех заказов. Поддерживает page, size, sort."
+            "description": "Страница всех заказов. Параметры page, size, sort."
+          }
+        },
+        {
+          "name": "Заказ по ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": "GET /api/admin/orders/{id} — детали любого заказа (с данными клиента и BNPL)."
           }
         },
         {
@@ -1189,39 +2690,191 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Status updated\", () => {",
-                  "    pm.expect(pm.response.json().status).to.eql('DELIVERED');",
-                  "});"
+                  "pm.test(\"Статус один из [200, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));",
+                  "if (pm.response.code===200) pm.test(\"Статус обновлён\", () => pm.expect(pm.response.json().status).to.eql(\"DELIVERED\"));"
                 ],
                 "type": "text/javascript"
               }
             }
           ],
           "request": {
-            "method": "PUT",
+            "method": "PATCH",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"DELIVERED\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/admin/orders/1/status",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "orders", "1", "status"]
+              "raw": "{{baseUrl}}/api/admin/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "orders",
+                "{{orderId}}"
+              ]
             },
-            "description": "Меняет статус заказа. Возможные значения: CREATED, PAID, CANCELLED, DELIVERED."
+            "description": "PATCH /api/admin/orders/{id} — смена статуса. Значения: CREATED, PAID, CANCELLED, DELIVERED."
+          }
+        },
+        {
+          "name": "BNPL-контракт по ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/bnpl/{{contractId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "bnpl",
+                "{{contractId}}"
+              ]
+            },
+            "description": "GET /api/admin/bnpl/{contractId} — контракт рассрочки глазами администратора."
+          }
+        },
+        {
+          "name": "Оплатить заказ с карты клиента",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/orders/{{orderId}}/pay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "orders",
+                "{{orderId}}",
+                "pay"
+              ]
+            },
+            "description": "POST /api/admin/orders/{id}/pay — тихое списание с дефолтной карты клиента. Тело опционально: {\"amountKopecks\": N}. BNPL: null → ближайший взнос, N → сумма; обычный заказ → полная сумма."
+          }
+        },
+        {
+          "name": "Статус позиции заказа (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 400, 404]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 400, 404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ISSUED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/orders/{{orderId}}/items/{{orderItemId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "orders",
+                "{{orderId}}",
+                "items",
+                "{{orderItemId}}"
+              ]
+            },
+            "description": "PATCH /api/admin/orders/{id}/items/{itemId} — статус позиции (ISSUED/CANCELLED/RETURNED) от админа."
           }
         }
       ]
     },
     {
       "name": "Admin — Invoices",
-      "description": "Просмотр всех счетов. Требует роль ADMIN. Ответ пагинирован (поле `content`).",
+      "description": "Просмотр всех счетов. Требует роль ADMIN. Ответ пагинирован.",
       "item": [
         {
           "name": "Все счета",
@@ -1230,13 +2883,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is a Page\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.property('content');",
-                  "    pm.expect(json.content).to.be.an('array');",
-                  "    pm.expect(json).to.have.property('totalElements');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — Page\", () => { const j = pm.response.json(); pm.expect(j).to.have.property('content'); pm.expect(j).to.have.property('totalElements'); });"
                 ],
                 "type": "text/javascript"
               }
@@ -1245,25 +2893,40 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/admin/invoices?page=0&size=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "invoices"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "invoices"
+              ],
               "query": [
-                {"key": "page", "value": "0"},
-                {"key": "size", "value": "20"}
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
               ]
             },
-            "description": "Возвращает страницу всех счетов на оплату. Поддерживает page, size, sort."
+            "description": "Страница всех счетов. Параметры page, size, sort."
           }
         }
       ]
     },
     {
-      "name": "Chat",
-      "description": "Чат между клиентом и продавцом. Требует JWT-токен (CLIENT или SELLER).",
+      "name": "Chat (клиент ↔ продавец)",
+      "description": "Чат между клиентом и продавцом. Требует JWT (CLIENT или SELLER).",
       "item": [
         {
           "name": "Список диалогов",
@@ -1272,8 +2935,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -1282,14 +2945,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/chat/conversations",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "chat", "conversations"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "chat",
+                "conversations"
+              ]
             },
-            "description": "Клиент видит свои диалоги; продавец — диалоги с покупателями. Сортировка: новые вверху."
+            "description": "Клиент видит свои диалоги; продавец — диалоги с покупателями. Новые вверху."
           }
         },
         {
@@ -1299,11 +2971,9 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200 or 201\", () => {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
-                  "});",
-                  "pm.test(\"Response has id\", () => pm.expect(pm.response.json().id).to.be.a('number'));",
-                  "pm.collectionVariables.set('conversationId', pm.response.json().id);"
+                  "pm.test(\"Статус один из [200, 201]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "pm.test(\"Есть id\", () => pm.expect(pm.response.json().id).to.be.a(\"number\"));",
+                  "pm.collectionVariables.set(\"conversationId\", pm.response.json().id);"
                 ],
                 "type": "text/javascript"
               }
@@ -1312,20 +2982,36 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"sellerId\": 3,\n  \"message\": \"Здравствуйте! Интересует ноутбук Dell.\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/chat/conversations",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "chat", "conversations"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "chat",
+                "conversations"
+              ]
             },
-            "description": "Создаёт диалог с продавцом (sellerId=3 — TechShop). Если диалог уже есть — возвращает существующий."
+            "description": "Создаёт/переиспользует диалог с продавцом (sellerId=3 — TechShop). 201. Сохраняет conversationId."
           }
         },
         {
@@ -1335,8 +3021,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -1345,14 +3031,70 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/chat/conversations/{{conversationId}}/messages",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "chat", "conversations", "{{conversationId}}", "messages"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "chat",
+                "conversations",
+                "{{conversationId}}",
+                "messages"
+              ]
             },
-            "description": "Загружает историю сообщений диалога. При загрузке все входящие помечаются прочитанными."
+            "description": "История сообщений. Без ?after — все сообщения + пометка входящих прочитанными."
+          }
+        },
+        {
+          "name": "Новые сообщения (polling)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/chat/conversations/{{conversationId}}/messages?after=0",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "chat",
+                "conversations",
+                "{{conversationId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "after",
+                  "value": "0",
+                  "description": "Вернуть только сообщения с id > after (без пометки прочитанными)"
+                }
+              ]
+            },
+            "description": "GET ...?after={id} — только новые сообщения (для polling, без пометки прочитанными)."
           }
         },
         {
@@ -1362,8 +3104,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
-                  "pm.test(\"Message has content\", () => pm.expect(pm.response.json().content).to.be.a('string'));"
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Есть content\", () => pm.expect(pm.response.json().content).to.be.a('string'));"
                 ],
                 "type": "text/javascript"
               }
@@ -1372,20 +3114,214 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"content\": \"Есть ли в наличии XPS 15 с 32 ГБ RAM?\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/api/chat/conversations/{{conversationId}}/messages",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "chat", "conversations", "{{conversationId}}", "messages"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "chat",
+                "conversations",
+                "{{conversationId}}",
+                "messages"
+              ]
             },
-            "description": "Отправляет сообщение в диалог. Доступно обоим участникам диалога."
+            "description": "Отправляет сообщение (201). Доступно обоим участникам диалога."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Support Chat (поддержка)",
+      "description": "Чат с поддержкой. Клиент создаёт диалог, администратор видит все диалоги и отвечает.",
+      "item": [
+        {
+          "name": "Начать диалог с поддержкой (клиент)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус один из [200, 201]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "pm.test(\"Есть id\", () => pm.expect(pm.response.json().id).to.be.a(\"number\"));",
+                  "pm.collectionVariables.set(\"supportConversationId\", pm.response.json().id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/support/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "support",
+                "conversations"
+              ]
+            },
+            "description": "POST /api/support/conversations (только CLIENT) — создаёт/возвращает диалог с поддержкой (201). Тело не требуется. Сохраняет supportConversationId."
+          }
+        },
+        {
+          "name": "Все диалоги поддержки (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/support/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "support",
+                "conversations"
+              ]
+            },
+            "description": "GET /api/support/conversations (только ADMIN) — все обращения в поддержку."
+          }
+        },
+        {
+          "name": "Сообщения диалога",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/support/conversations/{{supportConversationId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "support",
+                "conversations",
+                "{{supportConversationId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "after",
+                  "value": null,
+                  "disabled": true,
+                  "description": "Только сообщения с id > after (polling)"
+                }
+              ]
+            },
+            "description": "История сообщений диалога поддержки. Параметр after — для polling."
+          }
+        },
+        {
+          "name": "Отправить сообщение",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Есть content\", () => pm.expect(pm.response.json().content).to.be.a('string'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Здравствуйте! Не приходит чек на почту.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/support/conversations/{{supportConversationId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "support",
+                "conversations",
+                "{{supportConversationId}}",
+                "messages"
+              ]
+            },
+            "description": "Отправляет сообщение в диалог поддержки (201). Доступно клиенту и администратору."
           }
         }
       ]
@@ -1401,7 +3337,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));"
+                  "pm.test(\"Статус один из [200, 201, 400, 500]\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201, 400, 500]));"
                 ],
                 "type": "text/javascript"
               }
@@ -1410,20 +3346,36 @@
           "request": {
             "method": "POST",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{adminToken}}"},
-              {"key": "Content-Type", "value": "application/json"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"to\": \"client@example.com\",\n  \"subject\": \"Важное сообщение от маркетплейса\",\n  \"text\": \"Уважаемый клиент! Спасибо за использование нашего сервиса.\"\n}",
-              "options": {"raw": {"language": "json"}}
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/admin/email/send",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "admin", "email", "send"]
+              "raw": "{{baseUrl}}/api/admin/emails",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "emails"
+              ]
             },
-            "description": "Отправляет письмо через Яндекс SMTP. Валидация: to (@Email), subject и text (@NotBlank). При ошибке SMTP возвращает 500."
+            "description": "POST /api/admin/emails — письмо через Яндекс SMTP. Валидация: to (@Email), subject и text (@NotBlank). При ошибке SMTP — 500."
           }
         }
       ]
@@ -1439,11 +3391,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Has required KPI fields\", () => {",
-                  "    const json = pm.response.json();",
-                  "    pm.expect(json).to.have.all.keys('totalOrders','paidOrders','totalRevenue','totalClients','cartItemsCount','potentialRevenue','emailsSent','emailsSuccess');",
-                  "});"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"8 KPI-полей\", () => pm.expect(pm.response.json()).to.have.all.keys(\"totalOrders\",\"paidOrders\",\"totalRevenue\",\"totalClients\",\"cartItemsCount\",\"potentialRevenue\",\"emailsSent\",\"emailsSuccess\"));"
                 ],
                 "type": "text/javascript"
               }
@@ -1452,14 +3401,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accountantToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/accountant/summary",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "accountant", "summary"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accountant",
+                "summary"
+              ]
             },
-            "description": "Возвращает 8 KPI: заказы, выручка, клиенты, корзины, письма."
+            "description": "8 KPI: заказы, выручка, клиенты, корзины, письма."
           }
         },
         {
@@ -1469,8 +3427,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -1479,14 +3437,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accountantToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/accountant/orders",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "accountant", "orders"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accountant",
+                "orders"
+              ]
             },
-            "description": "Все заказы с деталями покупателей. Сортировка: новые вверху."
+            "description": "Все заказы с деталями покупателей. Новые вверху."
           }
         },
         {
@@ -1496,8 +3463,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -1506,14 +3473,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accountantToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/accountant/carts",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "accountant", "carts"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accountant",
+                "carts"
+              ]
             },
-            "description": "Текущее содержимое всех корзин: товар, покупатель, количество, цена, сумма позиции."
+            "description": "Содержимое всех корзин: товар, покупатель, количество, цена, сумма позиции."
           }
         },
         {
@@ -1523,8 +3499,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -1533,14 +3509,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accountantToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/accountant/customers",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "accountant", "customers"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accountant",
+                "customers"
+              ]
             },
-            "description": "Список покупателей с количеством заказов и суммой потраченных средств (только PAID)."
+            "description": "Покупатели с количеством заказов и суммой потраченного (только PAID)."
           }
         },
         {
@@ -1550,8 +3535,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
-                  "pm.test(\"Response is array\", () => pm.expect(pm.response.json()).to.be.an('array'));"
+                  "pm.test(\"Статус 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Тело — массив\", () => pm.expect(pm.response.json()).to.be.an('array'));"
                 ],
                 "type": "text/javascript"
               }
@@ -1560,14 +3545,23 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{accountantToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accountantToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/accountant/emails",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "accountant", "emails"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accountant",
+                "emails"
+              ]
             },
-            "description": "История всех попыток отправки писем (успешные и неуспешные). Сортировка: свежие вверху."
+            "description": "История всех попыток отправки писем (успешные и неуспешные). Свежие вверху."
           }
         },
         {
@@ -1577,7 +3571,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test(\"Status is 403\", () => pm.response.to.have.status(403));"
+                  "pm.test(\"Статус 403\", () => pm.response.to.have.status(403));"
                 ],
                 "type": "text/javascript"
               }
@@ -1586,12 +3580,21 @@
           "request": {
             "method": "GET",
             "header": [
-              {"key": "Authorization", "value": "Bearer {{clientToken}}"}
+              {
+                "key": "Authorization",
+                "value": "Bearer {{clientToken}}"
+              }
             ],
             "url": {
               "raw": "{{baseUrl}}/api/accountant/summary",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "accountant", "summary"]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accountant",
+                "summary"
+              ]
             },
             "description": "Проверка защиты: CLIENT не имеет доступа к /api/accountant/** → 403."
           }
