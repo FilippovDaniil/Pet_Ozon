@@ -379,6 +379,43 @@ paymentOrderBinding.do(mdOrder, amount, bindingId, ip=127.0.0.1, tii=U)  // tii=
 - Без `tii=U` связка категории "C" требует CVC, а с CVC — ещё и 3DS (acsUrl) → не тихо.
 - Источник: `Alfa_Testing/docs/04_autopayments.md` (tii=U), `docs/10_card_binding.md`.
 
+### BNPL v2: первый взнос сразу + журнал платежей + учёт (2026-05-30)
+
+Переработка платёжной модели BNPL (подробно — `Alfa_Testing/docs/09_bnpl_integration.md`):
+
+- **Списание первого взноса на форме, а не всей суммы.** `BnplService.initiate` холдирует
+  `total/N` через `registerPreAuthForBinding` (с `clientId`!). `confirmPreAuth` (callback,
+  orderStatus=1) → `deposit` первого взноса → строит график → взнос №1 PAID → контракт ACTIVE
+  → `markAsPaid(invoice)` → привязка карты. `issueItem` больше НЕ депозитит.
+- **Журнал платежей `BnplPayment`** (`bnpl_payments`: contract_id, amount_kopecks,
+  method=`FIRST`|`SCHEDULED`|`MANUAL`, description, alfa_order_id, paid_at) — запись при каждом
+  списании. В `BnplContractResponse` добавлено поле `payments[]` (видят клиент и админ).
+- **Корректный учёт частичных/произвольных платежей.** `payInstallmentsNow` списывает ТОЧНУЮ
+  сумму (cap по остатку `total - deposited`), наращивает `depositedAmountKopecks`, пишет платёж и
+  вызывает `syncInstallmentStatuses` (взнос k = PAID, если Σ взносов 1..k ≤ deposited; всё покрыто
+  → COMPLETED). Излишек = предоплата, не теряется. Планировщик тоже капает по остатку.
+- **⚠️ Фронт шлёт «произвольную сумму» в РУБЛЯХ × 100.** Старая «жадная» логика брала только
+  целые взносы и отбрасывала остаток → платёж «терялся из виду». Лечится точным списанием + журналом.
+- **Статус заказа: активная рассрочка ≠ «Оплачен».** `markAsPaid` ставит order=PAID уже после
+  1-го взноса. В `OrderService.toResponse` отдаём `status=CREATED` пока контракт ACTIVE (PAID —
+  только при COMPLETED). Добавлено поле `OrderResponse.bnplStatus`, чтобы фронт отличал
+  AWAITING_PAYMENT (ожидает авторизации) от ACTIVE. В БД статус остаётся PAID (фильтры/начисления не трогаем).
+- **Авто-отмена заказа.** `checkAndCancelContractIfAllCancelled`: при отмене/возврате ВСЕХ позиций
+  → `order.status=CANCELLED` (не только контракт). `returnItem` тоже вызывает эту проверку.
+- **Фильтр активных заказов клиента** (`/api/orders/my`): `OrderRepository.findActiveForClient` —
+  CREATED ИЛИ заказы с активным BNPL-контрактом (AWAITING_PAYMENT/ACTIVE); PAID/CANCELLED/DELIVERED скрыты.
+- **Привязка карты при ЛЮБОЙ оплате:** `CardService.saveAfterPayment(user, alfaOrderId, status)`
+  (bindingInfo→cardAuthInfo→getBindings, не бросает). `FullPaymentService.initiate` переведён на
+  `registerOrderForBinding` (с `clientId`) — иначе полная оплата карту не привязывала.
+- **Оплата заказа админом с дефолтной карты:** `POST /api/admin/orders/{id}/pay` (ADMIN).
+  BNPL: `{amountKopecks}` null→ближайший взнос, число→произвольная сумма
+  (`BnplService.payInstallmentsByAdmin`); обычный заказ → полная сумма
+  (`FullPaymentService.payByDefaultCard`). Общий резолвер связки — `CardService.resolveChargeableBindingId`.
+
+**Тестовая ловушка:** добавление зависимости `FullPaymentService` в `AdminController` уронило
+`@WebMvcTest AdminControllerTest` (контекст не поднимается). Решение: `@MockitoBean FullPaymentService`
+в тест. **Правило:** новая зависимость контроллера → сразу добавить мок во все его `@WebMvcTest`.
+
 ### Новые пакеты
 ```
 payment/
@@ -390,10 +427,13 @@ entity/
   AlfaBankOrder.java           — запись о платёжной операции в шлюзе
   BnplContract.java            — BNPL контракт (1:1 с Order)
   BnplInstallment.java         — взнос в графике рассрочки
+  BnplPayment.java             — журнал фактических списаний (FIRST/SCHEDULED/MANUAL) — таблица bnpl_payments
   CardBinding.java             — привязанная карта пользователя
   CardBindRequest.java         — запрос на привязку карты (PENDING→COMPLETED/FAILED)
 service/
-  CardService.java             — управление привязанными картами + initiateBinding/confirmBinding
+  CardService.java             — карты + saveAfterPayment / resolveChargeableBindingId
+  (BnplService: payInstallmentsByAdmin, syncInstallmentStatuses, recordPayment, activateContractWithFirstInstallment)
+  (FullPaymentService: payByDefaultCard — оплата с дефолтной карты)
 logging/
   OpenSearchLogAppender.java   — кастомный Logback-аппендер → OpenSearch _bulk API
 controller/
@@ -450,3 +490,12 @@ controller/
 - [x] **Слияние вкладок Заказы+Рассрочка**: BNPL-контракт показывается инлайн при раскрытии заказа; lazy-загрузка через `bnplCache`; кнопка переноса показывается только если `daysPostponeLeft > 0`
 - [x] **Улучшенный раздел заказов (Admin)**: фильтры по статусу и поиску; клик на строку → модал с клиентом, составом, BNPL-графиком, управлением позициями
 - [x] **Выбор дефолтной карты**: визуальный радио-селектор; клик по карте = выбор; оптимистичное обновление UI
+- [x] **BNPL v2 — списание первого взноса сразу**: `initiate` холдирует `total/N` (`registerPreAuthForBinding` + `clientId`), `confirmPreAuth` депозитит первый взнос + строит график + `markAsPaid` + привязка карты; `issueItem` без депозита
+- [x] **Журнал платежей BNPL**: `BnplPayment` (`bnpl_payments`), запись при каждом списании (FIRST/SCHEDULED/MANUAL), поле `payments[]` в ответе контракта — история видна клиенту и админу
+- [x] **Корректный учёт частичных платежей**: `payInstallmentsNow` списывает точную сумму (cap по остатку), `syncInstallmentStatuses` пересчитывает взносы по `depositedAmountKopecks`; предоплата не теряется
+- [x] **Фильтр активных заказов клиента**: `OrderRepository.findActiveForClient` — скрывает PAID/CANCELLED/DELIVERED, оставляет CREATED и активные рассрочки
+- [x] **Статус BNPL-заказа в UI**: активная рассрочка показывается как «Создан» (не «Оплачен») до COMPLETED; поле `OrderResponse.bnplStatus`
+- [x] **Авто-отмена заказа**: при отмене/возврате всех позиций заказ → CANCELLED (не только контракт)
+- [x] **Привязка карты при любой оплате**: `CardService.saveAfterPayment` (bindingInfo→cardAuthInfo→getBindings); полная оплата переведена на `registerOrderForBinding` (clientId)
+- [x] **Оплата заказа админом с дефолтной карты**: `POST /api/admin/orders/{id}/pay` (BNPL: взнос/произвольная сумма; обычный: полная сумма); секция «Оплата с карты клиента» в админ-модале
+- [x] **Документация Альфа Банка дополнена**: `Alfa_Testing/docs/09_bnpl_integration.md` (v2-flow, журнал, учёт, статус, админ-оплата), `10_card_binding.md` (`saveAfterPayment`)

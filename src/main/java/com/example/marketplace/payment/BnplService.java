@@ -3,6 +3,7 @@ package com.example.marketplace.payment;
 import com.example.marketplace.config.AlfaBankProperties;
 import com.example.marketplace.dto.response.BnplContractResponse;
 import com.example.marketplace.dto.response.BnplInstallmentResponse;
+import com.example.marketplace.dto.response.BnplPaymentResponse;
 import com.example.marketplace.dto.response.PaymentInitResponse;
 import com.example.marketplace.entity.*;
 import com.example.marketplace.entity.enums.*;
@@ -45,6 +46,7 @@ public class BnplService {
     private final AlfaBankOrderRepository  alfaBankOrderRepo;
     private final BnplContractRepository   contractRepo;
     private final BnplInstallmentRepository installmentRepo;
+    private final BnplPaymentRepository    paymentRepo;
     private final InvoiceService           invoiceService;
     private final OrderRepository          orderRepo;
     private final OrderItemRepository      orderItemRepo;
@@ -76,18 +78,26 @@ public class BnplService {
             }
         }
 
-        // Считаем итоговую сумму с комиссией.
+        // Считаем итоговую сумму рассрочки с комиссией (для графика и прогресс-бара).
         BigDecimal orderTotal    = invoice.getAmount();
         BigDecimal commission    = orderTotal.multiply(product.commissionRate).setScale(2, RoundingMode.HALF_UP);
         BigDecimal bnplTotal     = orderTotal.add(commission);
         long       totalKopecks  = bnplTotal.multiply(BigDecimal.valueOf(100)).longValue();
         long       commKopecks   = commission.multiply(BigDecimal.valueOf(100)).longValue();
 
+        // На форме банка холдируем и списываем ТОЛЬКО первый взнос.
+        // Остальные взносы спишутся по графику с привязанной карты (планировщик / ручная оплата в ЛК).
+        // Первый взнос = total / N — та же формула, что в buildInstallmentSchedule (base).
+        long firstInstallmentKopecks = totalKopecks / product.installmentCount;
+
         String orderNumber = "BNPL-" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
 
-        JsonNode response = gateway.registerPreAuth(
-                orderNumber, totalKopecks,
-                props.getReturnUrl(), props.getFailUrl()
+        // clientId обязателен: двухстадийный pre-auth + deposit гарантированно возвращает
+        // bindingInfo → карта клиента привяжется к ЛК для авто-списания следующих взносов.
+        String clientId = "user-" + order.getUser().getId();
+        JsonNode response = gateway.registerPreAuthForBinding(
+                orderNumber, firstInstallmentKopecks,
+                props.getReturnUrl(), props.getFailUrl(), clientId
         );
 
         String alfaOrderId = response.path("orderId").asText();
@@ -109,7 +119,7 @@ public class BnplService {
         alfaRecord.setOrderNumber(orderNumber);
         alfaRecord.setAlfaOrderId(alfaOrderId);
         alfaRecord.setBnplContract(contract);
-        alfaRecord.setAmountKopecks(totalKopecks);
+        alfaRecord.setAmountKopecks(firstInstallmentKopecks);  // фактически холдируемая/списываемая сумма
         alfaRecord.setStatus(AlfaBankOrderStatus.FORM_SHOWN);
         alfaRecord.setFormUrl(formUrl);
         alfaBankOrderRepo.save(alfaRecord);
@@ -125,8 +135,8 @@ public class BnplService {
         });
         orderRepo.save(order);
 
-        log.info("ACTION=BNPL_INITIATE invoiceId={} product={} totalKopecks={} alfaOrderId={}",
-                invoiceId, product, totalKopecks, alfaOrderId);
+        log.info("ACTION=BNPL_INITIATE invoiceId={} product={} totalKopecks={} firstInstallmentKopecks={} alfaOrderId={}",
+                invoiceId, product, totalKopecks, firstInstallmentKopecks, alfaOrderId);
 
         return new PaymentInitResponse(formUrl, alfaOrderId, contract.getId());
     }
@@ -142,27 +152,19 @@ public class BnplService {
         BnplContract contract = contractRepo.findByAlfaPreAuthOrderId(alfaOrderId)
                 .orElseThrow(() -> new IllegalArgumentException("Not a BNPL pre-auth: " + alfaOrderId));
 
-        if (contract.getStatus() == BnplContractStatus.ACTIVE)     return "paid";
-        if (contract.getStatus() == BnplContractStatus.CANCELLED)  return "failed";
+        if (contract.getStatus() == BnplContractStatus.ACTIVE
+                || contract.getStatus() == BnplContractStatus.COMPLETED) return "paid";   // идемпотентность
+        if (contract.getStatus() == BnplContractStatus.CANCELLED)        return "failed";
 
         JsonNode statusNode = gateway.getOrderStatusExtended(alfaOrderId);
         int orderStatus = statusNode.path("orderStatus").asInt(-1);
 
         if (orderStatus == 1) {
-            // APPROVED — деньги захолдированы, активируем контракт и создаём график.
-            contract.setStatus(BnplContractStatus.ACTIVE);
-            buildInstallmentSchedule(contract);
-            contractRepo.save(contract);
-
-            // Обновляем запись Альфа Банка.
-            alfaBankOrderRepo.findByAlfaOrderId(alfaOrderId).ifPresent(r -> {
-                r.setStatus(AlfaBankOrderStatus.APPROVED);
-                alfaBankOrderRepo.save(r);
-            });
-
-            // Счёт пока остаётся UNPAID — станет PAID после выдачи первого товара.
+            // APPROVED — первый взнос захолдирован. Списываем его (deposit), строим график,
+            // активируем контракт, оплачиваем счёт и привязываем карту клиента.
+            activateContractWithFirstInstallment(contract);
             log.info("ACTION=BNPL_PRE_AUTH_CONFIRMED contractId={}", contract.getId());
-            return "paid";  // клиент видит «успех» — деньги захолдированы
+            return "paid";
         }
 
         if (orderStatus == 6) {
@@ -176,7 +178,7 @@ public class BnplService {
 
     // ─── Управление товарами ───────────────────────────────────────────────────
 
-    /** Выдача товара. Первая выдача — deposit 1-го взноса + сохранить bindingId. */
+    /** Выдача товара. Чисто статус фулфилмента — первый взнос уже списан при оформлении рассрочки. */
     @Transactional
     public void issueItem(Long orderId, Long itemId) {
         OrderItem item = getOwnedItem(orderId, itemId);
@@ -184,15 +186,10 @@ public class BnplService {
             throw new IllegalStateException("Нельзя выдать товар со статусом: " + item.getItemStatus());
         }
 
+        // Депозит первого взноса выполняется в confirmPreAuth() при оплате на форме банка,
+        // поэтому здесь только меняем статус позиции.
         item.setItemStatus(ItemStatus.ISSUED);
         orderItemRepo.save(item);
-
-        BnplContract contract = getContract(item.getOrder());
-
-        // Если первый взнос ещё не задепозирован — делаем это сейчас.
-        if (contract.getDepositedAmountKopecks() == 0L) {
-            depositFirstInstallment(contract);
-        }
 
         log.info("ACTION=BNPL_ITEM_ISSUED orderId={} itemId={}", orderId, itemId);
     }
@@ -247,6 +244,9 @@ public class BnplService {
         } catch (Exception e) {
             log.warn("Refund failed for itemId={}: {}", itemId, e.getMessage());
         }
+
+        // Если после возврата все позиции отменены/возвращены — закрываем контракт и заказ.
+        checkAndCancelContractIfAllCancelled(contract);
     }
 
     // ─── Перенос взноса ──────────────────────────────────────────────────────
@@ -318,38 +318,30 @@ public class BnplService {
         CardBinding card = cardService.getDefault(user)
                 .orElseThrow(() -> new IllegalStateException("Нет привязанной карты. Добавьте карту через оплату заказа."));
 
-        List<BnplInstallment> pending = contract.getInstallments().stream()
-                .filter(i -> i.getStatus() == BnplInstallmentStatus.PENDING)
-                .sorted(java.util.Comparator.comparing(BnplInstallment::getDueDate))
-                .toList();
-
-        if (pending.isEmpty()) {
-            throw new IllegalStateException("Нет взносов для оплаты");
-        }
-        // Минимальная сумма 50 ₽ (5000 коп.)
-        if (amountKopecks != null && amountKopecks < 5000) {
-            throw new IllegalStateException("Минимальная сумма оплаты — 50 ₽");
+        long remainingBalance = contract.getTotalAmountKopecks() - contract.getDepositedAmountKopecks();
+        if (remainingBalance <= 0) {
+            throw new IllegalStateException("Рассрочка уже полностью оплачена");
         }
 
-        // Какие взносы покрывает сумма (частичный платёж < одного взноса допустим).
-        List<BnplInstallment> toPay;
-        if (amountKopecks == null) {
-            toPay = List.of(pending.get(0));
-        } else {
-            long remaining = amountKopecks;
-            toPay = new java.util.ArrayList<>();
-            for (BnplInstallment inst : pending) {
-                if (remaining >= inst.getAmountKopecks()) {
-                    toPay.add(inst);
-                    remaining -= inst.getAmountKopecks();
-                } else {
-                    break;
-                }
+        // Сумма к списанию: либо явная (произвольный платёж), либо ближайший непогашенный взнос.
+        long chargeKopecks;
+        boolean manualAmount = amountKopecks != null;
+        if (manualAmount) {
+            if (amountKopecks < 5000) {   // минимум 50 ₽
+                throw new IllegalStateException("Минимальная сумма оплаты — 50 ₽");
             }
+            chargeKopecks = amountKopecks;
+        } else {
+            BnplInstallment next = contract.getInstallments().stream()
+                    .filter(i -> i.getStatus() == BnplInstallmentStatus.PENDING)
+                    .min(java.util.Comparator.comparing(BnplInstallment::getInstallmentNumber))
+                    .orElseThrow(() -> new IllegalStateException("Нет взносов для оплаты"));
+            chargeKopecks = next.getAmountKopecks();
         }
-        long totalKopecks = toPay.isEmpty()
-                ? (amountKopecks != null ? amountKopecks : pending.get(0).getAmountKopecks())
-                : toPay.stream().mapToLong(BnplInstallment::getAmountKopecks).sum();
+        // Никогда не списываем больше остатка по контракту (защита от переплаты).
+        // Излишек сверх целого взноса не теряется — он идёт в депозит как предоплата
+        // и засчитывается следующим взносам через syncInstallmentStatuses().
+        chargeKopecks = Math.min(chargeKopecks, remainingBalance);
 
         String clientId = "user-" + user.getId();
 
@@ -364,48 +356,46 @@ public class BnplService {
 
         // Шаг 1: register.do с clientId → mdOrder
         JsonNode registered = gateway.registerOrderForBinding(
-                orderNumber, totalKopecks, props.getReturnUrl(), props.getFailUrl(), clientId);
+                orderNumber, chargeKopecks, props.getReturnUrl(), props.getFailUrl(), clientId);
         String mdOrder = registered.path("orderId").asText(null);
         if (mdOrder == null || mdOrder.isBlank()) {
             throw new IllegalStateException("Не удалось зарегистрировать заказ в шлюзе");
         }
 
         // Шаг 2: тихое списание по связке (tii=U внутри gateway → без CVC/3DS)
-        JsonNode result = gateway.paymentOrderBinding(mdOrder, totalKopecks, bindingId);
+        JsonNode result = gateway.paymentOrderBinding(mdOrder, chargeKopecks, bindingId);
         String acsUrl = result.path("acsUrl").asText(null);
         if (acsUrl != null && !acsUrl.isBlank()) {
             // tii=U должен исключать 3DS. Если банк всё же запросил подтверждение —
-            // значит связка не настроена на автоплатежи; не помечаем взносы оплаченными.
+            // значит связка не настроена на автоплатежи; платёж не засчитываем.
             throw new IllegalStateException("Банк запросил подтверждение 3DS — тихое списание недоступно для этой карты");
         }
         String alfaOrderId = result.path("orderId").asText(mdOrder);
 
-        // Помечаем полностью покрытые взносы оплаченными.
-        java.util.List<BnplInstallmentResponse> paid = new java.util.ArrayList<>();
-        for (BnplInstallment inst : toPay) {
-            inst.setStatus(BnplInstallmentStatus.PAID);
-            inst.setPaidAt(LocalDateTime.now());
-            inst.setAlfaOrderId(alfaOrderId);
-            installmentRepo.save(inst);
-            paid.add(toInstallmentResponse(inst));
-        }
-
-        // Обновляем общий депозит (в т.ч. для частичных платежей) и статус контракта.
-        contract.setDepositedAmountKopecks(contract.getDepositedAmountKopecks() + totalKopecks);
-        boolean allPaid = contract.getInstallments().stream()
-                .allMatch(i -> i.getStatus() == BnplInstallmentStatus.PAID
-                            || i.getStatus() == BnplInstallmentStatus.CANCELLED);
-        if (allPaid) {
-            contract.setStatus(BnplContractStatus.COMPLETED);
-        }
+        // Увеличиваем депозит, фиксируем платёж в журнале и пересчитываем статусы взносов.
+        contract.setDepositedAmountKopecks(contract.getDepositedAmountKopecks() + chargeKopecks);
+        recordPayment(contract, chargeKopecks, "MANUAL",
+                manualAmount ? "Произвольный платёж" : "Оплата взноса", alfaOrderId);
+        syncInstallmentStatuses(contract);
         contractRepo.save(contract);
 
-        log.info("ACTION=BNPL_MANUAL_PAY contractId={} paidInstallments={} totalKopecks={}",
-                contractId, toPay.size(), totalKopecks);
+        log.info("ACTION=BNPL_MANUAL_PAY contractId={} chargedKopecks={} depositedKopecks={}",
+                contractId, chargeKopecks, contract.getDepositedAmountKopecks());
 
-        return paid.isEmpty()
-                ? contract.getInstallments().stream().map(this::toInstallmentResponse).toList()
-                : paid;
+        return contract.getInstallments().stream()
+                .map(this::toInstallmentResponse).toList();
+    }
+
+    /**
+     * Списание взносов по дефолтной карте от имени администратора.
+     * amountKopecks == null → ближайший взнос; > 0 → произвольная сумма.
+     * Владелец берётся из контракта (проверка прав в payInstallmentsNow проходит автоматически).
+     */
+    @Transactional
+    public List<BnplInstallmentResponse> payInstallmentsByAdmin(Long contractId, Long amountKopecks) {
+        BnplContract contract = contractRepo.findById(contractId)
+                .orElseThrow(() -> new ResourceNotFoundException("Контракт не найден: " + contractId));
+        return payInstallmentsNow(contractId, amountKopecks, contract.getOrder().getUser());
     }
 
     // Реальный bindingId для списания. Синтетический "CARDAUTH-" в шлюзе не существует —
@@ -456,8 +446,22 @@ public class BnplService {
     @Transactional
     public void processInstallment(BnplInstallment installment) {
         BnplContract contract = installment.getContract();
-        String clientId = "user-" + contract.getOrder().getUser().getId();
 
+        // Уже оплачен (в т.ч. предоплатой) или отменён — списывать нечего.
+        if (installment.getStatus() == BnplInstallmentStatus.PAID
+                || installment.getStatus() == BnplInstallmentStatus.CANCELLED) {
+            return;
+        }
+
+        // Не списываем больше остатка по контракту.
+        long remaining = contract.getTotalAmountKopecks() - contract.getDepositedAmountKopecks();
+        if (remaining <= 0) {
+            syncInstallmentStatuses(contract);   // депозит уже покрывает контракт
+            contractRepo.save(contract);
+            return;
+        }
+
+        String clientId = "user-" + contract.getOrder().getUser().getId();
         // Реальный bindingId: из контракта (production) либо из getBindings.do (UAT).
         String bindingId = resolveRecurrentBindingId(contract.getBindingId(), clientId);
         if (bindingId == null) {
@@ -466,11 +470,12 @@ public class BnplService {
             return;
         }
 
+        long chargeKopecks = Math.min(installment.getAmountKopecks(), remaining);
         String orderNumber = "INST-" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
         try {
             // Шаг 1: register.do с clientId → получаем mdOrder
             JsonNode registered = gateway.registerOrderForBinding(
-                    orderNumber, installment.getAmountKopecks(),
+                    orderNumber, chargeKopecks,
                     props.getReturnUrl(), props.getFailUrl(), clientId);
             String mdOrder = registered.path("orderId").asText(null);
             if (mdOrder == null || mdOrder.isBlank()) {
@@ -478,29 +483,23 @@ public class BnplService {
             }
 
             // Шаг 2: тихое списание по связке (tii=U → без CVC/3DS)
-            JsonNode result = gateway.paymentOrderBinding(
-                    mdOrder, installment.getAmountKopecks(), bindingId);
+            JsonNode result = gateway.paymentOrderBinding(mdOrder, chargeKopecks, bindingId);
             if (!result.path("acsUrl").asText("").isBlank()) {
                 throw new IllegalStateException("Банк запросил 3DS — тихое списание недоступно");
             }
 
             String alfaOrderId = result.path("orderId").asText(mdOrder);
             installment.setAlfaOrderId(alfaOrderId);
-            installment.setStatus(BnplInstallmentStatus.PAID);
-            installment.setPaidAt(LocalDateTime.now());
-            installmentRepo.save(installment);
+
+            // Фиксируем платёж в журнале, увеличиваем депозит и пересчитываем статусы взносов.
+            contract.setDepositedAmountKopecks(contract.getDepositedAmountKopecks() + chargeKopecks);
+            recordPayment(contract, chargeKopecks, "SCHEDULED",
+                    "Авто-списание взноса №" + installment.getInstallmentNumber(), alfaOrderId);
+            syncInstallmentStatuses(contract);
+            contractRepo.save(contract);
 
             log.info("ACTION=BNPL_INSTALLMENT_PAID contractId={} number={} kopecks={}",
-                    contract.getId(), installment.getInstallmentNumber(), installment.getAmountKopecks());
-
-            // Если все взносы оплачены — закрываем контракт.
-            boolean allPaid = contract.getInstallments().stream()
-                    .allMatch(i -> i.getStatus() == BnplInstallmentStatus.PAID
-                               || i.getStatus() == BnplInstallmentStatus.CANCELLED);
-            if (allPaid) {
-                contract.setStatus(BnplContractStatus.COMPLETED);
-                contractRepo.save(contract);
-            }
+                    contract.getId(), installment.getInstallmentNumber(), chargeKopecks);
         } catch (Exception e) {
             installment.setStatus(BnplInstallmentStatus.OVERDUE);
             installmentRepo.save(installment);
@@ -511,37 +510,53 @@ public class BnplService {
 
     // ─── Вспомогательные методы ───────────────────────────────────────────────
 
-    private void depositFirstInstallment(BnplContract contract) {
+    /**
+     * Активирует контракт после успешного pre-auth первого взноса:
+     * строит график, списывает (deposit) захолдированный первый взнос, активирует контракт,
+     * помечает первый взнос оплаченным, оплачивает счёт и привязывает карту клиента.
+     */
+    private void activateContractWithFirstInstallment(BnplContract contract) {
+        // 1. Активируем контракт и строим график (первый взнос = total / N).
+        contract.setStatus(BnplContractStatus.ACTIVE);
+        buildInstallmentSchedule(contract);
+
         BnplInstallment first = installmentRepo
                 .findByContractAndInstallmentNumber(contract, 1)
                 .orElseThrow(() -> new IllegalStateException("Не найден 1-й взнос контракта"));
 
-        JsonNode result = gateway.deposit(contract.getAlfaPreAuthOrderId(), first.getAmountKopecks());
+        // 2. Списываем захолдированный первый взнос.
+        JsonNode depositResult = gateway.deposit(contract.getAlfaPreAuthOrderId(), first.getAmountKopecks());
 
-        // Сохраняем bindingId для авто-списания следующих взносов.
-        String bindingId = result.path("bindingInfo").path("bindingId").asText(null);
-        if (bindingId == null) {
-            // Альфа возвращает bindingId через getOrderStatusExtended после deposit
-            JsonNode status = gateway.getOrderStatusExtended(contract.getAlfaPreAuthOrderId());
-            bindingId = status.path("bindingInfo").path("bindingId").asText(null);
+        // 3. Читаем статус с bindingInfo — для привязки карты и авто-списания следующих взносов.
+        JsonNode statusAfter = gateway.getOrderStatusExtended(contract.getAlfaPreAuthOrderId());
+        String bindingId = depositResult.path("bindingInfo").path("bindingId").asText(null);
+        if (bindingId == null || bindingId.isBlank()) {
+            bindingId = statusAfter.path("bindingInfo").path("bindingId").asText(null);
         }
         contract.setBindingId(bindingId);
         contract.setDepositedAmountKopecks(first.getAmountKopecks());
         contractRepo.save(contract);
 
+        // 4. Первый взнос оплачен.
         first.setStatus(BnplInstallmentStatus.PAID);
         first.setPaidAt(LocalDateTime.now());
+        first.setAlfaOrderId(contract.getAlfaPreAuthOrderId());
         installmentRepo.save(first);
 
-        // Помечаем счёт как оплаченный (первый взнос = оплата).
+        // Фиксируем первый взнос в журнале платежей.
+        recordPayment(contract, first.getAmountKopecks(), "FIRST", "Первый взнос",
+                contract.getAlfaPreAuthOrderId());
+
+        // 5. Счёт оплачен (первый взнос = подтверждение заказа) → заказ PAID, продавцы получают деньги.
         Invoice invoice = invoiceRepo.findByOrder(contract.getOrder())
                 .orElseThrow(() -> new IllegalStateException("Invoice не найден для контракта"));
         invoiceService.markAsPaid(invoice, "BNPL_CARD");
 
-        // Сохраняем привязку карты пользователя для автосписаний.
-        JsonNode statusForCard = gateway.getOrderStatusExtended(contract.getAlfaPreAuthOrderId());
-        cardService.saveFromStatusResponse(contract.getOrder().getUser(), statusForCard);
+        // 6. Привязываем карту клиента (для авто-списания взносов и оплаты в ЛК).
+        //    Устойчиво: bindingInfo → cardAuthInfo → getBindings.
+        cardService.saveAfterPayment(contract.getOrder().getUser(), contract.getAlfaPreAuthOrderId(), statusAfter);
 
+        // 7. Обновляем запись Альфа Банка.
         final String savedBindingId = bindingId;
         alfaBankOrderRepo.findByAlfaOrderId(contract.getAlfaPreAuthOrderId()).ifPresent(r -> {
             r.setStatus(AlfaBankOrderStatus.DEPOSITED);
@@ -549,8 +564,50 @@ public class BnplService {
             alfaBankOrderRepo.save(r);
         });
 
-        log.info("ACTION=BNPL_FIRST_DEPOSIT_DONE contractId={} kopecks={} bindingId={}",
+        log.info("ACTION=BNPL_FIRST_INSTALLMENT_PAID contractId={} kopecks={} bindingId={}",
                 contract.getId(), first.getAmountKopecks(), bindingId);
+    }
+
+    /** Фиксирует фактический платёж в журнале BNPL-транзакций. */
+    private BnplPayment recordPayment(BnplContract contract, long amountKopecks,
+                                      String method, String description, String alfaOrderId) {
+        BnplPayment p = new BnplPayment();
+        p.setContract(contract);
+        p.setAmountKopecks(amountKopecks);
+        p.setMethod(method);
+        p.setDescription(description);
+        p.setAlfaOrderId(alfaOrderId);
+        p.setPaidAt(LocalDateTime.now());
+        return paymentRepo.save(p);
+    }
+
+    /**
+     * Приводит статусы взносов в соответствие с фактически внесённой суммой (depositedAmountKopecks):
+     * взнос k считается оплаченным, когда накопленная сумма взносов 1..k покрыта депозитом.
+     * Так частичные/произвольные платежи учитываются корректно, а излишек переходит на следующие взносы.
+     * Если депозит покрывает все взносы — контракт переводится в COMPLETED.
+     */
+    private void syncInstallmentStatuses(BnplContract contract) {
+        long deposited  = contract.getDepositedAmountKopecks();
+        long cumulative = 0;
+        List<BnplInstallment> sorted = contract.getInstallments().stream()
+                .filter(i -> i.getStatus() != BnplInstallmentStatus.CANCELLED)
+                .sorted(java.util.Comparator.comparing(BnplInstallment::getInstallmentNumber))
+                .toList();
+        for (BnplInstallment inst : sorted) {
+            cumulative += inst.getAmountKopecks();
+            if (cumulative <= deposited && inst.getStatus() != BnplInstallmentStatus.PAID) {
+                inst.setStatus(BnplInstallmentStatus.PAID);
+                if (inst.getPaidAt() == null) inst.setPaidAt(LocalDateTime.now());
+                installmentRepo.save(inst);
+            }
+        }
+        boolean allDone = contract.getInstallments().stream()
+                .allMatch(i -> i.getStatus() == BnplInstallmentStatus.PAID
+                            || i.getStatus() == BnplInstallmentStatus.CANCELLED);
+        if (allDone) {
+            contract.setStatus(BnplContractStatus.COMPLETED);
+        }
     }
 
     private void buildInstallmentSchedule(BnplContract contract) {
@@ -585,7 +642,9 @@ public class BnplService {
     }
 
     private void checkAndCancelContractIfAllCancelled(BnplContract contract) {
-        boolean allCancelledOrReturned = contract.getOrder().getItems().stream()
+        Order order = contract.getOrder();
+        boolean hasItems = !order.getItems().isEmpty();
+        boolean allCancelledOrReturned = hasItems && order.getItems().stream()
                 .allMatch(i -> i.getItemStatus() == ItemStatus.CANCELLED
                             || i.getItemStatus() == ItemStatus.RETURNED);
         if (allCancelledOrReturned) {
@@ -597,7 +656,15 @@ public class BnplService {
                 }
             });
             contractRepo.save(contract);
-            log.info("ACTION=BNPL_CONTRACT_CANCELLED contractId={}", contract.getId());
+
+            // Все позиции отменены/возвращены → заказ тоже переходит в финальный статус CANCELLED.
+            // Иначе он завис бы в CREATED и остался видимым в списке «Мои заказы».
+            if (order.getStatus() != OrderStatus.CANCELLED) {
+                order.setStatus(OrderStatus.CANCELLED);
+                orderRepo.save(order);
+            }
+            log.info("ACTION=BNPL_CONTRACT_CANCELLED contractId={} orderId={}",
+                    contract.getId(), order.getId());
         }
     }
 
@@ -636,6 +703,18 @@ public class BnplService {
                         i.getDaysPostponed(),
                         14 - i.getDaysPostponed()))
                 .toList();
+
+        // История фактических платежей по контракту.
+        List<BnplPaymentResponse> payList = paymentRepo.findByContractOrderByPaidAtAsc(c).stream()
+                .map(p -> new BnplPaymentResponse(
+                        p.getId(),
+                        p.getAmountKopecks(),
+                        p.getMethod(),
+                        p.getDescription(),
+                        p.getAlfaOrderId(),
+                        p.getPaidAt() != null ? p.getPaidAt().toString() : null))
+                .toList();
+
         return new BnplContractResponse(
                 c.getId(),
                 c.getOrder().getId(),
@@ -646,6 +725,7 @@ public class BnplService {
                 c.getInstallmentCount(),
                 c.getStatus().name(),
                 c.getDepositedAmountKopecks(),
-                instList);
+                instList,
+                payList);
     }
 }

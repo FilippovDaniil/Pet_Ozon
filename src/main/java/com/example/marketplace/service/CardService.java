@@ -58,6 +58,38 @@ public class CardService {
         log.info("ACTION=CARD_SAVED userId={} maskedPan={} isDefault={}", user.getId(), maskedPan, isFirst);
     }
 
+    /**
+     * Привязывает карту клиента после успешной оплаты заказа
+     * (полная оплата или первый взнос BNPL).
+     *
+     * Источники bindingId в порядке надёжности:
+     *   1. bindingInfo  — production: реальный bindingId присутствует в ответе.
+     *   2. cardAuthInfo — UAT: реальная карта именно ЭТОГО заказа (синтетический CARDAUTH-id).
+     *   3. getBindings  — последний резерв (список привязок клиента).
+     *
+     * Новая карта добавляется в ЛК; уже сохранённая связка — пропускается.
+     * Метод не бросает исключений: сбой привязки не должен ломать подтверждение оплаты.
+     */
+    @Transactional
+    public void saveAfterPayment(User user, String alfaOrderId, JsonNode statusNode) {
+        try {
+            String bindingId = statusNode.path("bindingInfo").path("bindingId").asText(null);
+            if (bindingId != null && !bindingId.isBlank()) {
+                saveFromStatusResponse(user, statusNode);          // production: bindingInfo
+                return;
+            }
+            // UAT: bindingInfo пуст — берём реальную карту из cardAuthInfo этого заказа.
+            if (saveFromCardAuthInfo(user, alfaOrderId, statusNode)) {
+                return;
+            }
+            // Последний резерв: список привязок клиента.
+            saveFromGetBindings(user, "user-" + user.getId());
+        } catch (Exception e) {
+            log.warn("ACTION=CARD_SAVE_AFTER_PAYMENT_FAILED userId={} orderId={}: {}",
+                    user.getId(), alfaOrderId, e.getMessage());
+        }
+    }
+
     public List<CardBindingResponse> getCards(User user) {
         return cardRepo.findByUserOrderByIsDefaultDescCreatedAtDesc(user)
                 .stream().map(this::toResponse).toList();
@@ -87,6 +119,28 @@ public class CardService {
 
     public Optional<CardBinding> getDefault(User user) {
         return cardRepo.findByUserAndIsDefaultTrue(user);
+    }
+
+    /**
+     * Возвращает реальный bindingId для тихого списания по карте.
+     * Синтетический "CARDAUTH-" в шлюзе не существует → берём настоящую связку через getBindings.do.
+     * null — если списываемой связки нет.
+     */
+    public String resolveChargeableBindingId(CardBinding card, String clientId) {
+        String stored = card.getBindingId();
+        if (stored != null && !stored.startsWith("CARDAUTH-")) {
+            return stored;  // реальный bindingId (production)
+        }
+        try {
+            JsonNode resp = gateway.getBindings(clientId);
+            for (JsonNode b : resp.path("bindings")) {
+                String id = b.path("bindingId").asText(null);
+                if (id != null && !id.isBlank()) return id;
+            }
+        } catch (Exception e) {
+            log.warn("getBindings failed clientId={}: {}", clientId, e.getMessage());
+        }
+        return null;
     }
 
     // ── Привязка карты без оплаты ─────────────────────────────────────────────

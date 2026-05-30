@@ -12,5 +12,6 @@ public record BnplContractResponse(
         Integer                       installmentCount,
         String                        status,
         Long                          depositedAmountKopecks,
-        List<BnplInstallmentResponse> installments
+        List<BnplInstallmentResponse> installments,
+        List<BnplPaymentResponse>     payments
 ) {}

@@ -4,6 +4,7 @@ import com.example.marketplace.dto.response.OrderItemResponse;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
+import com.example.marketplace.entity.enums.BnplContractStatus;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.BnplContractRepository;
@@ -51,6 +52,23 @@ public class OrderService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
         return orderRepository.findByUser(user, pageable).map(this::toResponse);
+    }
+
+    /**
+     * «Активные» заказы клиента для вкладки «Мои заказы».
+     * Скрывает заказы в финальном статусе (PAID/CANCELLED/DELIVERED),
+     * но оставляет видимыми те, у которых рассрочка ещё не погашена
+     * (контракт AWAITING_PAYMENT/ACTIVE) — иначе управлять взносами будет негде.
+     */
+    public Page<OrderResponse> getActiveOrdersForClient(Long userId, Pageable pageable) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+        return orderRepository.findActiveForClient(
+                user,
+                OrderStatus.CREATED,
+                List.of(BnplContractStatus.AWAITING_PAYMENT, BnplContractStatus.ACTIVE),
+                pageable
+        ).map(this::toResponse);
     }
 
     public OrderResponse getOrderById(Long id) {
@@ -104,8 +122,18 @@ public class OrderService {
         }).collect(Collectors.toList()));
         invoiceRepository.findByOrder(order)
                 .ifPresent(inv -> r.setInvoiceId(inv.getId()));
-        bnplContractRepository.findByOrder(order)
-                .ifPresent(c -> r.setBnplContractId(c.getId()));
+        bnplContractRepository.findByOrder(order).ifPresent(c -> {
+            r.setBnplContractId(c.getId());
+            r.setBnplStatus(c.getStatus().name());
+            // Пока рассрочка активна (первый взнос внесён, но не вся сумма) — заказ не «оплачен».
+            // markAsPaid() переводит его в PAID, но клиент ещё должен остальные взносы,
+            // поэтому в UI показываем CREATED, чтобы не вводить в заблуждение.
+            // (полноценная статусная модель — отдельной задачей)
+            if (order.getStatus() == OrderStatus.PAID
+                    && c.getStatus() == BnplContractStatus.ACTIVE) {
+                r.setStatus(OrderStatus.CREATED);
+            }
+        });
         if (order.getUser() != null) {
             r.setCustomerName(order.getUser().getFullName());
             r.setCustomerEmail(order.getUser().getEmail());

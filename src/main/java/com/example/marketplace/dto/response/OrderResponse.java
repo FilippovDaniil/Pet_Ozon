@@ -26,6 +26,7 @@ public class OrderResponse {
     private Long invoiceId;
     private PaymentType paymentType;
     private Long bnplContractId;  // null для FULL-заказов
+    private String bnplStatus;    // статус BNPL-контракта (AWAITING_PAYMENT/ACTIVE/COMPLETED/CANCELLED) или null
     private String customerName;
     private String customerEmail;
 }

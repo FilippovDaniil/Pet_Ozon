@@ -46,7 +46,9 @@ public class OrderController {
     @GetMapping("/my")
     public Page<OrderResponse> getMyOrders(@AuthenticationPrincipal User user,
                                             @PageableDefault(size = 20) Pageable pageable) {
-        return orderService.getOrdersByUserId(user.getId(), pageable);
+        // Только «активные» заказы: ждущие оплаты или с непогашенной рассрочкой.
+        // Оплаченные/отменённые/доставленные не показываем.
+        return orderService.getActiveOrdersForClient(user.getId(), pageable);
     }
 
     @GetMapping("/{id}")

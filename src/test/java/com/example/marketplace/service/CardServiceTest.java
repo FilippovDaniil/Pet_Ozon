@@ -123,6 +123,44 @@ class CardServiceTest {
         verify(cardRepo, never()).save(any());
     }
 
+    // ── saveAfterPayment (авто-привязка карты после оплаты) ─────────────────────
+
+    @Test
+    void saveAfterPayment_withBindingInfo_savesRealCard() throws Exception {
+        User user = makeUser(1L);
+        JsonNode status = makeStatusWithBinding("binding-777", "411111**1111", "122026");
+
+        when(cardRepo.existsByBindingId("binding-777")).thenReturn(false);
+        when(cardRepo.findByUserAndIsDefaultTrue(user)).thenReturn(Optional.empty());
+        when(cardRepo.save(any(CardBinding.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        cardService.saveAfterPayment(user, "alfa-1", status);
+
+        // Production-путь: bindingInfo есть → сохраняем реальный bindingId как дефолтную карту.
+        verify(cardRepo).save(argThat(c -> "binding-777".equals(c.getBindingId()) && c.isDefault()));
+    }
+
+    @Test
+    void saveAfterPayment_uatNoBindingInfo_savesFromCardAuthInfo() throws Exception {
+        User user = makeUser(1L);
+        // bindingInfo пуст, но есть cardAuthInfo (реальная карта этого заказа) — UAT-сценарий.
+        JsonNode status = objectMapper.readTree("""
+                {"orderStatus":2,"cardAuthInfo":{"maskedPan":"411111**1111","expiration":"203412"}}
+                """);
+
+        when(cardRepo.existsByBindingId(any())).thenReturn(false);
+        when(cardRepo.findByUserAndIsDefaultTrue(user)).thenReturn(Optional.empty());
+        when(cardRepo.save(any(CardBinding.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        cardService.saveAfterPayment(user, "abcdef0123456789aaaa", status);
+
+        // Синтетический CARDAUTH-id, срок нормализован YYYYMM ("203412") → MMYYYY ("122034").
+        verify(cardRepo).save(argThat(c ->
+                c.getBindingId().startsWith("CARDAUTH-")
+                && "411111**1111".equals(c.getMaskedPan())
+                && "122034".equals(c.getExpiry())));
+    }
+
     // ── getCards ──────────────────────────────────────────────────────────────
 
     @Test

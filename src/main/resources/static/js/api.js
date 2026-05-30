@@ -238,6 +238,14 @@ const api = {
             body: JSON.stringify({ status }),
         }),
 
+    // Оплата заказа с дефолтной карты клиента (тихое списание).
+    // amountKopecks: null → ближайший взнос (BNPL) / полная сумма (обычный заказ); число → произвольная сумма.
+    adminPayOrder: (orderId, amountKopecks) =>
+        apiFetch(`/api/admin/orders/${orderId}/pay`, {
+            method: 'POST',
+            body: JSON.stringify({ amountKopecks }),
+        }),
+
     // ── Админ: счета ──────────────────────────────────────────────────────
     getAllInvoices: async () => {
         const page = await apiFetch('/api/admin/invoices?size=100');

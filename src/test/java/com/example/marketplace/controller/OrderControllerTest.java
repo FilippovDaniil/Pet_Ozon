@@ -113,7 +113,7 @@ class OrderControllerTest {
                 makeOrderResponse(1L, OrderStatus.CREATED, new BigDecimal("5000.00")),
                 makeOrderResponse(2L, OrderStatus.PAID, new BigDecimal("3000.00"))
         ));
-        when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class))).thenReturn(page);
+        when(orderService.getActiveOrdersForClient(eq(1L), any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/orders/my").with(user(mockClientUser())))
                 .andExpect(status().isOk())
@@ -125,7 +125,7 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_noOrders_returns200WithEmptyPage() throws Exception {
-        when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class)))
+        when(orderService.getActiveOrdersForClient(eq(1L), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/orders/my").with(user(mockClientUser())))
@@ -142,7 +142,7 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_userNotFound_returns404() throws Exception {
-        when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class)))
+        when(orderService.getActiveOrdersForClient(eq(1L), any(Pageable.class)))
                 .thenThrow(new ResourceNotFoundException("User not found with id: 1"));
 
         mockMvc.perform(get("/api/orders/my").with(user(mockClientUser())))
@@ -152,13 +152,13 @@ class OrderControllerTest {
 
     @Test
     void getMyOrders_withPaginationParams_passes() throws Exception {
-        when(orderService.getOrdersByUserId(eq(1L), any(Pageable.class)))
+        when(orderService.getActiveOrdersForClient(eq(1L), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         mockMvc.perform(get("/api/orders/my?page=0&size=5").with(user(mockClientUser())))
                 .andExpect(status().isOk());
 
-        verify(orderService).getOrdersByUserId(eq(1L), any(Pageable.class));
+        verify(orderService).getActiveOrdersForClient(eq(1L), any(Pageable.class));
     }
 
     // ── GET /api/orders/{id} ──────────────────────────────────────────────────

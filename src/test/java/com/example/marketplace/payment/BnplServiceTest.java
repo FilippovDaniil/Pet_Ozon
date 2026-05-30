@@ -46,6 +46,7 @@ class BnplServiceTest {
     @Mock AlfaBankOrderRepository   alfaBankOrderRepo;
     @Mock BnplContractRepository    contractRepo;
     @Mock BnplInstallmentRepository installmentRepo;
+    @Mock BnplPaymentRepository     paymentRepo;
     @Mock InvoiceService            invoiceService;
     @Mock OrderRepository           orderRepo;
     @Mock OrderItemRepository       orderItemRepo;
@@ -96,6 +97,36 @@ class BnplServiceTest {
         inst.setDaysPostponed(0);
         inst.setPostponeFeePaidKopecks(0L);
         return inst;
+    }
+
+    // Полный график: count взносов по perInstallment коп., взнос №1 уже оплачен (deposited = perInstallment).
+    private BnplContract makeContractWithSchedule(Long id, User user, long perInstallment, int count) {
+        BnplContract c = makeActiveContract(id, user, perInstallment * count);
+        c.setInstallmentCount(count);
+        c.setDepositedAmountKopecks(perInstallment); // первый взнос оплачен
+        List<BnplInstallment> list = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            BnplInstallment inst = makePendingInstallment(
+                    (long) (100 + i), c, i, perInstallment, LocalDate.now().plusDays((long) (i - 1) * 30));
+            if (i == 1) {
+                inst.setStatus(BnplInstallmentStatus.PAID);
+                inst.setPaidAt(LocalDateTime.now());
+            }
+            list.add(inst);
+        }
+        c.setInstallments(list);
+        return c;
+    }
+
+    // Стабы успешного тихого списания через шлюз (register + paymentOrderBinding без 3DS).
+    private void stubSilentCharge(long expectedKopecks, String bindingId) throws Exception {
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-x\"}"));
+        when(gateway.paymentOrderBinding(anyString(), eq(expectedKopecks), eq(bindingId)))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-x\"}"));
+        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
     // ── postponeInstallment ───────────────────────────────────────────────────
@@ -208,9 +239,7 @@ class BnplServiceTest {
     @Test
     void payInstallmentsNow_nextInstallment_chargesAndMarksPaid() throws Exception {
         User user = makeUser(1L);
-        BnplContract contract = makeActiveContract(10L, user, 800_00L);
-        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
-        contract.getInstallments().add(next);
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4); // total 800_00, deposited 200_00, №1 PAID
 
         CardBinding card = new CardBinding();
         card.setBindingId("b-001");
@@ -218,54 +247,40 @@ class BnplServiceTest {
 
         when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
         when(cardService.getDefault(user)).thenReturn(Optional.of(card));
-        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        // register.do → mdOrder, затем тихое списание по связке (tii=U внутри gateway)
-        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
-                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-123\"}"));
-        JsonNode gatewayResp = objectMapper.readTree("{\"orderId\":\"pay-123\"}");
-        when(gateway.paymentOrderBinding(anyString(), eq(200_00L), eq("b-001")))
-                .thenReturn(gatewayResp);
+        stubSilentCharge(200_00L, "b-001"); // ближайший взнос №2 = 200_00
 
         List<BnplInstallmentResponse> result = bnplService.payInstallmentsNow(10L, null, user);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).status()).isEqualTo("PAID");
+        // Возвращается весь график; списан ближайший взнос №2.
+        assertThat(result).hasSize(4);
+        assertThat(contract.getDepositedAmountKopecks()).isEqualTo(400_00L);
+        assertThat(contract.getInstallments().get(1).getStatus()).isEqualTo(BnplInstallmentStatus.PAID);    // №2
+        assertThat(contract.getInstallments().get(2).getStatus()).isEqualTo(BnplInstallmentStatus.PENDING); // №3
         verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("b-001"));
+        verify(paymentRepo).save(any()); // платёж зафиксирован в журнале
     }
 
     @Test
     void payInstallmentsNow_customAmount_coversMultipleInstallments() throws Exception {
         User user = makeUser(1L);
-        BnplContract contract = makeActiveContract(10L, user, 800_00L);
-
-        BnplInstallment inst2 = makePendingInstallment(101L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
-        BnplInstallment inst3 = makePendingInstallment(102L, contract, 3, 200_00L, LocalDate.now().plusDays(21));
-        BnplInstallment inst4 = makePendingInstallment(103L, contract, 4, 200_00L, LocalDate.now().plusDays(35));
-        contract.getInstallments().addAll(List.of(inst2, inst3, inst4));
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4); // deposited 200_00, №1 PAID
 
         CardBinding card = new CardBinding();
         card.setBindingId("b-001");
 
         when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
         when(cardService.getDefault(user)).thenReturn(Optional.of(card));
-        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubSilentCharge(400_00L, "b-001");
 
-        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
-                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-456\"}"));
-        JsonNode gatewayResp = objectMapper.readTree("{\"orderId\":\"pay-456\"}");
-        when(gateway.paymentOrderBinding(anyString(), eq(400_00L), eq("b-001")))
-                .thenReturn(gatewayResp);
-
-        // Оплачиваем 400 руб. = 2 взноса
+        // Оплачиваем произвольные 400 ₽ = два взноса (№2 и №3)
         List<BnplInstallmentResponse> result = bnplService.payInstallmentsNow(10L, 400_00L, user);
 
-        assertThat(result).hasSize(2);
-        // Все оплаченные взносы имеют статус PAID
-        assertThat(result).allMatch(r -> "PAID".equals(r.status()));
-        // Вызов банка на суммарную сумму
+        assertThat(result).hasSize(4);
+        assertThat(contract.getDepositedAmountKopecks()).isEqualTo(600_00L);
+        long paidCount = contract.getInstallments().stream()
+                .filter(i -> i.getStatus() == BnplInstallmentStatus.PAID).count();
+        assertThat(paidCount).isEqualTo(3); // №1 (был) + №2 + №3
+        assertThat(contract.getInstallments().get(3).getStatus()).isEqualTo(BnplInstallmentStatus.PENDING); // №4
         verify(gateway).paymentOrderBinding(anyString(), eq(400_00L), eq("b-001"));
     }
 
@@ -306,9 +321,7 @@ class BnplServiceTest {
     @Test
     void payInstallmentsNow_syntheticBindingId_resolvesRealViaGetBindings() throws Exception {
         User user = makeUser(1L);
-        BnplContract contract = makeActiveContract(10L, user, 800_00L);
-        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
-        contract.getInstallments().add(next);
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4);
 
         CardBinding card = new CardBinding();
         card.setBindingId("CARDAUTH-0211dd764fd37b99"); // синтетический — напрямую не списывается
@@ -317,6 +330,7 @@ class BnplServiceTest {
         when(cardService.getDefault(user)).thenReturn(Optional.of(card));
         when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         // getBindings.do отдаёт РЕАЛЬНУЮ связку клиента
         when(gateway.getBindings("user-1")).thenReturn(
@@ -326,21 +340,18 @@ class BnplServiceTest {
         when(gateway.paymentOrderBinding(anyString(), eq(200_00L), eq("real-99")))
                 .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-1\"}"));
 
-        List<BnplInstallmentResponse> result = bnplService.payInstallmentsNow(10L, null, user);
+        bnplService.payInstallmentsNow(10L, null, user);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).status()).isEqualTo("PAID");
+        // Ближайший взнос №2 списан по РЕАЛЬНОМУ bindingId, а не по синтетическому.
         verify(gateway).getBindings("user-1");
-        // списание прошло именно по РЕАЛЬНОМУ bindingId, а не по синтетическому
         verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("real-99"));
+        assertThat(contract.getInstallments().get(1).getStatus()).isEqualTo(BnplInstallmentStatus.PAID);
     }
 
     @Test
     void payInstallmentsNow_threeDsResponse_throwsAndKeepsPending() throws Exception {
         User user = makeUser(1L);
-        BnplContract contract = makeActiveContract(10L, user, 800_00L);
-        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
-        contract.getInstallments().add(next);
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4);
 
         CardBinding card = new CardBinding();
         card.setBindingId("b-001"); // реальный
@@ -357,9 +368,10 @@ class BnplServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("3DS");
 
-        // Взнос НЕ помечен оплаченным
-        assertThat(next.getStatus()).isEqualTo(BnplInstallmentStatus.PENDING);
-        verify(installmentRepo, never()).save(any());
+        // Платёж не засчитан: депозит не изменился, журнал пуст, взнос №2 остаётся PENDING.
+        assertThat(contract.getDepositedAmountKopecks()).isEqualTo(200_00L);
+        assertThat(contract.getInstallments().get(1).getStatus()).isEqualTo(BnplInstallmentStatus.PENDING);
+        verify(paymentRepo, never()).save(any());
     }
 
     @Test
@@ -402,30 +414,42 @@ class BnplServiceTest {
     @Test
     void payInstallmentsNow_partialBelowInstallment_chargesPartialAndKeepsPending() throws Exception {
         User user = makeUser(1L);
-        BnplContract contract = makeActiveContract(10L, user, 800_00L); // deposited=200_00 изначально
-        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
-        contract.getInstallments().add(next);
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4); // deposited 200_00, №1 PAID
 
         CardBinding card = new CardBinding();
         card.setBindingId("b-001");
 
         when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
         when(cardService.getDefault(user)).thenReturn(Optional.of(card));
-        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
-                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
-        // Платим 100 ₽ при взносе 200 ₽ → частичный платёж
-        when(gateway.paymentOrderBinding(anyString(), eq(100_00L), eq("b-001")))
-                .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-1\"}"));
+        stubSilentCharge(100_00L, "b-001");
 
+        // Платим 100 ₽ при взносе 200 ₽ → частичный платёж (предоплата)
         bnplService.payInstallmentsNow(10L, 100_00L, user);
 
-        // Взнос остаётся PENDING (не покрыт целиком)
-        assertThat(next.getStatus()).isEqualTo(BnplInstallmentStatus.PENDING);
-        // Депозит увеличен на 100 ₽: было 200_00 → стало 300_00
+        // Депозит вырос ровно на 100 ₽ (платёж зафиксирован), но взнос №2 ещё не покрыт целиком.
         assertThat(contract.getDepositedAmountKopecks()).isEqualTo(300_00L);
+        assertThat(contract.getInstallments().get(1).getStatus()).isEqualTo(BnplInstallmentStatus.PENDING);
         verify(gateway).paymentOrderBinding(anyString(), eq(100_00L), eq("b-001"));
+        verify(paymentRepo).save(any());
+    }
+
+    @Test
+    void payInstallmentsByAdmin_paysNextInstallmentForOwner() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4);
+
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-001");
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        stubSilentCharge(200_00L, "b-001");
+
+        // Админ платит без передачи user — владелец берётся из контракта.
+        bnplService.payInstallmentsByAdmin(10L, null);
+
+        verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("b-001"));
+        assertThat(contract.getInstallments().get(1).getStatus()).isEqualTo(BnplInstallmentStatus.PAID);
     }
 
     // ── processInstallment (планировщик авто-списания) ──────────────────────────
@@ -440,6 +464,7 @@ class BnplServiceTest {
 
         when(installmentRepo.save(any())).thenAnswer(invn -> invn.getArgument(0));
         when(contractRepo.save(any())).thenAnswer(invn -> invn.getArgument(0));
+        when(paymentRepo.save(any())).thenAnswer(invn -> invn.getArgument(0));
         when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), eq("user-1")))
                 .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
         when(gateway.paymentOrderBinding(anyString(), eq(200_00L), eq("b-real")))
@@ -449,6 +474,7 @@ class BnplServiceTest {
 
         assertThat(inst.getStatus()).isEqualTo(BnplInstallmentStatus.PAID);
         verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("b-real"));
+        verify(paymentRepo).save(any()); // авто-списание зафиксировано в журнале
     }
 
     @Test
@@ -492,64 +518,27 @@ class BnplServiceTest {
     // ── issueItem / cancelItem / returnItem ────────────────────────────────────
 
     @Test
-    void issueItem_pendingItem_changesStatusToIssued() throws Exception {
+    void issueItem_pendingItem_changesStatusToIssued_withoutDeposit() {
         User user = makeUser(1L);
         Order order = new Order();
         order.setId(5L);
         order.setUser(user);
-        order.setTotalAmount(new BigDecimal("1000.00"));
-
-        Product product = new Product();
-        product.setId(1L);
-        product.setPrice(new BigDecimal("1000.00"));
 
         OrderItem item = new OrderItem();
         item.setId(50L);
         item.setOrder(order);
-        item.setProduct(product);
-        item.setQuantity(1);
-        item.setPriceAtOrder(new BigDecimal("1000.00"));
         item.setItemStatus(ItemStatus.PENDING_ISSUE);
-
         order.setItems(new ArrayList<>(List.of(item)));
 
-        BnplContract contract = makeActiveContract(10L, user, 100_000L);
-        contract.setOrder(order);
-        BnplInstallment first = makePendingInstallment(100L, contract, 1, 25_000L, LocalDate.now());
-        contract.getInstallments().add(first);
-        contract.setDepositedAmountKopecks(0L); // ещё не было deposit
-
-        Invoice invoice = new Invoice();
-        invoice.setId(1L);
-        invoice.setOrder(order);
-        invoice.setAmount(BigDecimal.valueOf(1000));
-        invoice.setStatus(InvoiceStatus.UNPAID);
-
         when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
-        when(contractRepo.findByOrder(order)).thenReturn(Optional.of(contract));
-        when(installmentRepo.findByContractAndInstallmentNumber(contract, 1)).thenReturn(Optional.of(first));
         when(orderItemRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(invoiceRepo.findByOrder(order)).thenReturn(Optional.of(invoice));
-        doNothing().when(invoiceService).markAsPaid(any(), anyString());
-
-        // deposit.do возвращает успешный ответ
-        JsonNode depositResp = objectMapper.readTree("{\"orderStatus\":2}");
-        when(gateway.deposit(anyString(), eq(25_000L))).thenReturn(depositResp);
-
-        // getOrderStatusExtended после deposit
-        JsonNode statusResp = objectMapper.readTree("{\"orderStatus\":2,\"bindingInfo\":{\"bindingId\":\"b-001\"}}");
-        when(gateway.getOrderStatusExtended(anyString())).thenReturn(statusResp);
-        doNothing().when(cardService).saveFromStatusResponse(any(), any());
-        doNothing().when(invoiceService).markAsPaid(any(), anyString());
 
         bnplService.issueItem(5L, 50L);
 
         // Статус товара → ISSUED
         assertThat(item.getItemStatus()).isEqualTo(ItemStatus.ISSUED);
-        // deposit.do вызван
-        verify(gateway).deposit(anyString(), eq(25_000L));
+        // Депозит первого взноса теперь делается при оплате (confirmPreAuth), НЕ при выдаче товара.
+        verify(gateway, never()).deposit(anyString(), anyLong());
     }
 
     @Test
@@ -593,6 +582,60 @@ class BnplServiceTest {
         assertThat(item.getItemStatus()).isEqualTo(ItemStatus.CANCELLED);
         // Частичный reverse был вызван
         verify(gateway).reverse(eq("alfa-pre-001"), anyLong());
+        // Единственная позиция отменена → заказ и контракт закрываются
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(contract.getStatus()).isEqualTo(BnplContractStatus.CANCELLED);
+    }
+
+    @Test
+    void cancelItem_partialCancellation_orderAndContractStayActive() throws Exception {
+        User user = makeUser(1L);
+        Order order = new Order();
+        order.setId(5L);
+        order.setUser(user);
+        order.setStatus(OrderStatus.CREATED);
+        order.setTotalAmount(new BigDecimal("1000.00"));
+
+        Product product = new Product();
+        product.setId(1L);
+        product.setPrice(new BigDecimal("500.00"));
+
+        OrderItem item1 = new OrderItem();
+        item1.setId(50L);
+        item1.setOrder(order);
+        item1.setProduct(product);
+        item1.setQuantity(1);
+        item1.setPriceAtOrder(new BigDecimal("500.00"));
+        item1.setItemStatus(ItemStatus.PENDING_ISSUE);
+
+        OrderItem item2 = new OrderItem();
+        item2.setId(51L);
+        item2.setOrder(order);
+        item2.setProduct(product);
+        item2.setQuantity(1);
+        item2.setPriceAtOrder(new BigDecimal("500.00"));
+        item2.setItemStatus(ItemStatus.PENDING_ISSUE);
+
+        order.setItems(new ArrayList<>(List.of(item1, item2)));
+
+        BnplContract contract = makeActiveContract(10L, user, 100_000L);
+        contract.setOrder(order);
+        contract.setStatus(BnplContractStatus.ACTIVE);
+        contract.setDepositedAmountKopecks(0L);
+
+        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(contractRepo.findByOrder(order)).thenReturn(Optional.of(contract));
+        when(orderItemRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(gateway.reverse(anyString(), anyLong()))
+                .thenReturn(objectMapper.readTree("{\"errorCode\":\"0\"}"));
+
+        // Отменяем только одну из двух позиций
+        bnplService.cancelItem(5L, 50L);
+
+        assertThat(item1.getItemStatus()).isEqualTo(ItemStatus.CANCELLED);
+        // Вторая позиция ещё активна → заказ и контракт НЕ закрываются
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CREATED);
+        assertThat(contract.getStatus()).isEqualTo(BnplContractStatus.ACTIVE);
     }
 
     @Test
@@ -652,6 +695,9 @@ class BnplServiceTest {
 
         assertThat(item.getItemStatus()).isEqualTo(ItemStatus.RETURNED);
         verify(gateway).refund(eq("alfa-pre-001"), anyLong());
+        // Возвращена единственная позиция → заказ и контракт закрываются
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        assertThat(contract.getStatus()).isEqualTo(BnplContractStatus.CANCELLED);
     }
 
     @Test
@@ -674,5 +720,98 @@ class BnplServiceTest {
         assertThatThrownBy(() -> bnplService.returnItem(5L, 50L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("выданный");
+    }
+
+    // ── initiate / confirmPreAuth (новый флоу: списываем первый взнос) ──────────
+
+    @Test
+    void initiate_chargesFirstInstallmentOnly() throws Exception {
+        User user = makeUser(1L);
+        Order order = new Order();
+        order.setId(5L);
+        order.setUser(user);
+        order.setItems(new ArrayList<>());
+
+        Invoice invoice = new Invoice();
+        invoice.setId(1L);
+        invoice.setOrder(order);
+        invoice.setAmount(BigDecimal.valueOf(800)); // 800 руб
+        invoice.setStatus(InvoiceStatus.UNPAID);
+
+        when(invoiceService.findEntityById(1L)).thenReturn(invoice);
+        when(contractRepo.findByOrder(order)).thenReturn(Optional.empty());
+        when(props.getReturnUrl()).thenReturn("http://ret");
+        when(props.getFailUrl()).thenReturn("http://fail");
+        when(contractRepo.save(any())).thenAnswer(inv -> {
+            BnplContract c = inv.getArgument(0);
+            c.setId(10L);
+            return c;
+        });
+        when(orderRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(gateway.registerPreAuthForBinding(anyString(), anyLong(), any(), any(), eq("user-1")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"alfa-1\",\"formUrl\":\"http://form\"}"));
+
+        var resp = bnplService.initiate(1L, "BIWEEKLY_4");
+
+        // 800 руб, 0% → total = 80000 коп; первый взнос = 80000 / 4 = 20000 коп (200 руб).
+        // На форму банка уходит ИМЕННО первый взнос, а не вся сумма заказа.
+        verify(gateway).registerPreAuthForBinding(anyString(), eq(20_000L), any(), any(), eq("user-1"));
+        verify(gateway, never()).registerPreAuth(anyString(), anyLong(), any(), any());
+        assertThat(resp.formUrl()).isEqualTo("http://form");
+    }
+
+    @Test
+    void confirmPreAuth_approved_depositsFirstInstallmentActivatesAndBindsCard() throws Exception {
+        User user = makeUser(1L);
+        Order order = new Order();
+        order.setId(5L);
+        order.setUser(user);
+        order.setItems(new ArrayList<>());
+
+        BnplContract contract = new BnplContract();
+        contract.setId(10L);
+        contract.setOrder(order);
+        contract.setProduct(BnplProduct.BIWEEKLY_4);
+        contract.setTotalAmountKopecks(80_000L);
+        contract.setCommissionKopecks(0L);
+        contract.setInstallmentCount(4);
+        contract.setStatus(BnplContractStatus.AWAITING_PAYMENT);
+        contract.setAlfaPreAuthOrderId("alfa-pre-001");
+        contract.setDepositedAmountKopecks(0L);
+        contract.setInstallments(new ArrayList<>());
+
+        Invoice invoice = new Invoice();
+        invoice.setId(1L);
+        invoice.setOrder(order);
+        invoice.setAmount(BigDecimal.valueOf(800));
+        invoice.setStatus(InvoiceStatus.UNPAID);
+
+        BnplInstallment first = makePendingInstallment(100L, contract, 1, 20_000L, LocalDate.now());
+
+        when(contractRepo.findByAlfaPreAuthOrderId("alfa-pre-001")).thenReturn(Optional.of(contract));
+        // pre-auth APPROVED (orderStatus = 1) + bindingInfo
+        when(gateway.getOrderStatusExtended("alfa-pre-001"))
+                .thenReturn(objectMapper.readTree("{\"orderStatus\":1,\"bindingInfo\":{\"bindingId\":\"b-001\"}}"));
+        when(gateway.deposit("alfa-pre-001", 20_000L))
+                .thenReturn(objectMapper.readTree("{\"bindingInfo\":{\"bindingId\":\"b-001\"}}"));
+        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(installmentRepo.findByContractAndInstallmentNumber(contract, 1)).thenReturn(Optional.of(first));
+        when(invoiceRepo.findByOrder(order)).thenReturn(Optional.of(invoice));
+        doNothing().when(invoiceService).markAsPaid(any(), anyString());
+        doNothing().when(cardService).saveAfterPayment(any(), anyString(), any());
+
+        String result = bnplService.confirmPreAuth("alfa-pre-001");
+
+        assertThat(result).isEqualTo("paid");
+        // Списан первый взнос (200 руб), а не вся сумма
+        verify(gateway).deposit("alfa-pre-001", 20_000L);
+        // Контракт активирован, первый взнос засчитан
+        assertThat(contract.getStatus()).isEqualTo(BnplContractStatus.ACTIVE);
+        assertThat(contract.getDepositedAmountKopecks()).isEqualTo(20_000L);
+        assertThat(first.getStatus()).isEqualTo(BnplInstallmentStatus.PAID);
+        // Счёт оплачен и карта привязана
+        verify(invoiceService).markAsPaid(eq(invoice), anyString());
+        verify(cardService).saveAfterPayment(eq(user), anyString(), any());
     }
 }

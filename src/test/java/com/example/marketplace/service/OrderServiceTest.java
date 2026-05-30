@@ -1,8 +1,10 @@
 package com.example.marketplace.service;
 
 import com.example.marketplace.dto.response.OrderResponse;
+import com.example.marketplace.entity.BnplContract;
 import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
+import com.example.marketplace.entity.enums.BnplContractStatus;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.repository.BnplContractRepository;
@@ -126,6 +128,39 @@ class OrderServiceTest {
                 .hasMessageContaining("User not found");
     }
 
+    // ── getActiveOrdersForClient (фильтр для вкладки «Мои заказы») ───────────────
+
+    @Test
+    void getActiveOrdersForClient_queriesActiveOrdersOnly() {
+        User user = makeUser(1L);
+        PageImpl<Order> page = new PageImpl<>(List.of(
+                makeOrder(1L, user, OrderStatus.CREATED, new BigDecimal("1000.00"))
+        ));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(orderRepository.findActiveForClient(eq(user), eq(OrderStatus.CREATED), any(), any(Pageable.class)))
+                .thenReturn(page);
+
+        Page<OrderResponse> result = orderService.getActiveOrdersForClient(1L, PageRequest.of(0, 20));
+
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getStatus()).isEqualTo(OrderStatus.CREATED);
+        // Передаём именно «активные» статусы рассрочки — AWAITING_PAYMENT и ACTIVE.
+        verify(orderRepository).findActiveForClient(
+                eq(user),
+                eq(OrderStatus.CREATED),
+                eq(List.of(BnplContractStatus.AWAITING_PAYMENT, BnplContractStatus.ACTIVE)),
+                any(Pageable.class));
+    }
+
+    @Test
+    void getActiveOrdersForClient_userNotFound_throwsException() {
+        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> orderService.getActiveOrdersForClient(99L, Pageable.unpaged()))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User not found");
+    }
+
     // ── getOrderById ──────────────────────────────────────────────────────────
 
     @Test
@@ -148,6 +183,45 @@ class OrderServiceTest {
         assertThatThrownBy(() -> orderService.getOrderById(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Order not found");
+    }
+
+    // ── отображение статуса для BNPL-заказов ───────────────────────────────────
+
+    @Test
+    void toResponse_activeBnpl_reportsCreatedStatusNotPaid() {
+        User user = makeUser(1L);
+        Order order = makeOrder(1L, user, OrderStatus.PAID, new BigDecimal("1000.00")); // в БД PAID (первый взнос)
+        BnplContract c = new BnplContract();
+        c.setId(7L);
+        c.setStatus(BnplContractStatus.ACTIVE);
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(bnplContractRepository.findByOrder(order)).thenReturn(Optional.of(c));
+
+        OrderResponse r = orderService.getOrderById(1L);
+
+        // Рассрочка ещё гасится → заказ показываем как «Создан», а не «Оплачен».
+        assertThat(r.getStatus()).isEqualTo(OrderStatus.CREATED);
+        assertThat(r.getBnplStatus()).isEqualTo("ACTIVE");
+        assertThat(r.getBnplContractId()).isEqualTo(7L);
+    }
+
+    @Test
+    void toResponse_completedBnpl_keepsPaidStatus() {
+        User user = makeUser(1L);
+        Order order = makeOrder(1L, user, OrderStatus.PAID, new BigDecimal("1000.00"));
+        BnplContract c = new BnplContract();
+        c.setId(7L);
+        c.setStatus(BnplContractStatus.COMPLETED);
+
+        when(orderRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(bnplContractRepository.findByOrder(order)).thenReturn(Optional.of(c));
+
+        OrderResponse r = orderService.getOrderById(1L);
+
+        // Рассрочка полностью погашена → заказ действительно «Оплачен».
+        assertThat(r.getStatus()).isEqualTo(OrderStatus.PAID);
+        assertThat(r.getBnplStatus()).isEqualTo("COMPLETED");
     }
 
     // ── updateStatus ──────────────────────────────────────────────────────────

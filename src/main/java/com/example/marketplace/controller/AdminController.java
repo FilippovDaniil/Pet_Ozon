@@ -1,6 +1,7 @@
 package com.example.marketplace.controller;
 
 import com.example.marketplace.dto.request.CreateProductRequest;
+import com.example.marketplace.dto.request.PayInstallmentRequest;
 import com.example.marketplace.dto.request.UpdateOrderStatusRequest;
 import com.example.marketplace.dto.response.BnplContractResponse;
 import com.example.marketplace.dto.response.InvoiceResponse;
@@ -8,6 +9,7 @@ import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.dto.response.ProductResponse;
 import com.example.marketplace.dto.response.SellerInfoResponse;
 import com.example.marketplace.payment.BnplService;
+import com.example.marketplace.payment.FullPaymentService;
 import com.example.marketplace.service.InvoiceService;
 import com.example.marketplace.service.OrderService;
 import com.example.marketplace.service.ProductService;
@@ -48,6 +50,7 @@ public class AdminController {
     private final InvoiceService invoiceService;
     private final UserService userService;
     private final BnplService bnplService;
+    private final FullPaymentService fullPaymentService;
 
     // --- Список продавцов (для выпадающего списка при создании товара) ---
 
@@ -127,6 +130,31 @@ public class AdminController {
     @GetMapping("/bnpl/{contractId}")
     public BnplContractResponse getBnplContract(@PathVariable Long contractId) {
         return bnplService.getContractByIdAdmin(contractId);
+    }
+
+    /**
+     * POST /api/admin/orders/{id}/pay — оплата заказа с дефолтной карты клиента (тихое списание).
+     *
+     * Тело (опционально): {"amountKopecks": N}.
+     *   • BNPL-заказ (контракт ACTIVE): null → ближайший взнос; N → произвольная сумма.
+     *   • Обычный заказ (не оплачен): списывается полная сумма счёта (amountKopecks игнорируется).
+     *
+     * Возвращает обновлённый заказ.
+     */
+    @PostMapping(value = "/orders/{orderId}/pay", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public OrderResponse payOrderByCard(@PathVariable Long orderId,
+                                        @RequestBody(required = false) PayInstallmentRequest req) {
+        Long amount = req != null ? req.amountKopecks() : null;
+        OrderResponse o = orderService.getOrderById(orderId);
+
+        if (o.getBnplContractId() != null && "ACTIVE".equals(o.getBnplStatus())) {
+            bnplService.payInstallmentsByAdmin(o.getBnplContractId(), amount);
+        } else if (o.getBnplContractId() == null && o.getInvoiceId() != null) {
+            fullPaymentService.payByDefaultCard(o.getInvoiceId());
+        } else {
+            throw new IllegalStateException("По этому заказу нечего оплачивать с карты");
+        }
+        return orderService.getOrderById(orderId);
     }
 
     // --- Просмотр счетов ---

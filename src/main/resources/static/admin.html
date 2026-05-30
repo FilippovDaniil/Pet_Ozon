@@ -476,6 +476,26 @@
                                                 </div>
                                             </template>
                                         </div>
+
+                                        <!-- История платежей клиента (фактические списания) -->
+                                        <template x-if="(selectedOrderBnpl.payments || []).length">
+                                            <div class="mt-3">
+                                                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">История платежей клиента</p>
+                                                <div class="space-y-1">
+                                                    <template x-for="p in selectedOrderBnpl.payments" :key="p.id">
+                                                        <div class="flex items-center gap-3 py-1.5 px-2 rounded-lg text-xs bg-indigo-50">
+                                                            <span class="font-semibold text-indigo-700 w-24 flex-shrink-0" x-text="fmt(p.amountKopecks / 100)"></span>
+                                                            <span class="text-gray-600 flex-1 truncate" x-text="p.description || 'Платёж'"></span>
+                                                            <span class="text-gray-400 flex-shrink-0" x-text="fmtDate(p.paidAt)"></span>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                                <div class="flex items-center justify-between mt-2 pt-2 border-t border-indigo-200 text-xs font-semibold text-gray-700">
+                                                    <span>Всего внесено</span>
+                                                    <span x-text="fmt(selectedOrderBnpl.depositedAmountKopecks / 100)"></span>
+                                                </div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                             </div>
@@ -520,6 +540,29 @@
                                     </template>
                                 </div>
                             </div>
+
+                            <!-- Оплата с дефолтной карты клиента (тихое списание) -->
+                            <template x-if="canAdminPay(selectedOrder)">
+                                <div class="mt-4">
+                                    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Оплата с карты клиента</p>
+                                    <div class="bg-gray-50 rounded-lg p-3 space-y-2">
+                                        <template x-if="selectedOrder.bnplStatus === 'ACTIVE'">
+                                            <input type="number" min="50" step="1" x-model.number="adminPayRub"
+                                                   placeholder="Сумма ₽ (пусто — ближайший взнос)"
+                                                   class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                                        </template>
+                                        <button @click="adminPayOrder()" :disabled="adminPayProcessing"
+                                                class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition">
+                                            <span x-show="!adminPayProcessing"
+                                                  x-text="selectedOrder.bnplStatus === 'ACTIVE'
+                                                          ? (adminPayRub ? ('Списать ' + adminPayRub + ' ₽ с карты') : 'Оплатить ближайший взнос с карты')
+                                                          : 'Оплатить заказ с карты клиента'"></span>
+                                            <span x-show="adminPayProcessing">⏳ Списание…</span>
+                                        </button>
+                                        <p class="text-xs text-gray-400">Тихое списание по привязанной карте клиента, без 3DS.</p>
+                                    </div>
+                                </div>
+                            </template>
 
                         </div><!-- /p-6 -->
                     </div>
@@ -990,6 +1033,8 @@
             selectedOrderBnpl: null,
             loadingOrderBnpl: false,
             orderModalNewStatus: '',
+            adminPayRub: '',          // сумма для оплаты с карты клиента (произвольная)
+            adminPayProcessing: false,
 
             invoices: [],
             loadingInvoices: false,
@@ -1307,6 +1352,34 @@
                         this.selectedOrderBnpl = await api.getAdminBnplContract(this.selectedOrder.bnplContractId);
                     }
                 } catch {}
+            },
+
+            // Можно ли оплатить заказ с карты клиента: активная рассрочка ИЛИ обычный неоплаченный заказ.
+            canAdminPay(order) {
+                if (!order) return false;
+                if (order.bnplStatus === 'ACTIVE') return true;
+                if (!order.bnplContractId && order.status === 'CREATED' && order.invoiceId) return true;
+                return false;
+            },
+
+            async adminPayOrder() {
+                if (this.adminPayProcessing || !this.selectedOrder) return;
+                let amountKopecks = null;
+                if (this.selectedOrder.bnplStatus === 'ACTIVE' && this.adminPayRub) {
+                    amountKopecks = Math.round(parseFloat(this.adminPayRub) * 100);
+                    if (isNaN(amountKopecks) || amountKopecks < 5000) {
+                        this.toast('Минимальная сумма — 50 ₽', 'error');
+                        return;
+                    }
+                }
+                this.adminPayProcessing = true;
+                try {
+                    await api.adminPayOrder(this.selectedOrder.id, amountKopecks);
+                    this.toast('Платёж проведён с карты клиента', 'success');
+                    this.adminPayRub = '';
+                    await this._reloadModalOrder(this.selectedOrder.id);
+                } catch (e) { this.toast(e.message, 'error'); }
+                finally { this.adminPayProcessing = false; }
             },
 
             async saveOrderStatus(order) {

@@ -3,6 +3,7 @@ package com.example.marketplace.payment;
 import com.example.marketplace.config.AlfaBankProperties;
 import com.example.marketplace.dto.response.PaymentInitResponse;
 import com.example.marketplace.entity.AlfaBankOrder;
+import com.example.marketplace.entity.CardBinding;
 import com.example.marketplace.entity.Invoice;
 import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
@@ -82,7 +83,7 @@ class FullPaymentServiceTest {
                 """
                 {"orderId":"alfa-123","formUrl":"https://alfa.rbsuat.com/form?id=alfa-123","errorCode":"0"}
                 """);
-        when(gateway.registerOrder(anyString(), anyLong(), anyString(), anyString()))
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), anyString(), anyString(), anyString()))
                 .thenReturn(gatewayResp);
 
         PaymentInitResponse result = fullPaymentService.initiate(1L);
@@ -101,7 +102,7 @@ class FullPaymentServiceTest {
         assertThatThrownBy(() -> fullPaymentService.initiate(1L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("уже оплачен");
-        verify(gateway, never()).registerOrder(anyString(), anyLong(), anyString(), anyString());
+        verify(gateway, never()).registerOrderForBinding(anyString(), anyLong(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -111,13 +112,13 @@ class FullPaymentServiceTest {
         when(alfaBankOrderRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         JsonNode gatewayResp = objectMapper.readTree("{\"orderId\":\"x\",\"formUrl\":\"http://f\"}");
-        when(gateway.registerOrder(anyString(), anyLong(), anyString(), anyString()))
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), anyString(), anyString(), anyString()))
                 .thenReturn(gatewayResp);
 
         fullPaymentService.initiate(1L);
 
         // 123.45 руб. = 12345 копеек
-        verify(gateway).registerOrder(anyString(), eq(12345L), anyString(), anyString());
+        verify(gateway).registerOrderForBinding(anyString(), eq(12345L), anyString(), anyString(), anyString());
     }
 
     // ── confirm ───────────────────────────────────────────────────────────────
@@ -138,14 +139,14 @@ class FullPaymentServiceTest {
                 {"orderStatus":2,"bindingInfo":{"bindingId":"b-001","label":"411111**1111","expiryDate":"122026"}}
                 """);
         when(gateway.getOrderStatusExtended("alfa-123")).thenReturn(statusResp);
-        doNothing().when(cardService).saveFromStatusResponse(any(), any());
+        doNothing().when(cardService).saveAfterPayment(any(), anyString(), any());
         doNothing().when(invoiceService).markAsPaid(any(), anyString());
 
         String result = fullPaymentService.confirm("alfa-123");
 
         assertThat(result).isEqualTo("paid");
         verify(invoiceService).markAsPaid(invoice, "CARD");
-        verify(cardService).saveFromStatusResponse(any(), any());
+        verify(cardService).saveAfterPayment(any(), anyString(), any());
     }
 
     @Test
@@ -206,5 +207,53 @@ class FullPaymentServiceTest {
 
         assertThatThrownBy(() -> fullPaymentService.confirm("unknown"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ── payByDefaultCard (админ платит за клиента с дефолтной карты) ────────────
+
+    @Test
+    void payByDefaultCard_chargesFullAmountAndMarksPaid() throws Exception {
+        Invoice invoice = makeInvoice(1L, InvoiceStatus.UNPAID, new BigDecimal("1000.00"));
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-real");
+
+        when(invoiceService.findEntityById(1L)).thenReturn(invoice);
+        when(cardService.getDefault(any())).thenReturn(Optional.of(card));
+        when(cardService.resolveChargeableBindingId(any(), eq("user-1"))).thenReturn("b-real");
+        when(alfaBankOrderRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), eq("user-1")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
+        when(gateway.paymentOrderBinding(anyString(), eq(100000L), eq("b-real")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-1\"}"));
+        doNothing().when(invoiceService).markAsPaid(any(), anyString());
+
+        String result = fullPaymentService.payByDefaultCard(1L);
+
+        assertThat(result).isEqualTo("paid");
+        // Списана полная сумма счёта (1000 ₽ = 100000 коп) по дефолтной карте.
+        verify(gateway).paymentOrderBinding(anyString(), eq(100000L), eq("b-real"));
+        verify(invoiceService).markAsPaid(invoice, "CARD");
+    }
+
+    @Test
+    void payByDefaultCard_noCard_throws() {
+        Invoice invoice = makeInvoice(1L, InvoiceStatus.UNPAID, new BigDecimal("500.00"));
+        when(invoiceService.findEntityById(1L)).thenReturn(invoice);
+        when(cardService.getDefault(any())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> fullPaymentService.payByDefaultCard(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("нет привязанной карты");
+        verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void payByDefaultCard_alreadyPaid_throws() {
+        Invoice invoice = makeInvoice(1L, InvoiceStatus.PAID, new BigDecimal("500.00"));
+        when(invoiceService.findEntityById(1L)).thenReturn(invoice);
+
+        assertThatThrownBy(() -> fullPaymentService.payByDefaultCard(1L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("уже оплачен");
     }
 }

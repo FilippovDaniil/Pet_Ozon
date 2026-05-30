@@ -11,6 +11,7 @@ import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
 import com.example.marketplace.payment.BnplService;
+import com.example.marketplace.payment.FullPaymentService;
 import com.example.marketplace.security.JwtAuthenticationFilter;
 import com.example.marketplace.service.InvoiceService;
 import com.example.marketplace.service.OrderService;
@@ -54,12 +55,13 @@ class AdminControllerTest {
 
     @Autowired MockMvc mockMvc;
 
-    // AdminController использует пять сервисов
+    // AdminController использует сервисы
     @MockitoBean ProductService productService;
     @MockitoBean OrderService   orderService;
     @MockitoBean InvoiceService invoiceService;
     @MockitoBean UserService    userService;
-    @MockitoBean BnplService    bnplService;  // admin-просмотр BNPL-контрактов
+    @MockitoBean BnplService    bnplService;         // admin-просмотр BNPL-контрактов
+    @MockitoBean FullPaymentService fullPaymentService;  // оплата заказа с дефолтной карты
 
     // Создаёт пользователя с ролью ADMIN для имитации авторизованного администратора
     private User mockAdminUser() {
