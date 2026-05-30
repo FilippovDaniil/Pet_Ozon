@@ -14,16 +14,18 @@ param(
     [switch]$Token
 )
 
+# --- Параметры образа и путей ---
 $ImageName    = "marketplace-app"
-$ImageTag     = "1.0.0"
+$ImageTag     = "1.0.0"                                  # тег ДОЛЖЕН совпадать с image: в 06-app.yaml
 $FullImage    = "${ImageName}:${ImageTag}"
-$TarPath      = "$env:TEMP\${ImageName}.tar"
-$LinuxTarPath = "/mnt/c/Users/$env:USERNAME/AppData/Local/Temp/${ImageName}.tar"
+$TarPath      = "$env:TEMP\${ImageName}.tar"             # путь к tar-образу на хосте (Windows)
+$LinuxTarPath = "/mnt/c/Users/$env:USERNAME/AppData/Local/Temp/${ImageName}.tar"  # тот же файл изнутри VM
 $Namespace    = "marketplace"
 # Пути относительно расположения скрипта (infra/rancher) — не зависят от CWD.
 $ProjectRoot  = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path  # корень проекта (где Dockerfile)
 $K8sDir       = Join-Path $PSScriptRoot "k8s"
 
+# --- Хелперы цветного вывода: шаг (Cyan), успех (Green), ошибка (Red + выход) ---
 function Write-Step($msg) {
     Write-Host ""
     Write-Host "== $msg" -ForegroundColor Cyan
@@ -33,6 +35,7 @@ function Write-Ok($msg) {
     Write-Host "  OK: $msg" -ForegroundColor Green
 }
 
+# Write-Fail печатает ошибку и сразу завершает скрипт (exit 1) — деплой не продолжается.
 function Write-Fail($msg) {
     Write-Host "  FAIL: $msg" -ForegroundColor Red
     exit 1

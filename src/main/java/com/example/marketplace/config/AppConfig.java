@@ -38,6 +38,17 @@ public class AppConfig {
     private final PasswordEncoder      passwordEncoder;
     private final JdbcTemplate         jdbc;
 
+    /**
+     * Сидинг тестовых данных при старте приложения (CommandLineRunner запускается после поднятия контекста).
+     *
+     * Порядок строго важен:
+     *   1. fixRoleConstraint()      — обновить CHECK-ограничение role (иначе INSERT ACCOUNTANT упадёт);
+     *   2. ensureUser()×5 + корзины — тестовые пользователи всех ролей;
+     *   3. сидинг товаров порогами  — count==0 → базовые 20; <250 → расширенный каталог; <340 → тонкие категории;
+     *   4. fixProductCategories()   — идемпотентно исправить категории;
+     *   5. reindexAll()             — синхронизировать товары в OpenSearch (graceful degradation);
+     *   6. createOpenSearchIndexPattern() — создать index pattern в Dashboards (только в K8s).
+     */
     @Bean
     public CommandLineRunner initData() {
         return args -> {
@@ -324,6 +335,11 @@ public class AppConfig {
         };
     }
 
+    /**
+     * Идемпотентно создаёт пользователя или возвращает существующего.
+     * Если у найденного пользователя пароль хранится в открытом виде (не начинается с BCrypt-префикса
+     * "$2a$") — перехэшировывает его. Так старые сид-данные доводятся до корректного состояния.
+     */
     private User ensureUser(String email, String password, String fullName, Role role, String shopName) {
         return userRepository.findByEmail(email).map(u -> {
             if (!u.getPassword().startsWith("$2a$")) {
@@ -522,6 +538,10 @@ public class AppConfig {
         log.info("Product categories verified/fixed");
     }
 
+    /**
+     * Подбирает категорию товара по ключевым словам в названии (fallback для товаров без категории).
+     * Должен покрывать все категории — иначе товар свалится в дефолт «Периферия» (см. последний return).
+     */
     private String categorizeByName(String name) {
         if (name == null) return "Другое";
         String n = name.toLowerCase();

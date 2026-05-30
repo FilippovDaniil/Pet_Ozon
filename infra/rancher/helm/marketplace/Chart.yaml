@@ -1,3 +1,4 @@
+# Метаданные Helm-чарта (имя, описание, версии).
 apiVersion: v2
 name: marketplace
 description: Pet-project marketplace — Spring Boot + PostgreSQL

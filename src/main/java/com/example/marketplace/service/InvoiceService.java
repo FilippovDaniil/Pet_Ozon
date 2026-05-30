@@ -139,14 +139,21 @@ public class InvoiceService {
     public void markAsPaid(Invoice invoice, String paymentMethod) {
         if (invoice.getStatus() == InvoiceStatus.PAID) return;  // идемпотентность
 
+        // Шаги те же, что и в pay(): счёт → заказ → начисление продавцам → Payment → чек.
+        // Отдельный метод нужен, чтобы платёжные сервисы (Full/BNPL) фиксировали оплату
+        // после подтверждения банком, минуя ручной вызов pay() из контроллера.
+
+        // Шаг 1: счёт оплачен.
         invoice.setStatus(InvoiceStatus.PAID);
         invoice.setPaidAt(LocalDateTime.now());
         invoiceRepository.save(invoice);
 
+        // Шаг 2: заказ переходит в PAID.
         Order order = invoice.getOrder();
         order.setStatus(OrderStatus.PAID);
         orderRepository.save(order);
 
+        // Шаг 3: начисляем выручку продавцам (доля каждого по его позициям).
         for (OrderItem item : order.getItems()) {
             User seller = item.getProduct().getSeller();
             if (seller != null) {
@@ -158,6 +165,7 @@ public class InvoiceService {
             }
         }
 
+        // Шаг 4: платёжный документ.
         Payment payment = new Payment();
         payment.setInvoice(invoice);
         payment.setAmount(invoice.getAmount());
@@ -168,6 +176,7 @@ public class InvoiceService {
 
         log.info("ACTION=MARK_INVOICE_PAID invoiceId={} orderId={}", invoice.getId(), order.getId());
 
+        // Чек покупателю — сбой почты не должен откатывать оплату.
         try {
             User buyer = order.getUser();
             emailService.sendOrderReceipt(buyer, order, payment.getPaymentMethod());

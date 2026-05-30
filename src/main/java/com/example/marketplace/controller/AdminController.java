@@ -127,6 +127,7 @@ public class AdminController {
         return orderService.updateStatus(id, request.getStatus());
     }
 
+    /** GET /api/admin/bnpl/{id} — детали BNPL-контракта для админ-модала (без проверки владельца). */
     @GetMapping("/bnpl/{contractId}")
     public BnplContractResponse getBnplContract(@PathVariable Long contractId) {
         return bnplService.getContractByIdAdmin(contractId);

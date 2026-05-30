@@ -1,3 +1,7 @@
+# Helm-шаблон PostgreSQL: PVC (хранилище) + Deployment + ClusterIP Service.
+# Service назван "postgres-service" — это DNS-имя, по которому app подключается к БД.
+
+# ── РЕСУРС 1: PVC — постоянное хранилище для данных БД ──
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -11,6 +15,7 @@ spec:
       storage: {{ .Values.postgres.storage }}
 
 ---
+# ── РЕСУРС 2: Deployment — под PostgreSQL (пароль из Secret, данные на PVC) ──
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -56,6 +61,7 @@ spec:
             claimName: postgres-pvc
 
 ---
+# ── РЕСУРС 3: Service — внутренний доступ к БД (ClusterIP, только внутри кластера) ──
 apiVersion: v1
 kind: Service
 metadata:

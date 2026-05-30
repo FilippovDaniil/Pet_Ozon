@@ -1,3 +1,9 @@
+# Helm-шаблон приложения: ConfigMap + Deployment + Service.
+# Аналог статичного infra/rancher/k8s/06-app.yaml, но значения берутся из values.yaml
+# через {{ .Values.* }} — один чарт, разные среды (helm install --set ...).
+# Подробные пояснения к каждой настройке — в k8s/06-app.yaml.
+
+# ── РЕСУРС 1: ConfigMap — несекретные env-переменные приложения ──
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,6 +21,7 @@ data:
   MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "always"
 
 ---
+# ── РЕСУРС 2: Deployment — поды приложения ──
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,6 +37,7 @@ spec:
       labels:
         app: marketplace-app
     spec:
+      # initContainer: ждём готовности PostgreSQL, чтобы Spring Boot не упал на старте.
       initContainers:
         - name: wait-for-postgres
           image: busybox:1.36
@@ -48,9 +56,11 @@ spec:
           imagePullPolicy: {{ .Values.app.imagePullPolicy }}
           ports:
             - containerPort: {{ .Values.app.port }}
+          # Несекретные настройки — из ConfigMap целиком.
           envFrom:
             - configMapRef:
                 name: marketplace-config
+          # Секреты — отдельно, из Secret по конкретным ключам.
           env:
             - name: SPRING_DATASOURCE_PASSWORD
               valueFrom:
@@ -78,6 +88,7 @@ spec:
             failureThreshold: 3
 
 ---
+# ── РЕСУРС 3: Service — доступ к приложению снаружи кластера (NodePort) ──
 apiVersion: v1
 kind: Service
 metadata:

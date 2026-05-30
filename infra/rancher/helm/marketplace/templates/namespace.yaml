@@ -1,3 +1,4 @@
+# Namespace для всех ресурсов чарта. Имя берётся из values.yaml (namespace).
 apiVersion: v1
 kind: Namespace
 metadata:
