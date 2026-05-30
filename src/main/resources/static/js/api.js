@@ -105,7 +105,7 @@ const api = {
     postponeInstallment: (contractId, days) =>
         apiFetch(`/api/bnpl/${contractId}/postpone`, { method: 'POST', body: JSON.stringify({ days }) }),
 
-    // Оплатить взнос(ы) по привязанной карте
+    // Оплатить взнос(ы) по привязанной карте — тихое списание (MIT), без CVC/3DS.
     payInstallmentNow: (contractId, amountKopecks) =>
         apiFetch(`/api/bnpl/${contractId}/pay`, {
             method: 'POST',

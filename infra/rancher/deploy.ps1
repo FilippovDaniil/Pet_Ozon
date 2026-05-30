@@ -1,11 +1,11 @@
 # deploy.ps1 - Automated deploy of marketplace to Rancher Desktop
 #
-# Usage (run from project root):
-#   .\rancher\deploy.ps1              - full cycle: build + deploy
-#   .\rancher\deploy.ps1 -BuildOnly   - build and load image into VM only
-#   .\rancher\deploy.ps1 -DeployOnly  - apply manifests only (image already loaded)
-#   .\rancher\deploy.ps1 -Reset       - delete namespace and redeploy from scratch
-#   .\rancher\deploy.ps1 -Token       - show Kubernetes Dashboard token
+# Usage (can be run from anywhere — paths resolve via $PSScriptRoot):
+#   .\infra\rancher\deploy.ps1              - full cycle: build + deploy
+#   .\infra\rancher\deploy.ps1 -BuildOnly   - build and load image into VM only
+#   .\infra\rancher\deploy.ps1 -DeployOnly  - apply manifests only (image already loaded)
+#   .\infra\rancher\deploy.ps1 -Reset       - delete namespace and redeploy from scratch
+#   .\infra\rancher\deploy.ps1 -Token       - show Kubernetes Dashboard token
 
 param(
     [switch]$BuildOnly,
@@ -20,7 +20,9 @@ $FullImage    = "${ImageName}:${ImageTag}"
 $TarPath      = "$env:TEMP\${ImageName}.tar"
 $LinuxTarPath = "/mnt/c/Users/$env:USERNAME/AppData/Local/Temp/${ImageName}.tar"
 $Namespace    = "marketplace"
-$K8sDir       = "rancher\k8s"
+# Пути относительно расположения скрипта (infra/rancher) — не зависят от CWD.
+$ProjectRoot  = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path  # корень проекта (где Dockerfile)
+$K8sDir       = Join-Path $PSScriptRoot "k8s"
 
 function Write-Step($msg) {
     Write-Host ""
@@ -66,7 +68,7 @@ if ($Reset) {
 # STAGE 1: Build and load image
 if (-not $DeployOnly) {
     Write-Step "Building Docker image: $FullImage"
-    docker build --provenance=false -t $FullImage .
+    docker build --provenance=false -t $FullImage $ProjectRoot
     if ($LASTEXITCODE -ne 0) { Write-Fail "docker build failed" }
     Write-Ok "Image built"
 
@@ -87,7 +89,7 @@ if (-not $DeployOnly) {
 
 if ($BuildOnly) {
     Write-Host ""
-    Write-Host "  Done: image loaded. To deploy run: .\rancher\deploy.ps1 --deploy-only" -ForegroundColor Green
+    Write-Host "  Done: image loaded. To deploy run: .\infra\rancher\deploy.ps1 --deploy-only" -ForegroundColor Green
     exit 0
 }
 
@@ -147,6 +149,6 @@ Write-Host "  Grafana:               http://localhost:30300  (admin / admin)" -F
 Write-Host "  Prometheus:            http://localhost:30900" -ForegroundColor White
 Write-Host "  K8s Dashboard:         https://localhost:30443" -ForegroundColor White
 Write-Host ""
-Write-Host "  Dashboard token: .\rancher\deploy.ps1 --token" -ForegroundColor Gray
+Write-Host "  Dashboard token: .\infra\rancher\deploy.ps1 --token" -ForegroundColor Gray
 Write-Host "  Pod status:      kubectl get pods -n marketplace" -ForegroundColor Gray
 Write-Host ""

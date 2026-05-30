@@ -5,6 +5,7 @@ import com.example.marketplace.config.TestSecurityConfig;
 import com.example.marketplace.payment.BnplService;
 import com.example.marketplace.payment.FullPaymentService;
 import com.example.marketplace.security.JwtAuthenticationFilter;
+import com.example.marketplace.service.CardService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -33,6 +34,7 @@ class PaymentControllerTest {
     @Autowired MockMvc mockMvc;
     @MockitoBean FullPaymentService fullPaymentService;
     @MockitoBean BnplService bnplService;
+    @MockitoBean CardService cardService;  // PaymentController зависит от него (card-bind-callback)
 
     // ── GET /api/payment/callback ─────────────────────────────────────────────
 

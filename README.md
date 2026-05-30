@@ -1748,17 +1748,18 @@ sum by(role) (rate({app="marketplace"}[1m]))
 ### Структура файлов мониторинга
 
 ```
+infra/
 ├── loki/
 │   └── loki-config.yml              ← конфигурация Loki (filesystem storage, schema v11)
-├── grafana/
-│   └── provisioning/
-│       ├── datasources/
-│       │   └── loki.yml             ← автоподключение Loki как datasource при старте
-│       └── dashboards/
-│           ├── dashboards.yml       ← провайдер: Grafana ищет JSON-файлы в этой папке
-│           └── marketplace.json     ← дашборд с 6 панелями (автозагружается)
-└── src/main/resources/
-    └── logback-spring.xml           ← Logback конфигурация с MDC и Loki-аппендером
+└── grafana/
+    └── provisioning/
+        ├── datasources/
+        │   └── loki.yml             ← автоподключение Loki как datasource при старте
+        └── dashboards/
+            ├── dashboards.yml       ← провайдер: Grafana ищет JSON-файлы в этой папке
+            └── marketplace.json     ← дашборд с 6 панелями (автозагружается)
+src/main/resources/
+└── logback-spring.xml               ← Logback конфигурация с MDC и Loki-аппендером
 ```
 
 ---
@@ -2654,19 +2655,19 @@ docker run -p 8667:8667 \
 
 ```powershell
 # Полный цикл: сборка + загрузка в VM + деплой
-.\rancher\deploy.ps1
+.\infra\rancher\deploy.ps1
 
 # Только пересобрать и загрузить образ (манифесты не трогать)
-.\rancher\deploy.ps1 -BuildOnly
+.\infra\rancher\deploy.ps1 -BuildOnly
 
 # Только задеплоить манифесты (образ уже в VM)
-.\rancher\deploy.ps1 -DeployOnly
+.\infra\rancher\deploy.ps1 -DeployOnly
 
 # Снести всё и задеплоить с нуля
-.\rancher\deploy.ps1 -Reset
+.\infra\rancher\deploy.ps1 -Reset
 
 # Получить токен для входа в Kubernetes Dashboard
-.\rancher\deploy.ps1 -Token
+.\infra\rancher\deploy.ps1 -Token
 ```
 
 После успешного деплоя скрипт выводит все URL сервисов.
@@ -2693,7 +2694,7 @@ kubectl get nodes             # нода в статусе Ready
 ### Структура файлов
 
 ```
-rancher/
+infra/rancher/
 ├── k8s/                    ← Kubernetes манифесты (plain YAML)
 │   ├── 00-namespace.yaml   ← Создаёт namespace "marketplace"
 │   ├── 01-secrets.yaml     ← Пароли (postgres, mail)
@@ -2739,32 +2740,32 @@ rdctl shell -- sh -c "docker images marketplace-app"
 
 ```powershell
 # Namespace и секреты — первыми
-kubectl apply -f rancher/k8s/00-namespace.yaml
-kubectl apply -f rancher/k8s/01-secrets.yaml
+kubectl apply -f infra/rancher/k8s/00-namespace.yaml
+kubectl apply -f infra/rancher/k8s/01-secrets.yaml
 
 # Базовые сервисы — запускаются параллельно
-kubectl apply -f rancher/k8s/02-postgres.yaml
-kubectl apply -f rancher/k8s/03-loki.yaml
-kubectl apply -f rancher/k8s/04-prometheus.yaml
-kubectl apply -f rancher/k8s/05-grafana.yaml
+kubectl apply -f infra/rancher/k8s/02-postgres.yaml
+kubectl apply -f infra/rancher/k8s/03-loki.yaml
+kubectl apply -f infra/rancher/k8s/04-prometheus.yaml
+kubectl apply -f infra/rancher/k8s/05-grafana.yaml
 
 # Ждём пока PostgreSQL и Loki будут готовы
 kubectl rollout status deployment/postgres -n marketplace --timeout=120s
 kubectl rollout status deployment/loki -n marketplace --timeout=120s
 
 # Приложение — последним (зависит от PostgreSQL)
-kubectl apply -f rancher/k8s/06-app.yaml
+kubectl apply -f infra/rancher/k8s/06-app.yaml
 kubectl rollout status deployment/marketplace-app -n marketplace --timeout=150s
 
 # Kubernetes Dashboard — в отдельный namespace (можно применить в любой момент)
-kubectl apply -f rancher/k8s/07-dashboard.yaml
+kubectl apply -f infra/rancher/k8s/07-dashboard.yaml
 kubectl rollout status deployment/kubernetes-dashboard -n kubernetes-dashboard --timeout=120s
 ```
 
 Или одной командой (K8s применит все файлы, включая Dashboard):
 
 ```powershell
-kubectl apply -f rancher/k8s/
+kubectl apply -f infra/rancher/k8s/
 kubectl rollout status deployment/marketplace-app -n marketplace --timeout=180s
 kubectl rollout status deployment/kubernetes-dashboard -n kubernetes-dashboard --timeout=120s
 ```
@@ -2896,7 +2897,7 @@ kubectl delete namespace kubernetes-dashboard
 kubectl delete clusterrolebinding admin-user
 
 # Пересоздать всё с нуля
-kubectl apply -f rancher/k8s/
+kubectl apply -f infra/rancher/k8s/
 ```
 
 ---
@@ -2919,7 +2920,7 @@ kubectl apply -f rancher/k8s/
 
 ## Что добавлено
 
-- [x] **Полнотекстовый поиск (OpenSearch)** — `ProductSearchService` (graceful degradation), `ProductSearchController` (`GET /api/search/products`), `ProductDocument` POJO, `OpenSearchConfig` (ApacheHttpClient5Transport); индексация при каждом CRUD товара через `ProductService`/`SellerService`; полная переиндексация 320 товаров при старте через `AppConfig.reindexAll()`; поддержка multi_match + term + range + пагинация; K8s: `08-opensearch.yaml` с privileged initContainer для `vm.max_map_count`; подробности — `OpenSearch.md`
+- [x] **Полнотекстовый поиск (OpenSearch)** — `ProductSearchService` (graceful degradation), `ProductSearchController` (`GET /api/search/products`), `ProductDocument` POJO, `OpenSearchConfig` (ApacheHttpClient5Transport); индексация при каждом CRUD товара через `ProductService`/`SellerService`; полная переиндексация 320 товаров при старте через `AppConfig.reindexAll()`; поддержка multi_match + term + range + пагинация; K8s: `08-opensearch.yaml` с privileged initContainer для `vm.max_map_count`; подробности — `docs/OpenSearch.md`
 - [x] **Интеграционные тесты** — `@DataJpaTest` + Testcontainers, реальная PostgreSQL в Docker (`@Tag("integration")`)
 - [x] **Swagger UI / OpenAPI 3** — автодокументация, `http://localhost:8667/swagger-ui.html`
 - [x] **Пагинация везде** — товары, заказы, счета, товары продавца — все возвращают `Page<T>`

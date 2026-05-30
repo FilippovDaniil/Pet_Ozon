@@ -297,9 +297,12 @@ public class BnplService {
     // ─── Досрочная оплата ─────────────────────────────────────────────────────
 
     /**
-     * Оплачивает взносы по привязанной карте без редиректа.
+     * Тихое списание взносов по привязанной карте (MIT, без участия клиента).
      * amountKopecks == null → оплатить ближайший PENDING взнос.
      * amountKopecks > 0    → покрыть столько взносов, сколько вмещает сумма (жадно от ближайшего).
+     *
+     * Списание идёт через paymentOrderBinding.do с tii=U (Merchant Initiated Transaction):
+     * связка списывается без CVC и без 3DS — мандат дан клиентом при привязке карты.
      */
     @Transactional
     public List<BnplInstallmentResponse> payInstallmentsNow(Long contractId, Long amountKopecks, User user) {
@@ -323,18 +326,15 @@ public class BnplService {
         if (pending.isEmpty()) {
             throw new IllegalStateException("Нет взносов для оплаты");
         }
-
         // Минимальная сумма 50 ₽ (5000 коп.)
         if (amountKopecks != null && amountKopecks < 5000) {
             throw new IllegalStateException("Минимальная сумма оплаты — 50 ₽");
         }
 
-        // Определяем какие взносы покрывает сумма.
-        // Если сумма меньше одного взноса — платёж принимается как частичный:
-        // depositedAmountKopecks увеличивается, взносы остаются PENDING пока не накопится нужная сумма.
+        // Какие взносы покрывает сумма (частичный платёж < одного взноса допустим).
         List<BnplInstallment> toPay;
         if (amountKopecks == null) {
-            toPay = List.of(pending.get(0)); // ближайший взнос
+            toPay = List.of(pending.get(0));
         } else {
             long remaining = amountKopecks;
             toPay = new java.util.ArrayList<>();
@@ -346,16 +346,23 @@ public class BnplService {
                     break;
                 }
             }
-            // toPay может быть пустым если сумма < одного взноса — это частичный платёж, ок
         }
-
         long totalKopecks = toPay.isEmpty()
                 ? (amountKopecks != null ? amountKopecks : pending.get(0).getAmountKopecks())
                 : toPay.stream().mapToLong(BnplInstallment::getAmountKopecks).sum();
-        String orderNumber = "INST-" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
-        String clientId    = "user-" + user.getId(); // обязателен для paymentOrderBinding.do
 
-        // Шаг 1: register.do с clientId → получаем mdOrder
+        String clientId = "user-" + user.getId();
+
+        // Реальный bindingId на стороне банка. Синтетический "CARDAUTH-" не списывается —
+        // в этом случае берём настоящую связку клиента через getBindings.do.
+        String bindingId = resolveRecurrentBindingId(card, clientId);
+        if (bindingId == null) {
+            throw new IllegalStateException("Не найдена связка карты для списания. Привяжите карту заново.");
+        }
+
+        String orderNumber = "INST-" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+
+        // Шаг 1: register.do с clientId → mdOrder
         JsonNode registered = gateway.registerOrderForBinding(
                 orderNumber, totalKopecks, props.getReturnUrl(), props.getFailUrl(), clientId);
         String mdOrder = registered.path("orderId").asText(null);
@@ -363,11 +370,17 @@ public class BnplService {
             throw new IllegalStateException("Не удалось зарегистрировать заказ в шлюзе");
         }
 
-        // Шаг 2: мгновенное списание с привязанной карты
-        JsonNode result = gateway.paymentOrderBinding(mdOrder, totalKopecks, card.getBindingId());
+        // Шаг 2: тихое списание по связке (tii=U внутри gateway → без CVC/3DS)
+        JsonNode result = gateway.paymentOrderBinding(mdOrder, totalKopecks, bindingId);
+        String acsUrl = result.path("acsUrl").asText(null);
+        if (acsUrl != null && !acsUrl.isBlank()) {
+            // tii=U должен исключать 3DS. Если банк всё же запросил подтверждение —
+            // значит связка не настроена на автоплатежи; не помечаем взносы оплаченными.
+            throw new IllegalStateException("Банк запросил подтверждение 3DS — тихое списание недоступно для этой карты");
+        }
         String alfaOrderId = result.path("orderId").asText(mdOrder);
 
-        // Помечаем полностью покрытые взносы как оплаченные
+        // Помечаем полностью покрытые взносы оплаченными.
         java.util.List<BnplInstallmentResponse> paid = new java.util.ArrayList<>();
         for (BnplInstallment inst : toPay) {
             inst.setStatus(BnplInstallmentStatus.PAID);
@@ -377,7 +390,7 @@ public class BnplService {
             paid.add(toInstallmentResponse(inst));
         }
 
-        // Обновляем общую сумму депозита (в т.ч. для частичных платежей)
+        // Обновляем общий депозит (в т.ч. для частичных платежей) и статус контракта.
         contract.setDepositedAmountKopecks(contract.getDepositedAmountKopecks() + totalKopecks);
         boolean allPaid = contract.getInstallments().stream()
                 .allMatch(i -> i.getStatus() == BnplInstallmentStatus.PAID
@@ -393,6 +406,28 @@ public class BnplService {
         return paid.isEmpty()
                 ? contract.getInstallments().stream().map(this::toInstallmentResponse).toList()
                 : paid;
+    }
+
+    // Реальный bindingId для списания. Синтетический "CARDAUTH-" в шлюзе не существует —
+    // в этом случае берём настоящую связку из getBindings.do (актуально для UAT).
+    private String resolveRecurrentBindingId(CardBinding card, String clientId) {
+        return resolveRecurrentBindingId(card.getBindingId(), clientId);
+    }
+
+    private String resolveRecurrentBindingId(String storedBindingId, String clientId) {
+        if (storedBindingId != null && !storedBindingId.startsWith("CARDAUTH-")) {
+            return storedBindingId;  // реальный bindingId из bindingInfo (production)
+        }
+        try {
+            JsonNode resp = gateway.getBindings(clientId);
+            for (JsonNode b : resp.path("bindings")) {
+                String id = b.path("bindingId").asText(null);
+                if (id != null && !id.isBlank()) return id;
+            }
+        } catch (Exception e) {
+            log.warn("getBindings failed clientId={}: {}", clientId, e.getMessage());
+        }
+        return null;
     }
 
     // ─── BNPL-кабинет (чтение) ───────────────────────────────────────────────
@@ -421,7 +456,11 @@ public class BnplService {
     @Transactional
     public void processInstallment(BnplInstallment installment) {
         BnplContract contract = installment.getContract();
-        if (contract.getBindingId() == null) {
+        String clientId = "user-" + contract.getOrder().getUser().getId();
+
+        // Реальный bindingId: из контракта (production) либо из getBindings.do (UAT).
+        String bindingId = resolveRecurrentBindingId(contract.getBindingId(), clientId);
+        if (bindingId == null) {
             log.warn("No bindingId for contractId={}, skip installment {}", contract.getId(),
                     installment.getInstallmentNumber());
             return;
@@ -430,7 +469,6 @@ public class BnplService {
         String orderNumber = "INST-" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
         try {
             // Шаг 1: register.do с clientId → получаем mdOrder
-            String clientId = "user-" + contract.getOrder().getUser().getId();
             JsonNode registered = gateway.registerOrderForBinding(
                     orderNumber, installment.getAmountKopecks(),
                     props.getReturnUrl(), props.getFailUrl(), clientId);
@@ -439,9 +477,12 @@ public class BnplService {
                 throw new IllegalStateException("Не удалось зарегистрировать заказ в шлюзе");
             }
 
-            // Шаг 2: paymentOrderBinding.do
+            // Шаг 2: тихое списание по связке (tii=U → без CVC/3DS)
             JsonNode result = gateway.paymentOrderBinding(
-                    mdOrder, installment.getAmountKopecks(), contract.getBindingId());
+                    mdOrder, installment.getAmountKopecks(), bindingId);
+            if (!result.path("acsUrl").asText("").isBlank()) {
+                throw new IllegalStateException("Банк запросил 3DS — тихое списание недоступно");
+            }
 
             String alfaOrderId = result.path("orderId").asText(mdOrder);
             installment.setAlfaOrderId(alfaOrderId);

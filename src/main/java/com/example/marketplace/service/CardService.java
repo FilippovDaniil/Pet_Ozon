@@ -163,17 +163,21 @@ public class CardService {
             log.info("ACTION=CARD_BIND_CONFIRM orderId={} bindingId={}", alfaOrderId, bindingId);
 
             if (bindingId != null && !bindingId.isBlank()) {
+                // Production: bindingInfo заполнен — самый надёжный источник.
                 saveFromStatusResponse(req.getUser(), status);
             } else {
-                // Fallback 1: getBindings.do
-                String clientId = "user-" + req.getUser().getId();
-                log.info("ACTION=CARD_BIND_FALLBACK_GETBINDINGS clientId={}", clientId);
-                bindingId = saveFromGetBindings(req.getUser(), clientId);
+                // UAT: bindingInfo отсутствует. cardAuthInfo содержит РЕАЛЬНУЮ карту
+                // из ЭТОГО заказа — приоритетный источник. getBindings.do в UAT
+                // возвращает чужую/устаревшую привязку (не ту, что привязывали сейчас),
+                // поэтому он только последний резерв.
+                log.info("ACTION=CARD_BIND_FALLBACK_CARDAUTHINFO orderId={}", alfaOrderId);
+                boolean saved = saveFromCardAuthInfo(req.getUser(), alfaOrderId, status);
 
-                if (bindingId == null || bindingId.isBlank()) {
-                    // Fallback 2: cardAuthInfo
-                    log.info("ACTION=CARD_BIND_FALLBACK_CARDAUTHINFO orderId={}", alfaOrderId);
-                    saveFromCardAuthInfo(req.getUser(), alfaOrderId, status);
+                if (!saved) {
+                    // Последний резерв: getBindings.do
+                    String clientId = "user-" + req.getUser().getId();
+                    log.info("ACTION=CARD_BIND_FALLBACK_GETBINDINGS clientId={}", clientId);
+                    saveFromGetBindings(req.getUser(), clientId);
                 }
             }
 
@@ -220,7 +224,7 @@ public class CardService {
                 if (maskedPan == null || maskedPan.isBlank()) {
                     maskedPan = binding.path("label").asText("****");
                 }
-                String expiry = binding.path("expiryDate").asText(null);
+                String expiry = normalizeExpiry(binding.path("expiryDate").asText(null));
 
                 boolean isFirst = cardRepo.findByUserAndIsDefaultTrue(user).isEmpty();
                 CardBinding card = new CardBinding();
@@ -243,25 +247,28 @@ public class CardService {
 
     /**
      * Сохраняет карту из cardAuthInfo ответа getOrderStatusExtended.
-     * Используется как последний fallback когда bindingInfo и getBindings.do недоступны (UAT-ограничение).
+     * Приоритетный источник в UAT: cardAuthInfo описывает РЕАЛЬНУЮ карту, использованную
+     * именно в ЭТОМ заказе (в отличие от getBindings.do, который в UAT отдаёт чужую привязку).
      *
      * cardAuthInfo.expiration формат: YYYYMM ("203412" = декабрь 2034)
      * Конвертируем в MMYYYY ("122034") для совместимости с CardBinding.getExpiryFormatted().
      *
      * bindingId = "CARDAUTH-{alfaOrderId}" — синтетический уникальный ID.
      * В production этот fallback не будет срабатывать: реальный bindingId придёт из bindingInfo.
+     *
+     * @return true если карта сохранена (или уже была), false если cardAuthInfo пуст.
      */
-    private void saveFromCardAuthInfo(User user, String alfaOrderId, JsonNode statusNode) {
+    private boolean saveFromCardAuthInfo(User user, String alfaOrderId, JsonNode statusNode) {
         String maskedPan = statusNode.path("cardAuthInfo").path("maskedPan").asText(null);
         if (maskedPan == null || maskedPan.isBlank()) {
             log.warn("ACTION=CARD_BIND_NO_CARDAUTHINFO orderId={}", alfaOrderId);
-            return;
+            return false;
         }
 
         String syntheticBindingId = "CARDAUTH-" + alfaOrderId.replace("-", "").substring(0, 16);
         if (cardRepo.existsByBindingId(syntheticBindingId)) {
             log.info("Card already saved for orderId={}", alfaOrderId);
-            return;
+            return true;
         }
 
         String expiry = normalizeExpiry(
@@ -278,6 +285,7 @@ public class CardService {
 
         log.info("ACTION=CARD_SAVED_FROM_CARDAUTHINFO userId={} maskedPan={} isDefault={}",
                 user.getId(), maskedPan, isFirst);
+        return true;
     }
 
     private String extractMaskedPan(JsonNode statusNode) {

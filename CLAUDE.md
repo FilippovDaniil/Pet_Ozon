@@ -366,6 +366,19 @@ OPENSEARCH_DASHBOARDS_URL:      "http://opensearch-dashboards-service:5601"
 | MONTHLY_4 | 4 | 10% | 30 дней |
 | MONTHLY_6 | 6 | 15% | 30 дней |
 
+### Тихий рекуррент (MIT) — `tii=U` (2026-05-30)
+Списание взноса по привязанной карте (`/api/bnpl/{id}/pay`, планировщик) — **без CVC и 3DS**:
+```
+register.do(clientId) → mdOrder
+paymentOrderBinding.do(mdOrder, amount, bindingId, ip=127.0.0.1, tii=U)  // tii=U внутри AlfaBankGatewayClient
+→ errorCode 0, без acsUrl → getOrderStatusExtended orderStatus=2 → взносы PAID
+```
+- `tii=U` = Merchant Initiated Transaction → SCA-exemption (мандат дан при привязке через 3DS).
+- bindingId берётся через `BnplService.resolveRecurrentBindingId`: сохранённый `CARDAUTH-...`
+  синтетический → подменяется реальным из `getBindings.do(clientId)`.
+- Без `tii=U` связка категории "C" требует CVC, а с CVC — ещё и 3DS (acsUrl) → не тихо.
+- Источник: `Alfa_Testing/docs/04_autopayments.md` (tii=U), `docs/10_card_binding.md`.
+
 ### Новые пакеты
 ```
 payment/
@@ -412,11 +425,11 @@ controller/
 - [x] Swagger UI / OpenAPI 3 (SpringDoc)
 - [x] Docker Compose (app + PostgreSQL)
 - [x] **REST-рефакторинг API** — URL без глаголов: `POST /api/cart/items` вместо `/add`, `DELETE /api/cart/items/{id}` (204) вместо `/remove`, checkout перенесён в `POST /api/orders` (201), оплата `POST /api/invoices/{id}/payments` (201), письмо `POST /api/admin/emails`, статус заказа через `PATCH /api/admin/orders/{id}`, polling чата объединён в `GET /messages?after={id}`; api.js и все @WebMvcTest обновлены синхронно
-- [x] **OpenSearch**: полнотекстовый поиск по товарам; `ProductSearchService` (graceful degradation), `ProductSearchController` (`GET /api/search/products`), `ProductDocument` POJO, `OpenSearchConfig` (ApacheHttpClient5Transport); индексация при CRUD товаров, полная переиндексация при старте; подробности — `OpenSearch.md`
-- [x] Kubernetes (Rancher Desktop): rancher/k8s/ — 9 манифестов (namespace, secrets, postgres, loki, prometheus, grafana, app, dashboard, opensearch)
-- [x] Скрипт деплоя: rancher/deploy.ps1 — один скрипт вместо 4 команд; флаги --build-only, --deploy-only, --reset, --token
+- [x] **OpenSearch**: полнотекстовый поиск по товарам; `ProductSearchService` (graceful degradation), `ProductSearchController` (`GET /api/search/products`), `ProductDocument` POJO, `OpenSearchConfig` (ApacheHttpClient5Transport); индексация при CRUD товаров, полная переиндексация при старте; подробности — `docs/OpenSearch.md`
+- [x] Kubernetes (Rancher Desktop): infra/rancher/k8s/ — 9 манифестов (namespace, secrets, postgres, loki, prometheus, grafana, app, dashboard, opensearch)
+- [x] Скрипт деплоя: infra/rancher/deploy.ps1 — один скрипт вместо 4 команд; флаги --build-only, --deploy-only, --reset, --token
 - [x] Kubernetes Dashboard — веб-интерфейс управления подами (https://localhost:30443, токен через admin-user-token Secret)
-- [x] Helm chart: rancher/helm/marketplace/ — шаблонизированный деплой
+- [x] Helm chart: infra/rancher/helm/marketplace/ — шаблонизированный деплой
 - [x] Фронтенд: Alpine.js + Tailwind CSS, 7 статических страниц
 - [x] Мобильный фронтенд: нижняя навигация для client/admin/seller/accountant
 - [x] Excel-выгрузка в бухгалтерии (SheetJS / xlsx.js)
@@ -432,7 +445,7 @@ controller/
 - [x] **Тесты платёжной системы**: `CardServiceTest`, `FullPaymentServiceTest`, `BnplServiceTest`, `CardControllerTest`, `BnplControllerTest`, `PaymentControllerTest` + обновлён `InvoiceControllerTest`
 - [x] **Скриншоты**: перемещены в `docs/screenshots/`
 - [x] **Привязка карты** (`POST /api/cards/bind`): двухстадийный flow registerPreAuth→deposit→bindingInfo; три fallback при сохранении; `card_bind_requests` staging-таблица; `GET /api/payment/card-bind-callback` (permitAll)
-- [x] **OpenSearch Dashboards**: `rancher/k8s/09-opensearch-dashboards.yaml`, NodePort 30601, авто-создание index pattern `marketplace-logs-*` при старте приложения
+- [x] **OpenSearch Dashboards**: `infra/rancher/k8s/09-opensearch-dashboards.yaml`, NodePort 30601, авто-создание index pattern `marketplace-logs-*` при старте приложения
 - [x] **Логи в OpenSearch**: кастомный `OpenSearchLogAppender` (Logback) → ежедневные индексы `marketplace-logs-YYYY-MM-DD`; поля: `@timestamp`, `level`, `logger`, `thread`, `message`, `request_id`, `user_id`, `user_email`, `role`; AsyncAppender
 - [x] **Слияние вкладок Заказы+Рассрочка**: BNPL-контракт показывается инлайн при раскрытии заказа; lazy-загрузка через `bnplCache`; кнопка переноса показывается только если `daysPostponeLeft > 0`
 - [x] **Улучшенный раздел заказов (Admin)**: фильтры по статусу и поиску; клик на строку → модал с клиентом, составом, BNPL-графиком, управлением позициями

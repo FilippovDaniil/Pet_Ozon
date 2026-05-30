@@ -29,6 +29,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -220,6 +221,9 @@ class BnplServiceTest {
         when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
+        // register.do → mdOrder, затем тихое списание по связке (tii=U внутри gateway)
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-123\"}"));
         JsonNode gatewayResp = objectMapper.readTree("{\"orderId\":\"pay-123\"}");
         when(gateway.paymentOrderBinding(anyString(), eq(200_00L), eq("b-001")))
                 .thenReturn(gatewayResp);
@@ -249,6 +253,8 @@ class BnplServiceTest {
         when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-456\"}"));
         JsonNode gatewayResp = objectMapper.readTree("{\"orderId\":\"pay-456\"}");
         when(gateway.paymentOrderBinding(anyString(), eq(400_00L), eq("b-001")))
                 .thenReturn(gatewayResp);
@@ -279,7 +285,7 @@ class BnplServiceTest {
     }
 
     @Test
-    void payInstallmentsNow_amountLessThanInstallment_throwsException() {
+    void payInstallmentsNow_belowMinimum_throwsException() {
         User user = makeUser(1L);
         BnplContract contract = makeActiveContract(10L, user, 800_00L);
         BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
@@ -291,10 +297,196 @@ class BnplServiceTest {
         when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
         when(cardService.getDefault(user)).thenReturn(Optional.of(card));
 
-        // Пытаемся оплатить 50 руб. при взносе 200 руб.
-        assertThatThrownBy(() -> bnplService.payInstallmentsNow(10L, 50_00L, user))
+        // Частичные платежи разрешены, но минимум — 50 ₽. Пытаемся оплатить 49 ₽.
+        assertThatThrownBy(() -> bnplService.payInstallmentsNow(10L, 49_00L, user))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Сумма меньше");
+                .hasMessageContaining("Минимальная сумма");
+    }
+
+    @Test
+    void payInstallmentsNow_syntheticBindingId_resolvesRealViaGetBindings() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
+        contract.getInstallments().add(next);
+
+        CardBinding card = new CardBinding();
+        card.setBindingId("CARDAUTH-0211dd764fd37b99"); // синтетический — напрямую не списывается
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // getBindings.do отдаёт РЕАЛЬНУЮ связку клиента
+        when(gateway.getBindings("user-1")).thenReturn(
+                objectMapper.readTree("{\"errorCode\":\"0\",\"bindings\":[{\"bindingId\":\"real-99\"}]}"));
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), eq("user-1")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
+        when(gateway.paymentOrderBinding(anyString(), eq(200_00L), eq("real-99")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-1\"}"));
+
+        List<BnplInstallmentResponse> result = bnplService.payInstallmentsNow(10L, null, user);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).status()).isEqualTo("PAID");
+        verify(gateway).getBindings("user-1");
+        // списание прошло именно по РЕАЛЬНОМУ bindingId, а не по синтетическому
+        verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("real-99"));
+    }
+
+    @Test
+    void payInstallmentsNow_threeDsResponse_throwsAndKeepsPending() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
+        contract.getInstallments().add(next);
+
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-001"); // реальный
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
+        // Банк ответил acsUrl → требуется 3DS, тихое списание невозможно
+        when(gateway.paymentOrderBinding(anyString(), anyLong(), eq("b-001")))
+                .thenReturn(objectMapper.readTree("{\"acsUrl\":\"https://acs\",\"orderId\":\"x\"}"));
+
+        assertThatThrownBy(() -> bnplService.payInstallmentsNow(10L, null, user))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("3DS");
+
+        // Взнос НЕ помечен оплаченным
+        assertThat(next.getStatus()).isEqualTo(BnplInstallmentStatus.PENDING);
+        verify(installmentRepo, never()).save(any());
+    }
+
+    @Test
+    void payInstallmentsNow_noRealBinding_throws() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
+        contract.getInstallments().add(next);
+
+        CardBinding card = new CardBinding();
+        card.setBindingId("CARDAUTH-xxx"); // синтетический
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        // getBindings пуст → реальной связки нет
+        when(gateway.getBindings("user-1")).thenReturn(
+                objectMapper.readTree("{\"errorCode\":\"2\",\"bindings\":[]}"));
+
+        assertThatThrownBy(() -> bnplService.payInstallmentsNow(10L, null, user))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("связка");
+
+        verify(gateway, never()).registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString());
+        verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void payInstallmentsNow_inactiveContract_throws() {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        contract.setStatus(BnplContractStatus.COMPLETED);
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+
+        assertThatThrownBy(() -> bnplService.payInstallmentsNow(10L, null, user))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("не активен");
+    }
+
+    @Test
+    void payInstallmentsNow_partialBelowInstallment_chargesPartialAndKeepsPending() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L); // deposited=200_00 изначально
+        BnplInstallment next = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().plusDays(7));
+        contract.getInstallments().add(next);
+
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-001");
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(contractRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
+        // Платим 100 ₽ при взносе 200 ₽ → частичный платёж
+        when(gateway.paymentOrderBinding(anyString(), eq(100_00L), eq("b-001")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-1\"}"));
+
+        bnplService.payInstallmentsNow(10L, 100_00L, user);
+
+        // Взнос остаётся PENDING (не покрыт целиком)
+        assertThat(next.getStatus()).isEqualTo(BnplInstallmentStatus.PENDING);
+        // Депозит увеличен на 100 ₽: было 200_00 → стало 300_00
+        assertThat(contract.getDepositedAmountKopecks()).isEqualTo(300_00L);
+        verify(gateway).paymentOrderBinding(anyString(), eq(100_00L), eq("b-001"));
+    }
+
+    // ── processInstallment (планировщик авто-списания) ──────────────────────────
+
+    @Test
+    void processInstallment_silentSuccess_marksPaid() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        contract.setBindingId("b-real"); // реальный bindingId в контракте
+        BnplInstallment inst = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now());
+        contract.getInstallments().add(inst);
+
+        when(installmentRepo.save(any())).thenAnswer(invn -> invn.getArgument(0));
+        when(contractRepo.save(any())).thenAnswer(invn -> invn.getArgument(0));
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), eq("user-1")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
+        when(gateway.paymentOrderBinding(anyString(), eq(200_00L), eq("b-real")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-1\"}"));
+
+        bnplService.processInstallment(inst);
+
+        assertThat(inst.getStatus()).isEqualTo(BnplInstallmentStatus.PAID);
+        verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("b-real"));
+    }
+
+    @Test
+    void processInstallment_threeDsRequested_marksOverdue() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        contract.setBindingId("b-real");
+        BnplInstallment inst = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now());
+        contract.getInstallments().add(inst);
+
+        when(installmentRepo.save(any())).thenAnswer(invn -> invn.getArgument(0));
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
+        when(gateway.paymentOrderBinding(anyString(), anyLong(), eq("b-real")))
+                .thenReturn(objectMapper.readTree("{\"acsUrl\":\"https://acs\"}"));
+
+        bnplService.processInstallment(inst);
+
+        // 3DS при авто-списании → взнос помечается просроченным
+        assertThat(inst.getStatus()).isEqualTo(BnplInstallmentStatus.OVERDUE);
+    }
+
+    @Test
+    void processInstallment_noBinding_skipsWithoutCharge() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        contract.setBindingId(null); // нет сохранённого bindingId
+        BnplInstallment inst = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now());
+        contract.getInstallments().add(inst);
+
+        // getBindings пуст → реальной связки нет
+        when(gateway.getBindings("user-1")).thenReturn(objectMapper.readTree("{\"bindings\":[]}"));
+
+        bnplService.processInstallment(inst);
+
+        assertThat(inst.getStatus()).isEqualTo(BnplInstallmentStatus.PENDING);
+        verify(gateway, never()).registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString());
+        verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
     }
 
     // ── issueItem / cancelItem / returnItem ────────────────────────────────────

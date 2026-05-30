@@ -151,6 +151,10 @@ public class AlfaBankGatewayClient {
         params.put("amount",    String.valueOf(amountKopecks));
         params.put("bindingId", bindingId);
         params.put("ip",        "127.0.0.1"); // обязательный параметр шлюза
+        // tii=U — Merchant Initiated Transaction (Credential-on-File).
+        // Помечает списание как инициированное магазином по ранее данному согласию клиента.
+        // Это освобождает от CVC и 3DS → тихое рекуррентное списание без участия клиента.
+        params.put("tii",       "U");
         return call("paymentOrderBinding.do", params);
     }
 

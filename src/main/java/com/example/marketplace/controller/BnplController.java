@@ -55,7 +55,7 @@ public class BnplController {
         return bnplService.postponeInstallment(contractId, req.days(), resolveUser(ud));
     }
 
-    /** Оплата взносов по привязанной карте. Возвращает список оплаченных взносов. */
+    /** Оплата взносов по привязанной карте (тихое списание). Возвращает список оплаченных взносов. */
     @PostMapping(value = "/api/bnpl/{contractId}/pay", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public List<BnplInstallmentResponse> payNow(@PathVariable Long contractId,

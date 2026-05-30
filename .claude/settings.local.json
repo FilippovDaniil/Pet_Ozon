@@ -109,7 +109,22 @@
       "PowerShell(\\(Invoke-WebRequest -Uri \"http://localhost:30667/api/payment/card-bind-callback?orderId=020e54f8-4f8e-7a76-b55f-661f026ae058\" -UseBasicParsing\\).Content.Substring\\(0, 300\\) 2>&1)",
       "PowerShell(Select-String *)",
       "mcp__playwright__browser_snapshot",
-      "mcp__playwright__browser_type"
+      "mcp__playwright__browser_type",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:30667/actuator/health\" -UseBasicParsing -TimeoutSec 10; \"HTTP $\\($r.StatusCode\\): $\\($r.Content\\)\" } catch { \"ERROR: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(.\\\\gradlew.bat bootJar -x test --console=plain)",
+      "PowerShell(Get-Command *)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; & \"$env:JAVA_HOME\\\\bin\\\\java.exe\" -version; Write-Host \"=== building ===\"; .\\\\gradlew.bat bootJar -x test --console=plain -Dorg.gradle.java.home=\"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\")",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat bootJar -x test --console=plain)",
+      "PowerShell(.\\\\rancher\\\\deploy.ps1 -BuildOnly)",
+      "PowerShell(kubectl get secret *)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\.no\"; $env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat test --tests \"com.example.marketplace.payment.BnplServiceTest\" --tests \"com.example.marketplace.controller.BnplControllerTest\" --tests \"com.example.marketplace.service.CardServiceTest\" --console=plain)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat build --console=plain)",
+      "Bash(mkdir -p infra)",
+      "Bash(rmdir scripts *)",
+      "PowerShell(try { \\(Invoke-WebRequest \"http://localhost:30667/login.html\" -UseBasicParsing -TimeoutSec 8\\).StatusCode } catch { \"DOWN: $\\($_.Exception.Message\\)\" })",
+      "mcp__playwright__browser_resize",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat build --console=plain 2>&1 | Select-Object -Last 25)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; & \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\gradlew.bat\" -p \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\" build --console=plain 2>&1 | Select-Object -Last 25)"
     ]
   }
 }
