@@ -124,7 +124,20 @@
       "PowerShell(try { \\(Invoke-WebRequest \"http://localhost:30667/login.html\" -UseBasicParsing -TimeoutSec 8\\).StatusCode } catch { \"DOWN: $\\($_.Exception.Message\\)\" })",
       "mcp__playwright__browser_resize",
       "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat build --console=plain 2>&1 | Select-Object -Last 25)",
-      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; & \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\gradlew.bat\" -p \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\" build --console=plain 2>&1 | Select-Object -Last 25)"
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; & \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\gradlew.bat\" -p \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\" build --console=plain 2>&1 | Select-Object -Last 25)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:30667/login.html\" -UseBasicParsing -TimeoutSec 8; \"HTTP \" + $r.StatusCode } catch { \"ERROR: \" + $_.Exception.Message })",
+      "PowerShell($dirs = @\\(\"C:\\\\Program Files\\\\Java\",\"C:\\\\Program Files\\\\Eclipse Adoptium\",\"C:\\\\Program Files\\\\Microsoft\",\"C:\\\\Program Files\\\\Zulu\",\"C:\\\\Program Files\\\\Amazon Corretto\",\"C:\\\\Program Files\\\\BellSoft\"\\); foreach \\($d in $dirs\\) { if \\(Test-Path $d\\) { Get-ChildItem $d -Directory | Select-Object -ExpandProperty FullName } })",
+      "PowerShell(.\\\\infra\\\\rancher\\\\deploy.ps1 -BuildOnly)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:30667/login.html\" -UseBasicParsing -TimeoutSec 10; \"login.html -> HTTP \" + $r.StatusCode } catch { \"login.html -> ERROR: \" + $_.Exception.Message }; try { $h = Invoke-WebRequest -Uri \"http://localhost:30667/actuator/health\" -UseBasicParsing -TimeoutSec 10; \"health -> \" + $h.Content } catch { \"health -> ERROR: \" + $_.Exception.Message })",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat compileJava --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat test --tests \"com.example.marketplace.payment.BnplServiceTest\" --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat test --tests \"com.example.marketplace.service.OrderServiceTest\" --tests \"com.example.marketplace.controller.OrderControllerTest\" --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat test --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; .\\\\gradlew.bat bootJar -x test --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; & \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\gradlew.bat\" -p \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\" test --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Java\\\\jdk-21.0.10\"; & \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\gradlew.bat\" -p \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\" bootJar -x test --console=plain -q)",
+      "PowerShell(& \"C:\\\\Users\\\\MaxxPC\\\\IdeaProjects\\\\Pet_Ozon\\\\infra\\\\rancher\\\\deploy.ps1\" -BuildOnly)",
+      "PowerShell(git *)"
     ]
   }
 }
