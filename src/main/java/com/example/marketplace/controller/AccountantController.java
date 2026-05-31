@@ -58,4 +58,11 @@ public class AccountantController {
     public List<EmailLogDto> getEmails() {
         return accountantService.getEmailsReport();
     }
+
+    // GET /api/accountant/bnpl — сводка по рассрочкам Альфа Банка: контракты,
+    // профинансировано, получено, остаток к получению, журнал списаний по методам.
+    @GetMapping("/bnpl")
+    public AccountantBnplResponse getBnpl() {
+        return accountantService.getBnplReport();
+    }
 }

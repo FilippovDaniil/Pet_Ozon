@@ -191,6 +191,57 @@
 
                 </div>
 
+                <!-- Рассрочка (Альфа Банк) -->
+                <div class="mb-6">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="text-lg">💳</span>
+                        <h2 class="text-lg font-bold text-gray-900">Рассрочка (Альфа Банк)</h2>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-white border border-gray-200 rounded-xl p-4">
+                            <p class="text-xs text-gray-400 uppercase tracking-wide">Активные контракты</p>
+                            <p class="text-2xl font-bold text-gray-900 mt-1" x-text="bnpl?.activeContracts ?? '—'"></p>
+                            <p class="text-xs text-gray-400 mt-1">
+                                завершено <span x-text="bnpl?.completedContracts ?? 0"></span> ·
+                                ожидают <span x-text="bnpl?.awaitingContracts ?? 0"></span>
+                            </p>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded-xl p-4">
+                            <p class="text-xs text-gray-400 uppercase tracking-wide">Профинансировано</p>
+                            <p class="text-2xl font-bold text-indigo-700 mt-1" x-text="bnpl ? fmtMoney(bnpl.financedRub) : '—'"></p>
+                            <p class="text-xs text-gray-400 mt-1">сумма по действующим рассрочкам</p>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded-xl p-4">
+                            <p class="text-xs text-gray-400 uppercase tracking-wide">Получено</p>
+                            <p class="text-2xl font-bold text-emerald-600 mt-1" x-text="bnpl ? fmtMoney(bnpl.receivedRub) : '—'"></p>
+                            <p class="text-xs text-gray-400 mt-1">фактически списано с клиентов</p>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded-xl p-4">
+                            <p class="text-xs text-gray-400 uppercase tracking-wide">Остаток к получению</p>
+                            <p class="text-2xl font-bold text-amber-600 mt-1" x-text="bnpl ? fmtMoney(bnpl.outstandingRub) : '—'"></p>
+                            <p class="text-xs text-gray-400 mt-1">по активным рассрочкам</p>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded-xl p-4">
+                            <p class="text-xs text-gray-400 uppercase tracking-wide">Комиссия (доход)</p>
+                            <p class="text-2xl font-bold text-gray-900 mt-1" x-text="bnpl ? fmtMoney(bnpl.commissionRub) : '—'"></p>
+                            <p class="text-xs text-gray-400 mt-1">наценка за рассрочку</p>
+                        </div>
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 col-span-2 md:col-span-3">
+                            <p class="text-xs text-gray-400 uppercase tracking-wide">Журнал списаний</p>
+                            <p class="text-2xl font-bold text-gray-900 mt-1">
+                                <span x-text="bnpl?.paymentsCount ?? '—'"></span>
+                                <span class="text-base font-normal text-gray-400">шт. на</span>
+                                <span x-text="bnpl ? fmtMoney(bnpl.paymentsTotalRub) : '—'"></span>
+                            </p>
+                            <p class="text-xs text-gray-400 mt-1">
+                                первый взнос: <span class="font-medium text-gray-600" x-text="bnpl ? (bnpl.firstCount + ' / ' + fmtMoney(bnpl.firstRub)) : '—'"></span> ·
+                                планировщик: <span class="font-medium text-gray-600" x-text="bnpl ? (bnpl.scheduledCount + ' / ' + fmtMoney(bnpl.scheduledRub)) : '—'"></span> ·
+                                досрочно/админ: <span class="font-medium text-gray-600" x-text="bnpl ? (bnpl.manualCount + ' / ' + fmtMoney(bnpl.manualRub)) : '—'"></span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Быстрый переход -->
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <template x-for="tab in tabs.filter(t => t.id !== 'overview')" :key="tab.id">
@@ -512,6 +563,7 @@
             ],
 
             summary:          null,
+            bnpl:             null,
             loadingSummary:   false,
 
             orders:           [],
@@ -545,7 +597,10 @@
 
             async loadSummary() {
                 this.loadingSummary = true;
-                try   { this.summary = await api.getAccountantSummary(); }
+                try {
+                    this.summary = await api.getAccountantSummary();
+                    this.bnpl    = await api.getAccountantBnpl();
+                }
                 catch (e) { this.toast(e.message, 'error'); }
                 finally   { this.loadingSummary = false; }
             },

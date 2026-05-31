@@ -323,4 +323,5 @@ const api = {
     getAccountantCarts:     () => apiFetch('/api/accountant/carts'),
     getAccountantCustomers: () => apiFetch('/api/accountant/customers'),
     getAccountantEmails:    () => apiFetch('/api/accountant/emails'),
+    getAccountantBnpl:      () => apiFetch('/api/accountant/bnpl'),
 };

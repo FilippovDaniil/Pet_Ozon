@@ -32,6 +32,8 @@ class AccountantServiceTest {
     @Mock CartItemRepository cartItemRepository;
     @Mock UserRepository     userRepository;
     @Mock EmailLogRepository emailLogRepository;
+    @Mock BnplContractRepository bnplContractRepository;
+    @Mock BnplPaymentRepository  bnplPaymentRepository;
 
     // AccountantService создаётся с подставленными выше моками
     @InjectMocks
@@ -305,5 +307,40 @@ class AccountantServiceTest {
         when(emailLogRepository.findAll(any(Sort.class))).thenReturn(List.of());
 
         assertThat(accountantService.getEmailsReport()).isEmpty();
+    }
+
+    // ── getBnplReport ──────────────────────────────────────────────────────────
+
+    @Test
+    void getBnplReport_aggregatesContractsAndPayments() {
+        BnplContract active = new BnplContract();
+        active.setStatus(com.example.marketplace.entity.enums.BnplContractStatus.ACTIVE);
+        active.setTotalAmountKopecks(80000L);     // 800 ₽
+        active.setCommissionKopecks(8000L);       // 80 ₽
+        active.setDepositedAmountKopecks(20000L); // получено 200 ₽
+
+        BnplContract completed = new BnplContract();
+        completed.setStatus(com.example.marketplace.entity.enums.BnplContractStatus.COMPLETED);
+        completed.setTotalAmountKopecks(40000L);
+        completed.setCommissionKopecks(0L);
+        completed.setDepositedAmountKopecks(40000L);
+
+        when(bnplContractRepository.findAll()).thenReturn(List.of(active, completed));
+
+        BnplPayment first = new BnplPayment(); first.setMethod("FIRST"); first.setAmountKopecks(20000L);
+        BnplPayment sched = new BnplPayment(); sched.setMethod("SCHEDULED"); sched.setAmountKopecks(20000L);
+        when(bnplPaymentRepository.findAll()).thenReturn(List.of(first, sched));
+
+        AccountantBnplResponse r = accountantService.getBnplReport();
+
+        assertThat(r.activeContracts()).isEqualTo(1);
+        assertThat(r.completedContracts()).isEqualTo(1);
+        assertThat(r.financedRub()).isEqualByComparingTo("1200.00");    // 800 + 400
+        assertThat(r.commissionRub()).isEqualByComparingTo("80.00");
+        assertThat(r.receivedRub()).isEqualByComparingTo("600.00");     // 200 + 400
+        assertThat(r.outstandingRub()).isEqualByComparingTo("600.00");  // только active: 800 − 200
+        assertThat(r.paymentsCount()).isEqualTo(2);
+        assertThat(r.firstCount()).isEqualTo(1);
+        assertThat(r.scheduledRub()).isEqualByComparingTo("200.00");
     }
 }

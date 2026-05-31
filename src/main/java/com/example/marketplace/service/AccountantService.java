@@ -1,9 +1,12 @@
 package com.example.marketplace.service;
 
 import com.example.marketplace.dto.response.*;
+import com.example.marketplace.entity.BnplContract;
+import com.example.marketplace.entity.BnplPayment;
 import com.example.marketplace.entity.CartItem;
 import com.example.marketplace.entity.Order;
 import com.example.marketplace.entity.User;
+import com.example.marketplace.entity.enums.BnplContractStatus;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.repository.*;
@@ -28,10 +31,12 @@ public class AccountantService {
 
     // Четыре репозитория — каждый отвечает за одну таблицу БД.
     // Инжектируются через конструктор (@RequiredArgsConstructor + final).
-    private final OrderRepository     orderRepository;
-    private final CartItemRepository  cartItemRepository;
-    private final UserRepository      userRepository;
-    private final EmailLogRepository  emailLogRepository;
+    private final OrderRepository       orderRepository;
+    private final CartItemRepository    cartItemRepository;
+    private final UserRepository        userRepository;
+    private final EmailLogRepository    emailLogRepository;
+    private final BnplContractRepository bnplContractRepository;
+    private final BnplPaymentRepository  bnplPaymentRepository;
 
     // readOnly=true: Hibernate не отслеживает изменения (dirty checking отключён),
     // что ускоряет запросы только на чтение — сессия не нужна для flush().
@@ -146,6 +151,58 @@ public class AccountantService {
                     );
                 })
                 .toList();
+    }
+
+    /**
+     * Сводка по BNPL-рассрочкам (интеграция с Альфа Банком).
+     * Суммы агрегируются в памяти (как и остальные отчёты) и переводятся из копеек в рубли.
+     */
+    @Transactional(readOnly = true)
+    public AccountantBnplResponse getBnplReport() {
+        List<BnplContract> contracts = bnplContractRepository.findAll();
+
+        long active    = contracts.stream().filter(c -> c.getStatus() == BnplContractStatus.ACTIVE).count();
+        long completed = contracts.stream().filter(c -> c.getStatus() == BnplContractStatus.COMPLETED).count();
+        long awaiting  = contracts.stream().filter(c -> c.getStatus() == BnplContractStatus.AWAITING_PAYMENT).count();
+        long cancelled = contracts.stream().filter(c -> c.getStatus() == BnplContractStatus.CANCELLED).count();
+
+        // «Действующие» рассрочки (исполняемые/исполненные) — по ним считаем финансовые показатели.
+        java.util.function.Predicate<BnplContract> live = c ->
+                c.getStatus() == BnplContractStatus.ACTIVE || c.getStatus() == BnplContractStatus.COMPLETED;
+
+        long financedK   = contracts.stream().filter(live).mapToLong(c -> nz(c.getTotalAmountKopecks())).sum();
+        long commissionK = contracts.stream().filter(live).mapToLong(c -> nz(c.getCommissionKopecks())).sum();
+        long receivedK   = contracts.stream().filter(live).mapToLong(c -> nz(c.getDepositedAmountKopecks())).sum();
+        // Остаток к получению — только по активным (по завершённым уже всё получено).
+        long outstandingK = contracts.stream()
+                .filter(c -> c.getStatus() == BnplContractStatus.ACTIVE)
+                .mapToLong(c -> Math.max(0L, nz(c.getTotalAmountKopecks()) - nz(c.getDepositedAmountKopecks())))
+                .sum();
+
+        // Журнал фактических списаний по методам (FIRST — первый взнос, SCHEDULED — планировщик, MANUAL — досрочно/админ).
+        List<BnplPayment> payments = bnplPaymentRepository.findAll();
+        long paymentsTotalK = payments.stream().mapToLong(p -> nz(p.getAmountKopecks())).sum();
+
+        return new AccountantBnplResponse(
+                active, completed, awaiting, cancelled,
+                rub(financedK), rub(commissionK), rub(receivedK), rub(outstandingK),
+                payments.size(), rub(paymentsTotalK),
+                methodCount(payments, "FIRST"),     rub(methodSum(payments, "FIRST")),
+                methodCount(payments, "SCHEDULED"), rub(methodSum(payments, "SCHEDULED")),
+                methodCount(payments, "MANUAL"),    rub(methodSum(payments, "MANUAL"))
+        );
+    }
+
+    private static long nz(Long v) { return v == null ? 0L : v; }
+
+    private static BigDecimal rub(long kopecks) { return BigDecimal.valueOf(kopecks).movePointLeft(2); }
+
+    private static long methodCount(List<BnplPayment> payments, String method) {
+        return payments.stream().filter(p -> method.equals(p.getMethod())).count();
+    }
+
+    private static long methodSum(List<BnplPayment> payments, String method) {
+        return payments.stream().filter(p -> method.equals(p.getMethod())).mapToLong(p -> nz(p.getAmountKopecks())).sum();
     }
 
     @Transactional(readOnly = true)
