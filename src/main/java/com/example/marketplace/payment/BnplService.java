@@ -510,15 +510,16 @@ public class BnplService {
     }
 
     /**
-     * Списание взносов по дефолтной карте от имени администратора.
+     * Оплата взноса от имени администратора (кнопка «Оплата с карты клиента»).
+     * Владелец берётся из контракта. Поведение как у клиента: есть реальная связка →
+     * тихое списание; нет → возвращается formUrl (админ проходит форму банка).
      * amountKopecks == null → ближайший взнос; > 0 → произвольная сумма.
-     * Владелец берётся из контракта (проверка прав в payInstallmentsNow проходит автоматически).
      */
     @Transactional
-    public List<BnplInstallmentResponse> payInstallmentsByAdmin(Long contractId, Long amountKopecks) {
+    public BnplPayResponse payInstallmentByAdmin(Long contractId, Long amountKopecks) {
         BnplContract contract = contractRepo.findById(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Контракт не найден: " + contractId));
-        return payInstallmentsNow(contractId, amountKopecks, contract.getOrder().getUser());
+        return payInstallmentByClient(contractId, amountKopecks, contract.getOrder().getUser());
     }
 
     // Реальный bindingId для списания. Синтетический "CARDAUTH-" в шлюзе не существует —

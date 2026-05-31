@@ -144,7 +144,12 @@
       "PowerShell($ok=$false; for\\($i=0;$i -lt 30;$i++\\){ try{ $r=Invoke-WebRequest -Uri \"http://localhost:8667/actuator/health\" -UseBasicParsing -TimeoutSec 5; if\\($r.StatusCode -eq 200\\){ Write-Host \"HEALTH: $\\($r.Content\\)\"; $ok=$true; break } }catch{} Start-Sleep -Seconds 6 }; if\\(-not $ok\\){ Write-Host \"App not healthy yet — last 30 log lines:\"; docker logs marketplace_app --tail 30 })",
       "PowerShell(docker compose ps *)",
       "PowerShell(.\\\\infra\\\\rancher\\\\deploy.ps1)",
-      "PowerShell(kubectl rollout restart deployment/marketplace-app -n marketplace; kubectl rollout status deployment/marketplace-app -n marketplace --timeout=200s; Write-Host \"--- pods after restart ---\"; kubectl get pods -n marketplace -l app=marketplace-app --no-headers; Write-Host \"--- health on fresh pod ---\"; for\\($i=0;$i -lt 24;$i++\\){ try{ $r=Invoke-WebRequest \"http://localhost:30667/actuator/health\" -UseBasicParsing -TimeoutSec 5; if\\($r.StatusCode -eq 200\\){ Write-Host \"health HTTP 200 \\(fresh image\\)\"; break } }catch{} Start-Sleep -Seconds 5 })"
+      "PowerShell(kubectl rollout restart deployment/marketplace-app -n marketplace; kubectl rollout status deployment/marketplace-app -n marketplace --timeout=200s; Write-Host \"--- pods after restart ---\"; kubectl get pods -n marketplace -l app=marketplace-app --no-headers; Write-Host \"--- health on fresh pod ---\"; for\\($i=0;$i -lt 24;$i++\\){ try{ $r=Invoke-WebRequest \"http://localhost:30667/actuator/health\" -UseBasicParsing -TimeoutSec 5; if\\($r.StatusCode -eq 200\\){ Write-Host \"health HTTP 200 \\(fresh image\\)\"; break } }catch{} Start-Sleep -Seconds 5 })",
+      "Bash(Select-Object -Last 25)",
+      "PowerShell(.\\\\gradlew.bat test --tests \"com.example.marketplace.payment.BnplServiceTest\" --tests \"com.example.marketplace.controller.BnplControllerTest\" --tests \"com.example.marketplace.controller.PaymentControllerTest\" --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = 'C:\\\\Program Files\\\\Java\\\\jdk-21.0.10'; .\\\\gradlew.bat test --tests \"com.example.marketplace.payment.BnplServiceTest\" --tests \"com.example.marketplace.controller.BnplControllerTest\" --tests \"com.example.marketplace.controller.PaymentControllerTest\" --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = 'C:\\\\Program Files\\\\Java\\\\jdk-21.0.10'; .\\\\gradlew.bat test --console=plain -q)",
+      "PowerShell($env:JAVA_HOME = 'C:\\\\Program Files\\\\Java\\\\jdk-21.0.10'; .\\\\gradlew.bat bootJar --console=plain -q; if \\($?\\) { .\\\\infra\\\\rancher\\\\deploy.ps1 -BuildOnly })"
     ]
   }
 }

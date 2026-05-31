@@ -184,4 +184,30 @@ public class FullPaymentService {
                 invoiceId, alfaOrderId, amountKopecks);
         return "paid";
     }
+
+    /**
+     * Оплата счёта администратором с карты клиента с fallback на форму.
+     * Есть реальная связка → тихое списание ({@link #payByDefaultCard}), возвращает {@code null}.
+     * Связки нет (UAT / карта не привязана на стороне банка) → регистрирует форму
+     * ({@link #initiate}) и возвращает {@link PaymentInitResponse} с {@code formUrl}.
+     */
+    @Transactional
+    public PaymentInitResponse payByDefaultCardOrForm(Long invoiceId) {
+        Invoice invoice = invoiceService.findEntityById(invoiceId);
+        if (invoice.getStatus() == InvoiceStatus.PAID) {
+            throw new IllegalStateException("Счёт #" + invoiceId + " уже оплачен");
+        }
+
+        User user = invoice.getOrder().getUser();
+        CardBinding card = cardService.getDefault(user).orElse(null);
+        String clientId = "user-" + user.getId();
+        String bindingId = (card == null) ? null : cardService.resolveChargeableBindingId(card, clientId);
+
+        if (bindingId != null) {
+            payByDefaultCard(invoiceId);   // реальная связка → тихое списание
+            return null;
+        }
+        // Нет реальной связки → оплата через форму банка (как первый платёж).
+        return initiate(invoiceId);
+    }
 }

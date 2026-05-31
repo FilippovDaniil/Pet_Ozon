@@ -74,12 +74,15 @@ public class CardService {
      * Привязывает карту клиента после успешной оплаты заказа
      * (полная оплата или первый взнос BNPL).
      *
-     * Источники bindingId в порядке надёжности:
-     *   1. bindingInfo  — production: реальный bindingId присутствует в ответе.
-     *   2. cardAuthInfo — UAT: реальная карта именно ЭТОГО заказа (синтетический CARDAUTH-id).
-     *   3. getBindings  — последний резерв (список привязок клиента).
+     * Сохраняем карту ТОЛЬКО при реальном bindingId из bindingInfo — он появляется,
+     * если клиент поставил галочку «Сохранить карту» на форме банка. Это единственный
+     * способ создать списываемую связку (привилегии AUTO_PAYMENT/FORCE_CREATE_BINDING
+     * у UAT-мерчанта отключены, см. CLAUDE.md → «Что РЕАЛЬНО создаёт связку»).
      *
-     * Новая карта добавляется в ЛК; уже сохранённая связка — пропускается.
+     * Синтетическую карту из cardAuthInfo больше НЕ создаём: она выглядит как карта,
+     * но шлюзом не списывается и вводит клиента в заблуждение. Нет галочки → карта не
+     * сохраняется; оплата взноса проходит через fallback-форму (BnplService.payInstallmentByClient).
+     *
      * Метод не бросает исключений: сбой привязки не должен ломать подтверждение оплаты.
      */
     @Transactional
@@ -87,15 +90,12 @@ public class CardService {
         try {
             String bindingId = statusNode.path("bindingInfo").path("bindingId").asText(null);
             if (bindingId != null && !bindingId.isBlank()) {
-                saveFromStatusResponse(user, statusNode);          // production: bindingInfo
+                saveFromStatusResponse(user, statusNode);          // реальный bindingId (галочка отмечена)
                 return;
             }
-            // UAT: bindingInfo пуст — берём реальную карту из cardAuthInfo этого заказа.
-            if (saveFromCardAuthInfo(user, alfaOrderId, statusNode)) {
-                return;
-            }
-            // Последний резерв: список привязок клиента.
-            saveFromGetBindings(user, "user-" + user.getId());
+            log.info("ACTION=CARD_NOT_SAVED_NO_BINDING userId={} orderId={} "
+                    + "(клиент не поставил «Сохранить карту» — реальной связки нет)",
+                    user.getId(), alfaOrderId);
         } catch (Exception e) {
             log.warn("ACTION=CARD_SAVE_AFTER_PAYMENT_FAILED userId={} orderId={}: {}",
                     user.getId(), alfaOrderId, e.getMessage());
@@ -232,29 +232,22 @@ public class CardService {
             String bindingId = status.path("bindingInfo").path("bindingId").asText(null);
             log.info("ACTION=CARD_BIND_CONFIRM orderId={} bindingId={}", alfaOrderId, bindingId);
 
+            String result;
             if (bindingId != null && !bindingId.isBlank()) {
-                // Production: bindingInfo заполнен — самый надёжный источник.
+                // Реальная связка (клиент поставил галочку «Сохранить карту»).
                 saveFromStatusResponse(req.getUser(), status);
+                req.setStatus("COMPLETED");
+                result = "completed";
             } else {
-                // UAT: bindingInfo отсутствует. cardAuthInfo содержит РЕАЛЬНУЮ карту
-                // из ЭТОГО заказа — приоритетный источник. getBindings.do в UAT
-                // возвращает чужую/устаревшую привязку (не ту, что привязывали сейчас),
-                // поэтому он только последний резерв.
-                log.info("ACTION=CARD_BIND_FALLBACK_CARDAUTHINFO orderId={}", alfaOrderId);
-                boolean saved = saveFromCardAuthInfo(req.getUser(), alfaOrderId, status);
-
-                if (!saved) {
-                    // Последний резерв: getBindings.do
-                    String clientId = "user-" + req.getUser().getId();
-                    log.info("ACTION=CARD_BIND_FALLBACK_GETBINDINGS clientId={}", clientId);
-                    saveFromGetBindings(req.getUser(), clientId);
-                }
+                // Галочки не было → реальной связки нет. Синтетическую карту НЕ создаём.
+                log.info("ACTION=CARD_BIND_NO_BINDING orderId={} "
+                        + "(галочка «Сохранить карту» не отмечена — связка не создана)", alfaOrderId);
+                req.setStatus("FAILED");
+                result = "no_binding";
             }
-
-            req.setStatus("COMPLETED");
             bindRequestRepo.save(req);
 
-            // Возвращаем 1₽ клиенту через refund
+            // В любом случае возвращаем удержанный 1₽.
             try {
                 gateway.refund(alfaOrderId, 100L);
                 log.info("ACTION=CARD_BIND_REFUNDED orderId={}", alfaOrderId);
@@ -262,100 +255,13 @@ public class CardService {
                 log.warn("Could not refund card bind payment {}: {}", alfaOrderId, e.getMessage());
             }
 
-            return "completed";
+            return result;
         } else if (orderStatus == 6) { // DECLINED
             req.setStatus("FAILED");
             bindRequestRepo.save(req);
             return "failed";
         }
         return "pending";
-    }
-
-    /**
-     * Получает список привязок клиента через getBindings.do и сохраняет новые.
-     * Возвращает bindingId последней сохранённой привязки или null.
-     */
-    private String saveFromGetBindings(User user, String clientId) {
-        try {
-            JsonNode response = gateway.getBindings(clientId);
-            JsonNode bindings = response.path("bindings");
-            if (!bindings.isArray() || bindings.isEmpty()) {
-                log.warn("ACTION=CARD_BIND_EMPTY_BINDINGS clientId={}", clientId);
-                return null;
-            }
-
-            String lastSaved = null;
-            for (JsonNode binding : bindings) {
-                String bindingId = binding.path("bindingId").asText(null);
-                if (bindingId == null || bindingId.isBlank()) continue;
-                if (cardRepo.existsByBindingId(bindingId)) continue; // уже есть
-
-                String maskedPan = binding.path("maskedPan").asText(null);
-                if (maskedPan == null || maskedPan.isBlank()) {
-                    maskedPan = binding.path("label").asText("****");
-                }
-                String expiry = normalizeExpiry(binding.path("expiryDate").asText(null));
-
-                boolean isFirst = cardRepo.findByUserAndIsDefaultTrue(user).isEmpty();
-                CardBinding card = new CardBinding();
-                card.setUser(user);
-                card.setBindingId(bindingId);
-                card.setMaskedPan(maskedPan);
-                card.setExpiry(expiry);
-                card.setDefault(isFirst);
-                cardRepo.save(card);
-                lastSaved = bindingId;
-                log.info("ACTION=CARD_SAVED_FROM_GETBINDINGS userId={} maskedPan={} isDefault={}",
-                        user.getId(), maskedPan, isFirst);
-            }
-            return lastSaved;
-        } catch (Exception e) {
-            log.error("Failed to get bindings for clientId={}: {}", clientId, e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Сохраняет карту из cardAuthInfo ответа getOrderStatusExtended.
-     * Приоритетный источник в UAT: cardAuthInfo описывает РЕАЛЬНУЮ карту, использованную
-     * именно в ЭТОМ заказе (в отличие от getBindings.do, который в UAT отдаёт чужую привязку).
-     *
-     * cardAuthInfo.expiration формат: YYYYMM ("203412" = декабрь 2034)
-     * Конвертируем в MMYYYY ("122034") для совместимости с CardBinding.getExpiryFormatted().
-     *
-     * bindingId = "CARDAUTH-{alfaOrderId}" — синтетический уникальный ID.
-     * В production этот fallback не будет срабатывать: реальный bindingId придёт из bindingInfo.
-     *
-     * @return true если карта сохранена (или уже была), false если cardAuthInfo пуст.
-     */
-    private boolean saveFromCardAuthInfo(User user, String alfaOrderId, JsonNode statusNode) {
-        String maskedPan = statusNode.path("cardAuthInfo").path("maskedPan").asText(null);
-        if (maskedPan == null || maskedPan.isBlank()) {
-            log.warn("ACTION=CARD_BIND_NO_CARDAUTHINFO orderId={}", alfaOrderId);
-            return false;
-        }
-
-        String syntheticBindingId = "CARDAUTH-" + alfaOrderId.replace("-", "").substring(0, 16);
-        if (cardRepo.existsByBindingId(syntheticBindingId)) {
-            log.info("Card already saved for orderId={}", alfaOrderId);
-            return true;
-        }
-
-        String expiry = normalizeExpiry(
-                statusNode.path("cardAuthInfo").path("expiration").asText(null));
-
-        boolean isFirst = cardRepo.findByUserAndIsDefaultTrue(user).isEmpty();
-        CardBinding card = new CardBinding();
-        card.setUser(user);
-        card.setBindingId(syntheticBindingId);
-        card.setMaskedPan(maskedPan);
-        card.setExpiry(expiry);
-        card.setDefault(isFirst);
-        cardRepo.save(card);
-
-        log.info("ACTION=CARD_SAVED_FROM_CARDAUTHINFO userId={} maskedPan={} isDefault={}",
-                user.getId(), maskedPan, isFirst);
-        return true;
     }
 
     private String extractMaskedPan(JsonNode statusNode) {

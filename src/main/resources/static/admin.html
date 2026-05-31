@@ -559,7 +559,7 @@
                                                           : 'Оплатить заказ с карты клиента'"></span>
                                             <span x-show="adminPayProcessing">⏳ Списание…</span>
                                         </button>
-                                        <p class="text-xs text-gray-400">Тихое списание по привязанной карте клиента, без 3DS.</p>
+                                        <p class="text-xs text-gray-400">Тихое списание по привязанной карте клиента; если связки нет — откроется форма оплаты.</p>
                                     </div>
                                 </div>
                             </template>
@@ -1374,7 +1374,12 @@
                 }
                 this.adminPayProcessing = true;
                 try {
-                    await api.adminPayOrder(this.selectedOrder.id, amountKopecks);
+                    const res = await api.adminPayOrder(this.selectedOrder.id, amountKopecks);
+                    // Нет реальной связки → банк вернул форму: переходим на неё.
+                    if (res && res.formUrl) {
+                        window.location.href = res.formUrl;
+                        return;
+                    }
                     this.toast('Платёж проведён с карты клиента', 'success');
                     this.adminPayRub = '';
                     await this._reloadModalOrder(this.selectedOrder.id);

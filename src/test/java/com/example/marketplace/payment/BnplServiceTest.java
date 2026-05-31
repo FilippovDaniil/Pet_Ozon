@@ -442,7 +442,7 @@ class BnplServiceTest {
     }
 
     @Test
-    void payInstallmentsByAdmin_paysNextInstallmentForOwner() throws Exception {
+    void payInstallmentByAdmin_realBinding_chargesSilently() throws Exception {
         User user = makeUser(1L);
         BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4);
 
@@ -454,8 +454,9 @@ class BnplServiceTest {
         stubSilentCharge(200_00L, "b-001");
 
         // Админ платит без передачи user — владелец берётся из контракта.
-        bnplService.payInstallmentsByAdmin(10L, null);
+        var res = bnplService.payInstallmentByAdmin(10L, null);
 
+        assertThat(res.formUrl()).isNull(); // реальная связка → тихо, без формы
         verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("b-001"));
         assertThat(contract.getInstallments().get(1).getStatus()).isEqualTo(BnplInstallmentStatus.PAID);
     }

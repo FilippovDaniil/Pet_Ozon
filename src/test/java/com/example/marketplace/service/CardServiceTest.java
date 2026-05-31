@@ -146,24 +146,18 @@ class CardServiceTest {
     }
 
     @Test
-    void saveAfterPayment_uatNoBindingInfo_savesFromCardAuthInfo() throws Exception {
+    void saveAfterPayment_noBindingInfo_doesNotSaveSyntheticCard() throws Exception {
         User user = makeUser(1L);
-        // bindingInfo пуст, но есть cardAuthInfo (реальная карта этого заказа) — UAT-сценарий.
+        // bindingInfo пуст (клиент не поставил «Сохранить карту») — связки нет.
+        // cardAuthInfo есть, но синтетическую карту из него мы больше НЕ создаём.
         JsonNode status = objectMapper.readTree("""
                 {"orderStatus":2,"cardAuthInfo":{"maskedPan":"411111**1111","expiration":"203412"}}
                 """);
 
-        when(cardRepo.existsByBindingId(any())).thenReturn(false);
-        when(cardRepo.findByUserAndIsDefaultTrue(user)).thenReturn(Optional.empty());
-        when(cardRepo.save(any(CardBinding.class))).thenAnswer(inv -> inv.getArgument(0));
-
         cardService.saveAfterPayment(user, "abcdef0123456789aaaa", status);
 
-        // Синтетический CARDAUTH-id, срок нормализован YYYYMM ("203412") → MMYYYY ("122034").
-        verify(cardRepo).save(argThat(c ->
-                c.getBindingId().startsWith("CARDAUTH-")
-                && "411111**1111".equals(c.getMaskedPan())
-                && "122034".equals(c.getExpiry())));
+        // Карта не сохраняется: списываемой связки нет, синтетика вводит в заблуждение.
+        verify(cardRepo, never()).save(any());
     }
 
     // ── getCards ──────────────────────────────────────────────────────────────

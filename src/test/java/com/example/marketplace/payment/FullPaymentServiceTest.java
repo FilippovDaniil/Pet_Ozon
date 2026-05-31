@@ -265,4 +265,51 @@ class FullPaymentServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("уже оплачен");
     }
+
+    // ── payByDefaultCardOrForm (админ: тихо или fallback на форму) ──────────────
+
+    // Есть реальная связка → тихое списание, formUrl не возвращается (null).
+    @Test
+    void payByDefaultCardOrForm_realBinding_chargesSilentlyReturnsNull() throws Exception {
+        Invoice invoice = makeInvoice(1L, InvoiceStatus.UNPAID, new BigDecimal("1000.00"));
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-real");
+
+        when(invoiceService.findEntityById(1L)).thenReturn(invoice);
+        when(cardService.getDefault(any())).thenReturn(Optional.of(card));
+        when(cardService.resolveChargeableBindingId(eq(card), eq("user-1"))).thenReturn("b-real");
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), eq("user-1")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"md-1\"}"));
+        when(gateway.paymentOrderBinding(anyString(), eq(100000L), eq("b-real")))
+                .thenReturn(objectMapper.readTree("{\"orderId\":\"pay-1\"}"));
+        when(alfaBankOrderRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        doNothing().when(invoiceService).markAsPaid(any(), anyString());
+
+        PaymentInitResponse res = fullPaymentService.payByDefaultCardOrForm(1L);
+
+        assertThat(res).isNull();   // списано тихо, форма не нужна
+        verify(gateway).paymentOrderBinding(anyString(), eq(100000L), eq("b-real"));
+    }
+
+    // Нет реальной связки → fallback на форму банка: возвращается formUrl, тихого списания нет.
+    @Test
+    void payByDefaultCardOrForm_noBinding_returnsFormUrl() throws Exception {
+        Invoice invoice = makeInvoice(1L, InvoiceStatus.UNPAID, new BigDecimal("500.00"));
+        CardBinding card = new CardBinding();
+        card.setBindingId("CARDAUTH-synthetic01");
+
+        when(invoiceService.findEntityById(1L)).thenReturn(invoice);
+        when(cardService.getDefault(any())).thenReturn(Optional.of(card));
+        when(cardService.resolveChargeableBindingId(eq(card), eq("user-1"))).thenReturn(null);
+        when(gateway.registerOrderForBinding(anyString(), eq(50000L), any(), any(), eq("user-1")))
+                .thenReturn(objectMapper.readTree(
+                        "{\"orderId\":\"md-form\",\"formUrl\":\"https://alfa.rbsuat.com/form?o=md-form\"}"));
+        when(alfaBankOrderRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PaymentInitResponse res = fullPaymentService.payByDefaultCardOrForm(1L);
+
+        assertThat(res).isNotNull();
+        assertThat(res.formUrl()).isEqualTo("https://alfa.rbsuat.com/form?o=md-form");
+        verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
+    }
 }
