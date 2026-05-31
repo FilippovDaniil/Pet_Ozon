@@ -3,6 +3,7 @@ package com.example.marketplace.payment;
 import com.example.marketplace.config.AlfaBankProperties;
 import com.example.marketplace.dto.response.BnplContractResponse;
 import com.example.marketplace.dto.response.BnplInstallmentResponse;
+import com.example.marketplace.dto.response.BnplPayResponse;
 import com.example.marketplace.dto.response.BnplPaymentResponse;
 import com.example.marketplace.dto.response.PaymentInitResponse;
 import com.example.marketplace.entity.*;
@@ -324,30 +325,9 @@ public class BnplService {
         CardBinding card = cardService.getDefault(user)
                 .orElseThrow(() -> new IllegalStateException("Нет привязанной карты. Добавьте карту через оплату заказа."));
 
-        long remainingBalance = contract.getTotalAmountKopecks() - contract.getDepositedAmountKopecks();
-        if (remainingBalance <= 0) {
-            throw new IllegalStateException("Рассрочка уже полностью оплачена");
-        }
-
-        // Сумма к списанию: либо явная (произвольный платёж), либо ближайший непогашенный взнос.
-        long chargeKopecks;
         boolean manualAmount = amountKopecks != null;
-        if (manualAmount) {
-            if (amountKopecks < 5000) {   // минимум 50 ₽
-                throw new IllegalStateException("Минимальная сумма оплаты — 50 ₽");
-            }
-            chargeKopecks = amountKopecks;
-        } else {
-            BnplInstallment next = contract.getInstallments().stream()
-                    .filter(i -> i.getStatus() == BnplInstallmentStatus.PENDING)
-                    .min(java.util.Comparator.comparing(BnplInstallment::getInstallmentNumber))
-                    .orElseThrow(() -> new IllegalStateException("Нет взносов для оплаты"));
-            chargeKopecks = next.getAmountKopecks();
-        }
-        // Никогда не списываем больше остатка по контракту (защита от переплаты).
-        // Излишек сверх целого взноса не теряется — он идёт в депозит как предоплата
-        // и засчитывается следующим взносам через syncInstallmentStatuses().
-        chargeKopecks = Math.min(chargeKopecks, remainingBalance);
+        // Сумма к списанию: явная (произвольный платёж) либо ближайший взнос, с защитой от переплаты.
+        long chargeKopecks = resolveChargeKopecks(contract, amountKopecks);
 
         String clientId = "user-" + user.getId();
 
@@ -390,6 +370,143 @@ public class BnplService {
 
         return contract.getInstallments().stream()
                 .map(this::toInstallmentResponse).toList();
+    }
+
+    /**
+     * Клиентская оплата взноса. Сначала пытается тихо списать по привязанной карте (MIT);
+     * если реальной связки нет (UAT-аккаунт без автоплатежей либо карта не привязана на
+     * стороне банка) — возвращает formUrl: клиент платит взнос через форму банка
+     * (с вводом карты и 3DS), как первый платёж.
+     */
+    @Transactional
+    public BnplPayResponse payInstallmentByClient(Long contractId, Long amountKopecks, User user) {
+        BnplContract contract = contractRepo.findById(contractId)
+                .orElseThrow(() -> new ResourceNotFoundException("Контракт не найден: " + contractId));
+        if (!contract.getOrder().getUser().getId().equals(user.getId())) {
+            throw new IllegalStateException("Нет доступа к контракту #" + contractId);
+        }
+        if (contract.getStatus() != BnplContractStatus.ACTIVE) {
+            throw new IllegalStateException("Оплата недоступна: контракт не активен");
+        }
+
+        String clientId = "user-" + user.getId();
+        CardBinding card = cardService.getDefault(user).orElse(null);
+        String bindingId = (card == null) ? null : resolveRecurrentBindingId(card, clientId);
+
+        if (bindingId != null) {
+            // Реальная связка есть → тихое списание (как раньше).
+            return BnplPayResponse.charged(payInstallmentsNow(contractId, amountKopecks, user));
+        }
+
+        // Связки для тихого списания нет → оплата взноса через форму банка.
+        long chargeKopecks = resolveChargeKopecks(contract, amountKopecks);
+        String formUrl = initiateInstallmentForm(contract, chargeKopecks, clientId);
+        return BnplPayResponse.redirect(formUrl);
+    }
+
+    /**
+     * Подтверждение оплаты взноса, сделанной через форму банка (fallback без связки).
+     * Вызывается из PaymentController.callback(). Узнаёт «свои» заказы по префиксу INSTF-.
+     * Бросает IllegalArgumentException если alfaOrderId не относится к довзносу — controller пробует дальше.
+     */
+    @Transactional
+    public String confirmInstallmentForm(String alfaOrderId) {
+        AlfaBankOrder rec = alfaBankOrderRepo.findByAlfaOrderId(alfaOrderId)
+                .filter(r -> r.getBnplContract() != null
+                        && r.getOrderNumber() != null
+                        && r.getOrderNumber().startsWith("INSTF-"))
+                .orElseThrow(() -> new IllegalArgumentException("Not a BNPL installment form payment: " + alfaOrderId));
+
+        if (rec.getStatus() == AlfaBankOrderStatus.DEPOSITED) return "paid";    // идемпотентность
+        if (rec.getStatus() == AlfaBankOrderStatus.FAILED)    return "failed";
+
+        JsonNode status = gateway.getOrderStatusExtended(alfaOrderId);
+        int orderStatus = status.path("orderStatus").asInt(-1);
+
+        if (orderStatus == 2) { // DEPOSITED — одностадийный платёж списан
+            BnplContract contract = rec.getBnplContract();
+            long remaining = contract.getTotalAmountKopecks() - contract.getDepositedAmountKopecks();
+            long charge = Math.min(rec.getAmountKopecks(), Math.max(remaining, 0L));
+            if (charge > 0) {
+                contract.setDepositedAmountKopecks(contract.getDepositedAmountKopecks() + charge);
+                recordPayment(contract, charge, "MANUAL", "Оплата взноса через форму банка", alfaOrderId);
+                syncInstallmentStatuses(contract);
+                contractRepo.save(contract);
+            }
+            rec.setStatus(AlfaBankOrderStatus.DEPOSITED);
+            rec.setBindingId(status.path("bindingInfo").path("bindingId").asText(null));
+            alfaBankOrderRepo.save(rec);
+
+            // Сохраняем карту только при РЕАЛЬНОМ bindingInfo (production) — тогда следующие
+            // взносы спишутся тихо. В UAT bindingInfo пуст → метод сам выходит, синтетический
+            // дубликат не создаётся (иначе каждый платёж через форму плодил бы новую карту).
+            cardService.saveFromStatusResponse(contract.getOrder().getUser(), status);
+
+            log.info("ACTION=BNPL_INSTALLMENT_FORM_PAID contractId={} kopecks={} alfaOrderId={}",
+                    contract.getId(), charge, alfaOrderId);
+            return "paid";
+        }
+        if (orderStatus == 6) { // DECLINED
+            rec.setStatus(AlfaBankOrderStatus.FAILED);
+            alfaBankOrderRepo.save(rec);
+            return "failed";
+        }
+        return "pending";
+    }
+
+    /**
+     * Регистрирует одностадийный заказ на сумму взноса и сохраняет staging-запись
+     * (AlfaBankOrder с префиксом INSTF- и ссылкой на контракт). Возвращает formUrl.
+     */
+    private String initiateInstallmentForm(BnplContract contract, long chargeKopecks, String clientId) {
+        String orderNumber = "INSTF-" + UUID.randomUUID().toString().replace("-", "").substring(0, 13);
+        JsonNode reg = gateway.registerOrderForBinding(
+                orderNumber, chargeKopecks, props.getReturnUrl(), props.getFailUrl(), clientId);
+        String alfaOrderId = reg.path("orderId").asText(null);
+        String formUrl     = reg.path("formUrl").asText(null);
+        if (alfaOrderId == null || alfaOrderId.isBlank() || formUrl == null || formUrl.isBlank()) {
+            throw new IllegalStateException("Не удалось зарегистрировать заказ в шлюзе");
+        }
+
+        AlfaBankOrder rec = new AlfaBankOrder();
+        rec.setOrderNumber(orderNumber);
+        rec.setAlfaOrderId(alfaOrderId);
+        rec.setBnplContract(contract);
+        rec.setAmountKopecks(chargeKopecks);
+        rec.setStatus(AlfaBankOrderStatus.FORM_SHOWN);
+        rec.setFormUrl(formUrl);
+        alfaBankOrderRepo.save(rec);
+
+        log.info("ACTION=BNPL_INSTALLMENT_FORM_INITIATED contractId={} kopecks={} alfaOrderId={}",
+                contract.getId(), chargeKopecks, alfaOrderId);
+        return formUrl;
+    }
+
+    /**
+     * Сумма к списанию: явная (произвольный платёж, минимум 50 ₽) либо ближайший
+     * непогашенный взнос; всегда ограничена остатком по контракту (защита от переплаты).
+     */
+    private long resolveChargeKopecks(BnplContract contract, Long amountKopecks) {
+        long remainingBalance = contract.getTotalAmountKopecks() - contract.getDepositedAmountKopecks();
+        if (remainingBalance <= 0) {
+            throw new IllegalStateException("Рассрочка уже полностью оплачена");
+        }
+        long chargeKopecks;
+        if (amountKopecks != null) {
+            if (amountKopecks < 5000) {   // минимум 50 ₽
+                throw new IllegalStateException("Минимальная сумма оплаты — 50 ₽");
+            }
+            chargeKopecks = amountKopecks;
+        } else {
+            BnplInstallment next = contract.getInstallments().stream()
+                    .filter(i -> i.getStatus() == BnplInstallmentStatus.PENDING)
+                    .min(java.util.Comparator.comparing(BnplInstallment::getInstallmentNumber))
+                    .orElseThrow(() -> new IllegalStateException("Нет взносов для оплаты"));
+            chargeKopecks = next.getAmountKopecks();
+        }
+        // Излишек сверх целого взноса не теряется — идёт в депозит как предоплата
+        // и засчитывается следующим взносам через syncInstallmentStatuses().
+        return Math.min(chargeKopecks, remainingBalance);
     }
 
     /**

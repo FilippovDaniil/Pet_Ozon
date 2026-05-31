@@ -4,6 +4,7 @@ import com.example.marketplace.config.SecurityConfig;
 import com.example.marketplace.config.TestSecurityConfig;
 import com.example.marketplace.dto.response.BnplContractResponse;
 import com.example.marketplace.dto.response.BnplInstallmentResponse;
+import com.example.marketplace.dto.response.BnplPayResponse;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.payment.BnplService;
@@ -147,26 +148,28 @@ class BnplControllerTest {
 
     // ── POST /api/bnpl/{id}/pay ───────────────────────────────────────────────
 
-    // Пустое тело → оплачивается ближайший взнос, 201 Created.
+    // Есть связка, пустое тело → тихое списание ближайшего взноса; 201 + installments.
     @Test
-    void payNow_noBody_paysNextInstallment() throws Exception {
+    void payNow_noBody_chargesAndReturnsInstallments() throws Exception {
         User user = mockUser();
         when(userRepository.findByEmail("client@test.com")).thenReturn(Optional.of(user));
 
         BnplInstallmentResponse paidInst = makeInstallmentResponse(2, "PAID", 0);
-        when(bnplService.payInstallmentsNow(eq(10L), isNull(), eq(user))).thenReturn(List.of(paidInst));
+        when(bnplService.payInstallmentByClient(eq(10L), isNull(), eq(user)))
+                .thenReturn(BnplPayResponse.charged(List.of(paidInst)));
 
         mockMvc.perform(post("/api/bnpl/10/pay")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}")
                         .with(user("client@test.com").roles("CLIENT")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].status").value("PAID"));
+                .andExpect(jsonPath("$.formUrl").doesNotExist())
+                .andExpect(jsonPath("$.installments").isArray())
+                .andExpect(jsonPath("$.installments.length()").value(1))
+                .andExpect(jsonPath("$.installments[0].status").value("PAID"));
     }
 
-    // Произвольная сумма может покрыть несколько взносов → список из нескольких PAID.
+    // Есть связка, произвольная сумма покрывает несколько взносов → несколько PAID.
     @Test
     void payNow_withAmount_returnsMultiplePaid() throws Exception {
         User user = mockUser();
@@ -176,23 +179,41 @@ class BnplControllerTest {
                 makeInstallmentResponse(2, "PAID", 0),
                 makeInstallmentResponse(3, "PAID", 0)
         );
-        when(bnplService.payInstallmentsNow(eq(10L), eq(40_000L), eq(user))).thenReturn(paid);
+        when(bnplService.payInstallmentByClient(eq(10L), eq(40_000L), eq(user)))
+                .thenReturn(BnplPayResponse.charged(paid));
 
         mockMvc.perform(post("/api/bnpl/10/pay")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amountKopecks\": 40000}")
                         .with(user("client@test.com").roles("CLIENT")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.length()").value(2));
+                .andExpect(jsonPath("$.installments.length()").value(2));
     }
 
-    // Нет привязанной карты (ошибка сервиса) → 500.
+    // Нет реальной связки → банк отдаёт форму: 201 + formUrl (клиент редиректится).
     @Test
-    void payNow_noCard_returns500() throws Exception {
+    void payNow_noBinding_returnsFormUrl() throws Exception {
         User user = mockUser();
         when(userRepository.findByEmail("client@test.com")).thenReturn(Optional.of(user));
-        when(bnplService.payInstallmentsNow(eq(10L), isNull(), eq(user)))
-                .thenThrow(new IllegalStateException("Нет привязанной карты"));
+        when(bnplService.payInstallmentByClient(eq(10L), isNull(), eq(user)))
+                .thenReturn(BnplPayResponse.redirect("https://alfa.rbsuat.com/payment/form?orderId=abc"));
+
+        mockMvc.perform(post("/api/bnpl/10/pay")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .with(user("client@test.com").roles("CLIENT")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.formUrl").value("https://alfa.rbsuat.com/payment/form?orderId=abc"))
+                .andExpect(jsonPath("$.installments").doesNotExist());
+    }
+
+    // Бизнес-ошибка сервиса (контракт не активен) → 500.
+    @Test
+    void payNow_inactiveContract_returns500() throws Exception {
+        User user = mockUser();
+        when(userRepository.findByEmail("client@test.com")).thenReturn(Optional.of(user));
+        when(bnplService.payInstallmentByClient(eq(10L), isNull(), eq(user)))
+                .thenThrow(new IllegalStateException("Оплата недоступна: контракт не активен"));
 
         mockMvc.perform(post("/api/bnpl/10/pay")
                         .contentType(MediaType.APPLICATION_JSON)

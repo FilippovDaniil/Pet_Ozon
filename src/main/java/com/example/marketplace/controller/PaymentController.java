@@ -97,12 +97,18 @@ public class PaymentController {
         return failHtml("Оплата не завершена. Вернитесь в личный кабинет и попробуйте снова.");
     }
 
-    // Пробуем сначала BNPL, потом Full — у каждого свой репозиторий.
+    // Пробуем по очереди: BNPL pre-auth → BNPL довзнос через форму → полная оплата.
+    // Каждый confirm узнаёт «свои» заказы и бросает IllegalArgumentException для чужих.
     private String tryConfirm(String alfaOrderId) {
         try {
             return bnplService.confirmPreAuth(alfaOrderId);
         } catch (IllegalArgumentException ignored) {
-            // не BNPL-платёж — пробуем Full
+            // не BNPL pre-auth — пробуем дальше
+        }
+        try {
+            return bnplService.confirmInstallmentForm(alfaOrderId);
+        } catch (IllegalArgumentException ignored) {
+            // не BNPL-довзнос — пробуем Full
         }
         return fullPaymentService.confirm(alfaOrderId);
     }

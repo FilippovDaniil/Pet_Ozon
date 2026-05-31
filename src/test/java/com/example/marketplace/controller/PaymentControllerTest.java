@@ -46,6 +46,8 @@ class PaymentControllerTest {
         // BNPL не распознаёт orderId → IllegalArgumentException → падаём на fullPayment
         when(bnplService.confirmPreAuth("alfa-123"))
                 .thenThrow(new IllegalArgumentException("Not a BNPL pre-auth"));
+        when(bnplService.confirmInstallmentForm("alfa-123"))
+                .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
         when(fullPaymentService.confirm("alfa-123")).thenReturn("paid");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "alfa-123"))
@@ -59,6 +61,8 @@ class PaymentControllerTest {
     void callback_fullPaymentFailed_returnsFailHtml() throws Exception {
         when(bnplService.confirmPreAuth("alfa-456"))
                 .thenThrow(new IllegalArgumentException("Not a BNPL pre-auth"));
+        when(bnplService.confirmInstallmentForm("alfa-456"))
+                .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
         when(fullPaymentService.confirm("alfa-456")).thenReturn("failed");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "alfa-456"))
@@ -85,6 +89,8 @@ class PaymentControllerTest {
     void callback_pending_returnsPendingMessage() throws Exception {
         when(bnplService.confirmPreAuth("alfa-pend"))
                 .thenThrow(new IllegalArgumentException("Not a BNPL pre-auth"));
+        when(bnplService.confirmInstallmentForm("alfa-pend"))
+                .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
         when(fullPaymentService.confirm("alfa-pend")).thenReturn("pending");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "alfa-pend"))
@@ -106,6 +112,8 @@ class PaymentControllerTest {
         // Callback публичный — банк делает redirect без JWT
         when(bnplService.confirmPreAuth(anyString()))
                 .thenThrow(new IllegalArgumentException("Not BNPL"));
+        when(bnplService.confirmInstallmentForm(anyString()))
+                .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
         when(fullPaymentService.confirm(anyString())).thenReturn("paid");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "any-order"))

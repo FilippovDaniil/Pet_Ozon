@@ -5,6 +5,7 @@ import com.example.marketplace.dto.request.PostponeInstallmentRequest;
 import com.example.marketplace.dto.request.UpdateItemStatusRequest;
 import com.example.marketplace.dto.response.BnplContractResponse;
 import com.example.marketplace.dto.response.BnplInstallmentResponse;
+import com.example.marketplace.dto.response.BnplPayResponse;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.payment.BnplService;
 import com.example.marketplace.repository.UserRepository;
@@ -55,14 +56,18 @@ public class BnplController {
         return bnplService.postponeInstallment(contractId, req.days(), resolveUser(ud));
     }
 
-    /** Оплата взносов по привязанной карте (тихое списание). Возвращает список оплаченных взносов. */
+    /**
+     * Оплата взноса. Если есть реальная связка — тихое списание (возвращает график в
+     * {@code installments}). Если связки нет — возвращает {@code formUrl}: клиент платит
+     * взнос через форму банка.
+     */
     @PostMapping(value = "/api/bnpl/{contractId}/pay", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public List<BnplInstallmentResponse> payNow(@PathVariable Long contractId,
-                                                @RequestBody(required = false) PayInstallmentRequest req,
-                                                @AuthenticationPrincipal UserDetails ud) {
+    public BnplPayResponse payNow(@PathVariable Long contractId,
+                                  @RequestBody(required = false) PayInstallmentRequest req,
+                                  @AuthenticationPrincipal UserDetails ud) {
         Long amount = req != null ? req.amountKopecks() : null;
-        return bnplService.payInstallmentsNow(contractId, amount, resolveUser(ud));
+        return bnplService.payInstallmentByClient(contractId, amount, resolveUser(ud));
     }
 
     /** Изменить статус позиции BNPL-заказа (клиент). */

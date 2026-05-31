@@ -460,6 +460,58 @@ class BnplServiceTest {
         assertThat(contract.getInstallments().get(1).getStatus()).isEqualTo(BnplInstallmentStatus.PAID);
     }
 
+    // ── payInstallmentByClient (клиент: тихо или форма) ─────────────────────────
+
+    // Реальная связка → тихое списание; formUrl == null, возвращается график.
+    @Test
+    void payInstallmentByClient_realBinding_chargesSilently() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4);
+
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-001"); // реальный bindingId
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        stubSilentCharge(200_00L, "b-001");
+
+        var res = bnplService.payInstallmentByClient(10L, null, user);
+
+        assertThat(res.formUrl()).isNull();
+        assertThat(res.installments()).hasSize(4);
+        verify(gateway).paymentOrderBinding(anyString(), eq(200_00L), eq("b-001"));
+        verify(gateway, never()).getBindings(anyString());
+    }
+
+    // Синтетическая связка + пустой getBindings → fallback на форму банка.
+    @Test
+    void payInstallmentByClient_noBinding_returnsFormUrl() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeContractWithSchedule(10L, user, 200_00L, 4);
+
+        CardBinding card = new CardBinding();
+        card.setBindingId("CARDAUTH-0211dd764fd37b99"); // синтетический — не списывается напрямую
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        // getBindings пуст → реальной связки нет
+        when(gateway.getBindings("user-1"))
+                .thenReturn(objectMapper.readTree("{\"errorCode\":\"2\",\"bindings\":[]}"));
+        // регистрация одностадийного заказа на сумму взноса → formUrl
+        when(gateway.registerOrderForBinding(anyString(), eq(200_00L), any(), any(), eq("user-1")))
+                .thenReturn(objectMapper.readTree(
+                        "{\"orderId\":\"md-form\",\"formUrl\":\"https://alfa.rbsuat.com/form?o=md-form\"}"));
+        when(alfaBankOrderRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var res = bnplService.payInstallmentByClient(10L, null, user);
+
+        assertThat(res.installments()).isNull();
+        assertThat(res.formUrl()).isEqualTo("https://alfa.rbsuat.com/form?o=md-form");
+        // Тихое списание НЕ выполнялось — только регистрация формы.
+        verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
+        verify(alfaBankOrderRepo).save(any());
+    }
+
     // ── processInstallment (планировщик авто-списания) ──────────────────────────
 
     @Test

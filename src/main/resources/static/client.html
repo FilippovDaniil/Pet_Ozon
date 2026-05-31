@@ -1933,7 +1933,13 @@
                     }
                     const chargedKopecks = (this.payNowMode === 'custom' && amountKopecks)
                         ? amountKopecks : this.payNowNextInstAmount;
-                    await api.payInstallmentNow(this.payNowContractId, amountKopecks);
+                    const res = await api.payInstallmentNow(this.payNowContractId, amountKopecks);
+                    // Нет связки для тихого списания → банк вернул форму: переходим на неё.
+                    if (res && res.formUrl) {
+                        this.showPayNowModal = false;
+                        window.location.href = res.formUrl;
+                        return;
+                    }
                     this.showPayNowModal = false;
                     this.toast(`Платёж принят: ${this.fmt(chargedKopecks / 100)}`, 'success');
                     // Обновляем конкретный контракт в кэше
