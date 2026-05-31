@@ -70,8 +70,13 @@ const api = {
         apiFetch(`/api/cart/items/${cartItemId}`, { method: 'DELETE' }),
     updateCartItem: (cartItemId, quantity) =>
         apiFetch(`/api/cart/items/${cartItemId}`, { method: 'PUT', body: JSON.stringify({ quantity }) }),
-    checkout: (shippingAddress) =>
-        apiFetch('/api/orders', { method: 'POST', body: JSON.stringify({ shippingAddress }) }),
+    // payload: { deliveryType: 'DELIVERY'|'PICKUP', shippingAddress?, pickupPointId? }
+    checkout: (payload) =>
+        apiFetch('/api/orders', { method: 'POST', body: JSON.stringify(payload) }),
+
+    // ── Точки самовывоза ───────────────────────────────────────────────────
+    getPickupPoints: () =>
+        apiFetch('/api/pickup-points'),
 
     // ── Заказы (клиент) ───────────────────────────────────────────────────
     getMyOrders: async () => {
@@ -169,6 +174,16 @@ const api = {
     },
     deleteProductImage: (productId) =>
         apiFetch(`/api/seller/products/${productId}/image`, { method: 'DELETE' }),
+
+    // ── Админ: точки самовывоза ───────────────────────────────────────────
+    getAdminPickupPoints: () =>
+        apiFetch('/api/admin/pickup-points'),
+    createPickupPoint: (data) =>
+        apiFetch('/api/admin/pickup-points', { method: 'POST', body: JSON.stringify(data) }),
+    updatePickupPoint: (id, data) =>
+        apiFetch(`/api/admin/pickup-points/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deletePickupPoint: (id) =>
+        apiFetch(`/api/admin/pickup-points/${id}`, { method: 'DELETE' }),
 
     // ── Админ: товары ─────────────────────────────────────────────────────
     createProduct: (data) =>

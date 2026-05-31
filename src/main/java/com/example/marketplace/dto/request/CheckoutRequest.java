@@ -1,17 +1,27 @@
 package com.example.marketplace.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
+import com.example.marketplace.entity.enums.DeliveryType;
 import lombok.Data;
 
 /**
- * Тело запроса POST /api/cart/checkout (оформление заказа).
+ * Тело запроса POST /api/orders (оформление заказа).
  *
- * Адрес доставки обязателен — без него заказ создать нельзя.
- * В будущем здесь может появиться promocode, выбор способа доставки и т.д.
+ * Способ получения:
+ *   • DELIVERY (по умолчанию) — нужен {@code shippingAddress} (адрес доставки).
+ *   • PICKUP                  — нужен {@code pickupPointId} (точка самовывоза).
+ *
+ * Условную валидацию выполняет CartService.checkout (зависит от deliveryType),
+ * поэтому @NotBlank на адрес здесь не ставим.
  */
 @Data
 public class CheckoutRequest {
 
-    @NotBlank(message = "Адрес доставки обязателен")
+    // null трактуется как DELIVERY (обратная совместимость со старым клиентом).
+    private DeliveryType deliveryType;
+
+    // Адрес доставки — обязателен для DELIVERY.
     private String shippingAddress;
+
+    // Id точки самовывоза — обязателен для PICKUP.
+    private Long pickupPointId;
 }

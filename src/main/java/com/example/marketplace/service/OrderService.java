@@ -107,6 +107,7 @@ public class OrderService {
         r.setStatus(order.getStatus());
         r.setTotalAmount(order.getTotalAmount());
         r.setShippingAddress(order.getShippingAddress());
+        if (order.getDeliveryType() != null) r.setDeliveryType(order.getDeliveryType().name());
         r.setPaymentType(order.getPaymentType());
         r.setItems(order.getItems().stream().map(item -> {
             OrderItemResponse ir = new OrderItemResponse();

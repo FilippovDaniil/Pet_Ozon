@@ -48,13 +48,6 @@
                     class="px-4 py-2 rounded-lg text-sm transition">
                     Заказы
                 </button>
-                <button @click="setTab('invoices')"
-                    :class="activeTab === 'invoices'
-                        ? 'bg-gray-700 text-white font-semibold'
-                        : 'text-gray-400 hover:text-white hover:bg-gray-800'"
-                    class="px-4 py-2 rounded-lg text-sm transition">
-                    Счета
-                </button>
                 <button @click="setTab('support')"
                     :class="activeTab === 'support'
                         ? 'bg-gray-700 text-white font-semibold'
@@ -71,6 +64,13 @@
                         : 'text-gray-400 hover:text-white hover:bg-gray-800'"
                     class="px-4 py-2 rounded-lg text-sm transition">
                     ✉️ Почта
+                </button>
+                <button @click="setTab('pickup')"
+                    :class="activeTab === 'pickup'
+                        ? 'bg-gray-700 text-white font-semibold'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'"
+                    class="px-4 py-2 rounded-lg text-sm transition">
+                    🏬 Точки
                 </button>
             </div>
 
@@ -707,61 +707,80 @@
             </div>
         </div>
 
-        <!-- ─────────────────── TAB: СЧЕТА ──────────────────────────── -->
-        <div x-show="activeTab === 'invoices'">
+        <!-- ─────────────────── TAB: ТОЧКИ САМОВЫВОЗА ───────────────── -->
+        <div x-show="activeTab === 'pickup'">
             <div class="flex items-center justify-between mb-6">
-                <h2 class="text-xl font-bold text-gray-900">Все счета</h2>
-                <button @click="loadInvoices()"
+                <h2 class="text-xl font-bold text-gray-900">Точки самовывоза</h2>
+                <button @click="loadPickupPoints()"
                         class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-white transition flex items-center gap-1.5">
                     ↻ Обновить
                 </button>
             </div>
 
-            <div x-show="loadingInvoices" class="bg-white rounded-xl p-8 text-center text-gray-400">
-                <div class="animate-spin text-3xl mb-2">⏳</div>
-                Загрузка...
+            <!-- Форма добавления / редактирования -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6 max-w-3xl">
+                <h3 class="font-semibold text-gray-800 mb-3"
+                    x-text="pickupEditId ? ('Изменить точку #' + pickupEditId) : 'Добавить точку'"></h3>
+                <div class="grid sm:grid-cols-3 gap-3">
+                    <input x-model="pickupForm.name" placeholder="Название (ТЦ «...»)"
+                           class="px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <input x-model="pickupForm.address" placeholder="Адрес"
+                           class="px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                    <input x-model="pickupForm.metro" placeholder="Метро (опционально)"
+                           class="px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+                <div class="flex gap-2 mt-3">
+                    <button @click="savePickupPoint()"
+                            :disabled="!pickupForm.name.trim() || !pickupForm.address.trim()"
+                            class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition"
+                            x-text="pickupEditId ? '💾 Сохранить' : '➕ Добавить'"></button>
+                    <button x-show="pickupEditId" @click="resetPickupForm()"
+                            class="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-xl text-sm hover:bg-gray-50 transition">
+                        Отмена
+                    </button>
+                </div>
             </div>
 
-            <div x-show="!loadingInvoices" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <!-- Список точек -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-x-auto">
                 <table class="w-full text-sm">
-                    <thead class="bg-gray-50 border-b border-gray-200">
+                    <thead class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
                         <tr>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide w-12">ID</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Заказ</th>
-                            <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Сумма</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Статус</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Создан</th>
-                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Оплачен</th>
+                            <th class="px-4 py-3 text-left">Название</th>
+                            <th class="px-4 py-3 text-left">Адрес</th>
+                            <th class="px-4 py-3 text-left">Метро</th>
+                            <th class="px-4 py-3 text-center">Статус</th>
+                            <th class="px-4 py-3 text-right">Действия</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        <template x-for="inv in invoices" :key="inv.id">
-                            <tr class="hover:bg-gray-50 transition">
-                                <td class="px-4 py-3 text-gray-400 font-mono text-xs" x-text="inv.id"></td>
-                                <td class="px-4 py-3">
-                                    <span class="text-indigo-600 font-medium">Заказ #<span x-text="inv.orderId"></span></span>
+                    <tbody>
+                        <template x-for="p in pickupPoints" :key="p.id">
+                            <tr class="border-t border-gray-100" :class="!p.active && 'opacity-50'">
+                                <td class="px-4 py-3 font-medium text-gray-800" x-text="p.name"></td>
+                                <td class="px-4 py-3 text-gray-600" x-text="p.address"></td>
+                                <td class="px-4 py-3 text-gray-500" x-text="p.metro || '—'"></td>
+                                <td class="px-4 py-3 text-center">
+                                    <span :class="p.active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'"
+                                          class="text-xs px-2 py-0.5 rounded-full"
+                                          x-text="p.active ? 'активна' : 'скрыта'"></span>
                                 </td>
-                                <td class="px-4 py-3 text-right font-semibold text-gray-900" x-text="fmt(inv.amount)"></td>
-                                <td class="px-4 py-3">
-                                    <span :class="inv.status === 'PAID'
-                                                    ? 'bg-green-100 text-green-700'
-                                                    : 'bg-yellow-100 text-yellow-700'"
-                                          class="text-xs px-2.5 py-1 rounded-full font-medium"
-                                          x-text="inv.status === 'PAID' ? 'Оплачен' : 'Не оплачен'">
-                                    </span>
+                                <td class="px-4 py-3 text-right whitespace-nowrap">
+                                    <button @click="editPickupPoint(p)"
+                                            class="text-indigo-600 hover:text-indigo-800 px-2" title="Изменить">✏️</button>
+                                    <button @click="togglePickupActive(p)"
+                                            class="text-gray-500 hover:text-gray-800 px-2 text-xs"
+                                            x-text="p.active ? 'Скрыть' : 'Показать'"></button>
+                                    <button @click="deletePickupPointConfirm(p)"
+                                            class="text-red-500 hover:text-red-700 px-2" title="Удалить">🗑</button>
                                 </td>
-                                <td class="px-4 py-3 text-gray-400 text-xs hidden sm:table-cell" x-text="fmtDate(inv.createdAt)"></td>
-                                <td class="px-4 py-3 text-gray-400 text-xs hidden md:table-cell"
-                                    x-text="inv.paidAt ? fmtDate(inv.paidAt) : '—'"></td>
                             </tr>
                         </template>
-                        <tr x-show="!loadingInvoices && invoices.length === 0">
-                            <td colspan="6" class="px-4 py-12 text-center text-gray-400">Счетов пока нет</td>
-                        </tr>
                     </tbody>
                 </table>
+                <p x-show="pickupPoints.length === 0" class="p-6 text-center text-gray-400 text-sm">Точек пока нет</p>
             </div>
         </div>
+
     </main>
 
     <!-- ═══════════ МОБИЛЬНАЯ НИЖНЯЯ НАВИГАЦИЯ (скрыта на md+) ═══════════ -->
@@ -779,12 +798,6 @@
                 <span class="text-2xl leading-none">🧾</span>
                 <span class="text-xs font-medium">Заказы</span>
             </button>
-            <button @click="setTab('invoices')"
-                    :class="activeTab === 'invoices' ? 'text-white' : 'text-gray-500'"
-                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
-                <span class="text-2xl leading-none">💰</span>
-                <span class="text-xs font-medium">Счета</span>
-            </button>
             <button @click="setTab('support')"
                     :class="activeTab === 'support' ? 'text-white' : 'text-gray-500'"
                     class="flex flex-col items-center gap-0.5 flex-1 py-2 transition relative">
@@ -799,6 +812,12 @@
                     class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
                 <span class="text-2xl leading-none">✉️</span>
                 <span class="text-xs font-medium">Почта</span>
+            </button>
+            <button @click="setTab('pickup')"
+                    :class="activeTab === 'pickup' ? 'text-white' : 'text-gray-500'"
+                    class="flex flex-col items-center gap-0.5 flex-1 py-2 transition">
+                <span class="text-2xl leading-none">🏬</span>
+                <span class="text-xs font-medium">Точки</span>
             </button>
         </div>
     </nav>
@@ -1036,9 +1055,6 @@
             adminPayRub: '',          // сумма для оплаты с карты клиента (произвольная)
             adminPayProcessing: false,
 
-            invoices: [],
-            loadingInvoices: false,
-
             // Модал товара
             showProductModal: false,
             editingProduct: null,
@@ -1070,6 +1086,11 @@
             // Почта
             emailForm: { to: '', subject: '', text: '' },
             sendingEmail: false,
+
+            // Точки самовывоза
+            pickupPoints: [],
+            pickupForm: { name: '', address: '', metro: '' },
+            pickupEditId: null,
 
             toasts: [],
             _toastId: 0,
@@ -1109,8 +1130,63 @@
                 this.activeTab = tab;
                 if (tab === 'products' && this.products.length === 0) await this.loadProducts();
                 if (tab === 'orders')   await this.loadOrders();
-                if (tab === 'invoices') await this.loadInvoices();
                 if (tab === 'support')  await this.loadSupportConversations();
+                if (tab === 'pickup')   await this.loadPickupPoints();
+            },
+
+            // ── Точки самовывоза ──────────────────────────────────
+            async loadPickupPoints() {
+                try {
+                    this.pickupPoints = await api.getAdminPickupPoints() || [];
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            resetPickupForm() {
+                this.pickupEditId = null;
+                this.pickupForm = { name: '', address: '', metro: '' };
+            },
+
+            editPickupPoint(p) {
+                this.pickupEditId = p.id;
+                this.pickupForm = { name: p.name, address: p.address, metro: p.metro || '' };
+            },
+
+            async savePickupPoint() {
+                if (!this.pickupForm.name.trim() || !this.pickupForm.address.trim()) return;
+                const body = {
+                    name: this.pickupForm.name.trim(),
+                    address: this.pickupForm.address.trim(),
+                    metro: this.pickupForm.metro.trim() || null,
+                };
+                try {
+                    if (this.pickupEditId) {
+                        await api.updatePickupPoint(this.pickupEditId, body);
+                        this.toast('Точка обновлена', 'success');
+                    } else {
+                        await api.createPickupPoint(body);
+                        this.toast('Точка добавлена', 'success');
+                    }
+                    this.resetPickupForm();
+                    await this.loadPickupPoints();
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async togglePickupActive(p) {
+                try {
+                    await api.updatePickupPoint(p.id, {
+                        name: p.name, address: p.address, metro: p.metro || null, active: !p.active,
+                    });
+                    await this.loadPickupPoints();
+                } catch (e) { this.toast(e.message, 'error'); }
+            },
+
+            async deletePickupPointConfirm(p) {
+                if (!confirm('Удалить точку «' + p.name + '»?')) return;
+                try {
+                    await api.deletePickupPoint(p.id);
+                    this.toast('Точка удалена', 'success');
+                    await this.loadPickupPoints();
+                } catch (e) { this.toast(e.message, 'error'); }
             },
 
             // ── Товары ────────────────────────────────────────────
@@ -1406,15 +1482,6 @@
                     this.emailForm = { to: '', subject: '', text: '' };
                 } catch (e) { this.toast(e.message, 'error'); }
                 finally { this.sendingEmail = false; }
-            },
-
-            // ── Счета ─────────────────────────────────────────────
-            async loadInvoices() {
-                this.loadingInvoices = true;
-                try {
-                    this.invoices = await api.getAllInvoices();
-                } catch (e) { this.toast(e.message, 'error'); }
-                finally { this.loadingInvoices = false; }
             },
 
             // ── Поддержка ─────────────────────────────────────────

@@ -484,8 +484,22 @@ logging/
   OpenSearchLogAppender.java   — кастомный Logback-аппендер → OpenSearch _bulk API
 controller/
   PaymentController.java       — /api/payment/callback, /api/payment/fail, /api/payment/card-bind-callback
+                                 + confirmInstallmentForm (fallback-довзнос BNPL через форму)
   BnplController.java          — /api/bnpl/**, /api/orders/{id}/items/{itemId}
   CardController.java          — /api/cards/**, /api/cards/bind
+  PickupPointController.java   — GET /api/pickup-points (клиент), CRUD /api/admin/pickup-points (админ)
+dto/response/
+  BnplPayResponse.java         — {formUrl|installments}: тихое списание ИЛИ редирект на форму
+  AdminPayResponse.java        — {formUrl|order}: админ-оплата тихо ИЛИ через форму
+  PickupPointResponse.java     — точка самовывоза для UI
+entity/
+  PickupPoint.java             — справочник точек самовывоза (таблица pickup_points)
+  enums/DeliveryType.java      — DELIVERY | PICKUP
+service/
+  PickupPointService.java      — CRUD точек (@PreAuthorize ADMIN на запись)
+  (CardService: saveAfterPayment сохраняет ТОЛЬКО реальный bindingInfo.bindingId — синтетику не плодит)
+  (BnplService: payInstallmentByClient/payInstallmentByAdmin — тихо или formUrl; confirmInstallmentForm)
+  (FullPaymentService: payByDefaultCardOrForm — тихо или formUrl)
 ```
 
 ## Что реализовано
@@ -532,7 +546,7 @@ controller/
 - [x] **Привязанные карты**: `CardBinding` entity, `CardService`, `CardController` (GET/PATCH/DELETE /api/cards), авто-сохранение после оплаты
 - [x] **Тесты платёжной системы**: `CardServiceTest`, `FullPaymentServiceTest`, `BnplServiceTest`, `CardControllerTest`, `BnplControllerTest`, `PaymentControllerTest` + обновлён `InvoiceControllerTest`
 - [x] **Скриншоты**: перемещены в `docs/screenshots/`
-- [x] **Привязка карты** (`POST /api/cards/bind`): двухстадийный flow registerPreAuth→deposit→bindingInfo; три fallback при сохранении; `card_bind_requests` staging-таблица; `GET /api/payment/card-bind-callback` (permitAll)
+- [x] **Привязка карты** (`POST /api/cards/bind`): двухстадийный flow registerPreAuth→deposit→bindingInfo; сохраняется ТОЛЬКО реальный bindingId (без галочки «Сохранить карту» → `no_binding`, синтетику не плодим); `card_bind_requests` staging-таблица; `GET /api/payment/card-bind-callback` (permitAll)
 - [x] **OpenSearch Dashboards**: `infra/rancher/k8s/09-opensearch-dashboards.yaml`, NodePort 30601, авто-создание index pattern `marketplace-logs-*` при старте приложения
 - [x] **Логи в OpenSearch**: кастомный `OpenSearchLogAppender` (Logback) → ежедневные индексы `marketplace-logs-YYYY-MM-DD`; поля: `@timestamp`, `level`, `logger`, `thread`, `message`, `request_id`, `user_id`, `user_email`, `role`; AsyncAppender
 - [x] **Слияние вкладок Заказы+Рассрочка**: BNPL-контракт показывается инлайн при раскрытии заказа; lazy-загрузка через `bnplCache`; кнопка переноса показывается только если `daysPostponeLeft > 0`
@@ -544,6 +558,54 @@ controller/
 - [x] **Фильтр активных заказов клиента**: `OrderRepository.findActiveForClient` — скрывает PAID/CANCELLED/DELIVERED, оставляет CREATED и активные рассрочки
 - [x] **Статус BNPL-заказа в UI**: активная рассрочка показывается как «Создан» (не «Оплачен») до COMPLETED; поле `OrderResponse.bnplStatus`
 - [x] **Авто-отмена заказа**: при отмене/возврате всех позиций заказ → CANCELLED (не только контракт)
-- [x] **Привязка карты при любой оплате**: `CardService.saveAfterPayment` (bindingInfo→cardAuthInfo→getBindings); полная оплата переведена на `registerOrderForBinding` (clientId)
+- [x] **Привязка карты при любой оплате**: `CardService.saveAfterPayment` — сохраняет ТОЛЬКО реальный `bindingInfo.bindingId` (появляется при галочке «Сохранить карту»); полная оплата на `registerOrderForBinding` (clientId)
 - [x] **Оплата заказа админом с дефолтной карты**: `POST /api/admin/orders/{id}/pay` (BNPL: взнос/произвольная сумма; обычный: полная сумма); секция «Оплата с карты клиента» в админ-модале
 - [x] **Документация Альфа Банка дополнена**: `Alfa_Testing/docs/09_bnpl_integration.md` (v2-flow, журнал, учёт, статус, админ-оплата), `10_card_binding.md` (`saveAfterPayment`)
+- [x] **Точки самовывоза + способ получения** (2026-05-31): `PickupPoint` entity (`pickup_points`), `DeliveryType` (DELIVERY|PICKUP), `PickupPointService`/`PickupPointController` (GET `/api/pickup-points` клиенту, CRUD `/api/admin/pickup-points` админу), сидинг 20 точек по Москве при старте; в корзине переключатель Доставка/Самовывоз; `Order.deliveryType` + снимок адреса точки в `shippingAddress`; админ-вкладка «🏬 Точки» (add/edit/скрыть/delete); тесты `PickupPointControllerTest` + checkout-кейсы в `CartServiceTest`. Подробнее — раздел «Доставка и самовывоз» ниже
+- [x] **Убран раздел «Счета» из админки** (2026-05-31): рудимент — вся информация уже в заказах; удалены nav-кнопки (desktop+mobile), вкладка, `loadInvoices`/state. Бэкенд `InvoiceController` и `GET /api/invoices` не тронуты
+
+---
+
+## 🏬 Доставка и самовывоз (2026-05-31)
+
+При оформлении заказа клиент выбирает способ получения: **доставка на дом** (вводит адрес,
+как раньше) или **самовывоз** (выбирает магазин из справочника).
+
+### Модель данных
+- `PickupPoint` (таблица `pickup_points`): `name`, `address`, `metro` (nullable), `active`.
+  Справочник, управляется админом. Сидинг 20 точек по Москве в `AppConfig.seedPickupPoints()`
+  (если таблица пуста).
+- `DeliveryType` enum: `DELIVERY` | `PICKUP`.
+- `Order.deliveryType` (`@Column(length=16)`, nullable — старые заказы = null).
+  Адрес точки **не** хранится FK — пишется текстовым снимком в `Order.shippingAddress`
+  (`"Самовывоз: {name}, {address} (м. {metro})"`), чтобы удаление/правка точки не ломали историю.
+
+### Эндпоинты
+| Метод | URL | Доступ | Назначение |
+|-------|-----|--------|-----------|
+| GET | `/api/pickup-points` | authenticated | активные точки для выбора клиентом |
+| GET | `/api/admin/pickup-points` | ADMIN | все точки (вкл. скрытые) |
+| POST | `/api/admin/pickup-points` | ADMIN | создать (201) |
+| PUT | `/api/admin/pickup-points/{id}` | ADMIN | изменить (вкл. toggle `active`) |
+| DELETE | `/api/admin/pickup-points/{id}` | ADMIN | удалить (204) |
+
+`/api/admin/**` защищён ролью ADMIN в SecurityConfig (доп. `@PreAuthorize` на методах сервиса).
+
+### Checkout
+`CheckoutRequest { deliveryType, shippingAddress?, pickupPointId? }`. `deliveryType==null` → DELIVERY
+(обратная совместимость). Валидация в `CartService.resolveDeliveryAddress`:
+- DELIVERY → `shippingAddress` обязателен;
+- PICKUP → `pickupPointId` обязателен и валиден, иначе `IllegalArgumentException` → 400.
+`OrderResponse.deliveryType` отдаётся фронту (иконка 🏬/🚚 в карточке заказа).
+
+### Фронтенд
+- `client.html`: переключатель «🚚 Доставка / 🏬 Самовывоз»; при самовывозе — `<select>` точек
+  (`api.getPickupPoints()`), при доставке — поле адреса. `doCheckout()` собирает payload по режиму.
+- `admin.html`: вкладка «🏬 Точки» — форма add/edit + таблица со «скрыть/показать» (toggle active)
+  и удалением.
+
+### Ловушка (учтена)
+Таблица `pickup_points` создаётся `ddl-auto=update` впервые → `active boolean NOT NULL` безопасно
+(новая таблица, нет существующих строк). А вот `Order.deliveryType` добавлен **nullable** именно
+потому, что таблица `orders` уже содержит строки (NOT NULL без DEFAULT уронил бы старт — см. урок
+про `days_postponed` в глобальном CLAUDE.md).

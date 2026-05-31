@@ -1,8 +1,10 @@
 package com.example.marketplace.service;
 
+import com.example.marketplace.dto.request.CheckoutRequest;
 import com.example.marketplace.dto.response.CartResponse;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.entity.*;
+import com.example.marketplace.entity.enums.DeliveryType;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.exception.ResourceNotFoundException;
@@ -36,6 +38,7 @@ class CartServiceTest {
     @Mock OrderRepository      orderRepository;
     @Mock OrderItemRepository  orderItemRepository;
     @Mock InvoiceRepository    invoiceRepository;
+    @Mock PickupPointService   pickupPointService;
 
     // @InjectMocks создаёт реальный объект CartService и передаёт в него все @Mock-поля выше.
     // Это позволяет тестировать логику сервиса без реальной базы данных.
@@ -255,6 +258,14 @@ class CartServiceTest {
 
     // ── checkout ──────────────────────────────────────────────────────────────
 
+    // Запрос на оформление с доставкой на дом (DELIVERY) по указанному адресу.
+    private CheckoutRequest delivery(String address) {
+        CheckoutRequest r = new CheckoutRequest();
+        r.setDeliveryType(DeliveryType.DELIVERY);
+        r.setShippingAddress(address);
+        return r;
+    }
+
     @Test
     void checkout_success_createsOrderAndInvoiceClearsCart() {
         User user = makeUser(1L);
@@ -268,7 +279,7 @@ class CartServiceTest {
         when(orderItemRepository.save(any(OrderItem.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        OrderResponse result = cartService.checkout(1L, "Москва, ул. Тестовая, 1");
+        OrderResponse result = cartService.checkout(1L, delivery("Москва, ул. Тестовая, 1"));
 
         assertThat(result.getStatus()).isEqualTo(OrderStatus.CREATED);
         assertThat(result.getTotalAmount()).isEqualByComparingTo("100000.00");
@@ -283,6 +294,54 @@ class CartServiceTest {
     }
 
     @Test
+    void checkout_pickup_resolvesPickupPointAddressSnapshot() {
+        User user = makeUser(1L);
+        Cart cart = makeCart(1L, user);
+        Product product = makeProduct(1L, "Ноутбук", new BigDecimal("50000.00"));
+        cart.getItems().add(makeCartItem(1L, cart, product, 1));
+        stubFindCart(user, cart);
+        when(orderItemRepository.save(any(OrderItem.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        PickupPoint pp = new PickupPoint();
+        pp.setId(7L);
+        pp.setName("ТЦ «Атриум»");
+        pp.setAddress("ул. Земляной Вал, 33");
+        pp.setMetro("Курская");
+        pp.setActive(true);
+        when(pickupPointService.getEntity(7L)).thenReturn(pp);
+
+        CheckoutRequest req = new CheckoutRequest();
+        req.setDeliveryType(DeliveryType.PICKUP);
+        req.setPickupPointId(7L);
+
+        OrderResponse result = cartService.checkout(1L, req);
+
+        assertThat(result.getDeliveryType()).isEqualTo("PICKUP");
+        assertThat(result.getShippingAddress())
+                .contains("Самовывоз")
+                .contains("ТЦ «Атриум»")
+                .contains("ул. Земляной Вал, 33")
+                .contains("Курская");
+    }
+
+    @Test
+    void checkout_pickupWithoutPoint_throwsIllegalArgument() {
+        User user = makeUser(1L);
+        Cart cart = makeCart(1L, user);
+        Product product = makeProduct(1L, "Ноутбук", new BigDecimal("50000.00"));
+        cart.getItems().add(makeCartItem(1L, cart, product, 1));
+        stubFindCart(user, cart);
+
+        CheckoutRequest req = new CheckoutRequest();
+        req.setDeliveryType(DeliveryType.PICKUP);
+        req.setPickupPointId(null); // точка не выбрана
+
+        assertThatThrownBy(() -> cartService.checkout(1L, req))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("точка самовывоза");
+    }
+
+    @Test
     void checkout_multipleItems_calculatesCorrectTotal() {
         User user = makeUser(1L);
         Cart cart = makeCart(1L, user);
@@ -294,7 +353,7 @@ class CartServiceTest {
         when(orderItemRepository.save(any(OrderItem.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        OrderResponse result = cartService.checkout(1L, "Адрес");
+        OrderResponse result = cartService.checkout(1L, delivery("Адрес"));
 
         // 80000 + 6000 = 86000
         assertThat(result.getTotalAmount()).isEqualByComparingTo("86000.00");
@@ -307,7 +366,7 @@ class CartServiceTest {
         Cart cart = makeCart(1L, user); // пустая корзина — нет товаров
         stubFindCart(user, cart);
 
-        assertThatThrownBy(() -> cartService.checkout(1L, "Адрес"))
+        assertThatThrownBy(() -> cartService.checkout(1L, delivery("Адрес")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Cart is empty");
     }
@@ -323,7 +382,7 @@ class CartServiceTest {
         cart.getItems().add(makeCartItem(1L, cart, product, 5)); // пытаемся купить 5
         stubFindCart(user, cart);
 
-        assertThatThrownBy(() -> cartService.checkout(1L, "Москва"))
+        assertThatThrownBy(() -> cartService.checkout(1L, delivery("Москва")))
                 .isInstanceOf(IllegalArgumentException.class)
                 // Сообщение должно содержать название товара, чтобы пользователь понял, что именно закончилось
                 .hasMessageContaining("Недостаточно товара");
@@ -342,7 +401,7 @@ class CartServiceTest {
         when(orderItemRepository.save(any(OrderItem.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
-        cartService.checkout(1L, "Адрес");
+        cartService.checkout(1L, delivery("Адрес"));
 
         // После оформления: 100 - 3 = 97
         assertThat(product.getStockQuantity()).isEqualTo(97);
@@ -367,7 +426,7 @@ class CartServiceTest {
                     return oi;
                 });
 
-        cartService.checkout(1L, "Адрес");
+        cartService.checkout(1L, delivery("Адрес"));
 
         verify(orderItemRepository).save(any(OrderItem.class));
     }

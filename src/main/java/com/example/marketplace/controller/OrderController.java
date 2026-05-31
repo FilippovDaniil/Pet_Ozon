@@ -40,7 +40,7 @@ public class OrderController {
     @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse createOrder(@AuthenticationPrincipal User user,
                                      @Valid @RequestBody CheckoutRequest request) {
-        return cartService.checkout(user.getId(), request.getShippingAddress());
+        return cartService.checkout(user.getId(), request);
     }
 
     @GetMapping("/my")

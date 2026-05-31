@@ -68,7 +68,8 @@
 | **opensearch-java** | 2.15.0 | Java-клиент для OpenSearch (ApacheHttpClient5Transport) |
 | **httpclient5** | BOM (5.4.x) | Транспорт для OpenSearch; версию НЕ пинить явно |
 | **Альфа Банк шлюз** | UAT API | Приём платежей картой: одностадийные и двухстадийные операции |
-| **BNPL** | — | Buy Now Pay Later: 3 продукта рассрочки с авто-списанием через bindingId |
+| **BNPL** | — | Buy Now Pay Later: 3 продукта рассрочки; при оплате взноса — тихое списание по связке либо fallback на форму банка |
+| **Самовывоз / доставка** | — | `PickupPoint` (справочник точек, админ-CRUD) + `DeliveryType` (DELIVERY/PICKUP); выбор способа получения в корзине |
 
 ### Что такое Spring Boot BOM
 

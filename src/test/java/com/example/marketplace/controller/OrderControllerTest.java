@@ -2,6 +2,7 @@ package com.example.marketplace.controller;
 
 import com.example.marketplace.config.SecurityConfig;
 import com.example.marketplace.config.TestSecurityConfig;
+import com.example.marketplace.dto.request.CheckoutRequest;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.OrderStatus;
@@ -72,7 +73,7 @@ class OrderControllerTest {
 
     @Test
     void createOrder_success_returns201() throws Exception {
-        when(cartService.checkout(eq(1L), eq("Москва, ул. Тестовая, 1")))
+        when(cartService.checkout(eq(1L), any(CheckoutRequest.class)))
                 .thenReturn(makeOrderResponse(1L, OrderStatus.CREATED, new BigDecimal("100000.00")));
 
         mockMvc.perform(post("/api/orders")
@@ -86,7 +87,7 @@ class OrderControllerTest {
 
     @Test
     void createOrder_emptyCart_returns400() throws Exception {
-        when(cartService.checkout(eq(1L), eq("Москва")))
+        when(cartService.checkout(eq(1L), any(CheckoutRequest.class)))
                 .thenThrow(new IllegalArgumentException("Cart is empty"));
 
         mockMvc.perform(post("/api/orders")

@@ -2,10 +2,12 @@ package com.example.marketplace.config;
 
 import com.example.marketplace.entity.Cart;
 import com.example.marketplace.entity.Category;
+import com.example.marketplace.entity.PickupPoint;
 import com.example.marketplace.entity.Product;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
 import com.example.marketplace.repository.CartRepository;
+import com.example.marketplace.repository.PickupPointRepository;
 import com.example.marketplace.repository.ProductRepository;
 import com.example.marketplace.repository.UserRepository;
 import com.example.marketplace.service.CategoryService;
@@ -37,6 +39,7 @@ public class AppConfig {
     private final ProductSearchService productSearchService;
     private final PasswordEncoder      passwordEncoder;
     private final JdbcTemplate         jdbc;
+    private final PickupPointRepository pickupPointRepository;
 
     /**
      * Сидинг тестовых данных при старте приложения (CommandLineRunner запускается после поднятия контекста).
@@ -319,6 +322,11 @@ public class AppConfig {
                         productRepository.save(p);
                     });
 
+            // Точки самовывоза (20 точек по Москве) — сидим один раз, если таблица пуста.
+            if (pickupPointRepository.count() == 0) {
+                seedPickupPoints();
+            }
+
             // Синхронизируем все товары из PostgreSQL в OpenSearch.
             // Если OpenSearch недоступен — productSearchService логирует warning и продолжает.
             productSearchService.reindexAll(productRepository.findAllForReindex());
@@ -359,6 +367,40 @@ public class AppConfig {
             log.info("Created user: {} ({})", email, role);
             return saved;
         });
+    }
+
+    /** Сидинг 20 точек самовывоза по Москве (ближе к центру). */
+    private void seedPickupPoints() {
+        addPickupPoint("ТЦ «Афимолл Сити»",      "Пресненская наб., 2",        "Выставочная");
+        addPickupPoint("ЦУМ",                    "ул. Петровка, 2",            "Театральная");
+        addPickupPoint("ГУМ",                    "Красная площадь, 3",         "Охотный Ряд");
+        addPickupPoint("ТЦ «Атриум»",            "ул. Земляной Вал, 33",       "Курская");
+        addPickupPoint("ТЦ «Охотный Ряд»",       "Манежная площадь, 1",        "Площадь Революции");
+        addPickupPoint("ТЦ «Европейский»",       "пл. Киевского Вокзала, 2",   "Киевская");
+        addPickupPoint("ТРЦ «Авиапарк»",         "Ходынский бульвар, 4",       "ЦСКА");
+        addPickupPoint("ТЦ «Цветной»",           "Цветной бульвар, 15, стр. 1","Цветной бульвар");
+        addPickupPoint("Петровский пассаж",      "ул. Петровка, 10",           "Кузнецкий Мост");
+        addPickupPoint("Смоленский Пассаж",      "Смоленская площадь, 3",      "Смоленская");
+        addPickupPoint("ТЦ «Новинский»",         "Новинский бульвар, 31",      "Баррикадная");
+        addPickupPoint("ТРЦ «Белая Площадь»",    "ул. Лесная, 5",              "Белорусская");
+        addPickupPoint("ТЦ «Тишинка»",           "Тишинская площадь, 1",       "Маяковская");
+        addPickupPoint("ТРК «Город Лефортово»",  "шоссе Энтузиастов, 12, к. 2","Авиамоторная");
+        addPickupPoint("ТЦ «Гагаринский»",       "ул. Вавилова, 3",            "Ленинский проспект");
+        addPickupPoint("ТРЦ «Ривьера»",          "Автозаводская ул., 18",      "Автозаводская");
+        addPickupPoint("ТЦ «Метрополис»",        "Ленинградское ш., 16А, стр. 4","Войковская");
+        addPickupPoint("ТЦ «Щука»",              "ул. Щукинская, 42",          "Щукинская");
+        addPickupPoint("ТРЦ «Океания»",          "Кутузовский проспект, 57",   "Славянский бульвар");
+        addPickupPoint("ТЦ «Капитолий»",         "проспект Вернадского, 6",    "Университет");
+        log.info("Created {} pickup points", pickupPointRepository.count());
+    }
+
+    private void addPickupPoint(String name, String address, String metro) {
+        PickupPoint p = new PickupPoint();
+        p.setName(name);
+        p.setAddress(address);
+        p.setMetro(metro);
+        p.setActive(true);
+        pickupPointRepository.save(p);
     }
 
     private void addProduct(String name, String description, String price, int stock, User seller, String categoryName) {

@@ -1,10 +1,12 @@
 package com.example.marketplace.service;
 
+import com.example.marketplace.dto.request.CheckoutRequest;
 import com.example.marketplace.dto.response.CartItemResponse;
 import com.example.marketplace.dto.response.CartResponse;
 import com.example.marketplace.dto.response.OrderItemResponse;
 import com.example.marketplace.dto.response.OrderResponse;
 import com.example.marketplace.entity.*;
+import com.example.marketplace.entity.enums.DeliveryType;
 import com.example.marketplace.entity.enums.InvoiceStatus;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.exception.ResourceNotFoundException;
@@ -46,6 +48,7 @@ public class CartService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final InvoiceRepository invoiceRepository;
+    private final PickupPointService pickupPointService;
 
     // isAuthenticated() — любой вошедший пользователь может работать с корзиной.
     @PreAuthorize("isAuthenticated()")
@@ -120,12 +123,17 @@ public class CartService {
      */
     @PreAuthorize("isAuthenticated()")
     @Transactional
-    public OrderResponse checkout(Long userId, String shippingAddress) {
+    public OrderResponse checkout(Long userId, CheckoutRequest request) {
         Cart cart = findCartByUserId(userId);
         List<CartItem> cartItems = cart.getItems();
         if (cartItems.isEmpty()) {
             throw new IllegalArgumentException("Cart is empty");
         }
+
+        // Резолвим способ получения и итоговый адрес (снимок).
+        DeliveryType deliveryType = request.getDeliveryType() == null
+                ? DeliveryType.DELIVERY : request.getDeliveryType();
+        String finalAddress = resolveDeliveryAddress(deliveryType, request);
 
         // Предварительная проверка: достаточно ли товара на складе?
         for (CartItem cartItem : cartItems) {
@@ -148,7 +156,8 @@ public class CartService {
         order.setOrderDate(LocalDateTime.now());
         order.setStatus(OrderStatus.CREATED);
         order.setTotalAmount(total);
-        order.setShippingAddress(shippingAddress);
+        order.setDeliveryType(deliveryType);
+        order.setShippingAddress(finalAddress);
         orderRepository.save(order);
 
         // Создаём позиции заказа (снимок корзины) и списываем остаток.
@@ -179,9 +188,31 @@ public class CartService {
         cart.getItems().clear();
         cartRepository.save(cart);
 
-        log.info("ACTION=CHECKOUT userId={} orderId={} total={} itemCount={} address=\"{}\"",
-                userId, order.getId(), total, cartItems.size(), shippingAddress);
+        log.info("ACTION=CHECKOUT userId={} orderId={} total={} itemCount={} deliveryType={} address=\"{}\"",
+                userId, order.getId(), total, cartItems.size(), deliveryType, finalAddress);
         return toOrderResponse(order);
+    }
+
+    /**
+     * Возвращает итоговый адрес получения (снимок) по способу доставки.
+     * DELIVERY → введённый клиентом адрес (обязателен).
+     * PICKUP   → текстовый снимок выбранной точки самовывоза (обязателен валидный pickupPointId).
+     */
+    private String resolveDeliveryAddress(DeliveryType deliveryType, CheckoutRequest request) {
+        if (deliveryType == DeliveryType.PICKUP) {
+            if (request.getPickupPointId() == null) {
+                throw new IllegalArgumentException("Не выбрана точка самовывоза");
+            }
+            PickupPoint pp = pickupPointService.getEntity(request.getPickupPointId());
+            String metro = (pp.getMetro() != null && !pp.getMetro().isBlank())
+                    ? " (м. " + pp.getMetro() + ")" : "";
+            return "Самовывоз: " + pp.getName() + ", " + pp.getAddress() + metro;
+        }
+        // DELIVERY
+        if (request.getShippingAddress() == null || request.getShippingAddress().isBlank()) {
+            throw new IllegalArgumentException("Адрес доставки обязателен");
+        }
+        return request.getShippingAddress().trim();
     }
 
     private Cart findCartByUserId(Long userId) {
@@ -222,6 +253,7 @@ public class CartService {
         r.setStatus(order.getStatus());
         r.setTotalAmount(order.getTotalAmount());
         r.setShippingAddress(order.getShippingAddress());
+        if (order.getDeliveryType() != null) r.setDeliveryType(order.getDeliveryType().name());
         r.setItems(order.getItems().stream().map(item -> {
             OrderItemResponse ir = new OrderItemResponse();
             ir.setId(item.getId());

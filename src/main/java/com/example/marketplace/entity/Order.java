@@ -1,5 +1,6 @@
 package com.example.marketplace.entity;
 
+import com.example.marketplace.entity.enums.DeliveryType;
 import com.example.marketplace.entity.enums.OrderStatus;
 import com.example.marketplace.entity.enums.PaymentType;
 import jakarta.persistence.*;
@@ -55,7 +56,14 @@ public class Order {
     // Итоговая сумма = сумма всех (quantity × priceAtOrder) позиций.
     private BigDecimal totalAmount;
 
-    // Адрес доставки, указанный покупателем при оформлении заказа.
+    // Способ получения: DELIVERY (доставка) или PICKUP (самовывоз).
+    // Колонка nullable — у заказов, созданных до появления фичи, значение остаётся null.
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private DeliveryType deliveryType;
+
+    // Адрес получения: для DELIVERY — введённый клиентом адрес;
+    // для PICKUP — текстовый снимок адреса точки самовывоза (название + адрес + метро).
     private String shippingAddress;
 
     // cascade = ALL, orphanRemoval = true: удаление Order удаляет все его OrderItem-ы.

@@ -22,6 +22,7 @@ public class OrderResponse {
     private OrderStatus status;
     private BigDecimal totalAmount;
     private String shippingAddress;
+    private String deliveryType;   // "DELIVERY" | "PICKUP" | null (старые заказы)
     private List<OrderItemResponse> items;
     private Long invoiceId;
     private PaymentType paymentType;
