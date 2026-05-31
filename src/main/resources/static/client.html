@@ -660,11 +660,14 @@
                                             <span x-text="item.quantity"></span>
                                             × <span x-text="fmt(item.priceAtOrder)"></span>
                                         </span>
-                                        <!-- Статус позиции BNPL -->
+                                        <!-- Поштучный статус позиции BNPL: выдача/отмена/возврат по одной единице -->
                                         <template x-if="item.itemStatus">
-                                            <div class="flex items-center gap-1 flex-shrink-0">
-                                                <template x-if="item.itemStatus === 'PENDING_ISSUE'">
-                                                    <div class="flex gap-1">
+                                            <div class="flex items-center gap-1 flex-wrap justify-end flex-shrink-0">
+                                                <!-- Ожидают выдачи -->
+                                                <template x-if="(item.pendingCount ?? 0) > 0">
+                                                    <span class="inline-flex items-center gap-1">
+                                                        <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium"
+                                                              x-text="item.pendingCount + ' ожид.'"></span>
                                                         <button @click.stop="issueItem(order.id, item.id)"
                                                                 class="px-2 py-0.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded font-medium transition">
                                                             Получить
@@ -673,22 +676,28 @@
                                                                 class="px-2 py-0.5 text-xs bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded font-medium transition">
                                                             Отменить
                                                         </button>
-                                                    </div>
+                                                    </span>
                                                 </template>
-                                                <template x-if="item.itemStatus === 'ISSUED'">
-                                                    <div class="flex items-center gap-1">
-                                                        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">✓ Получен</span>
+                                                <!-- Выданы -->
+                                                <template x-if="(item.issuedCount ?? 0) > 0">
+                                                    <span class="inline-flex items-center gap-1">
+                                                        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium"
+                                                              x-text="'✓ ' + item.issuedCount + ' получ.'"></span>
                                                         <button @click.stop="returnItem(order.id, item.id)"
                                                                 class="px-2 py-0.5 text-xs bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border border-yellow-200 rounded font-medium transition">
                                                             Вернуть
                                                         </button>
-                                                    </div>
+                                                    </span>
                                                 </template>
-                                                <template x-if="item.itemStatus === 'CANCELLED'">
-                                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Отменён</span>
+                                                <!-- Отменены -->
+                                                <template x-if="(item.cancelledCount ?? 0) > 0">
+                                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full"
+                                                          x-text="item.cancelledCount + ' отм.'"></span>
                                                 </template>
-                                                <template x-if="item.itemStatus === 'RETURNED'">
-                                                    <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">Возвращён</span>
+                                                <!-- Возвращены -->
+                                                <template x-if="(item.returnedCount ?? 0) > 0">
+                                                    <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full"
+                                                          x-text="item.returnedCount + ' возвр.'"></span>
                                                 </template>
                                             </div>
                                         </template>
@@ -766,18 +775,14 @@
                                                         class="flex-1 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium rounded-lg transition">
                                                     💳 Оплатить сейчас
                                                 </button>
-                                                <!-- Перенос — только если остались доступные дни -->
+                                                <!-- Перенос: показываем только если доступно ≥ 3 дней и нет просрочки.
+                                                     Иначе кнопку не рисуем вовсе — чтобы не вводить в заблуждение. -->
                                                 <template x-if="canPostpone(bnplCache[order.bnplContractId])">
                                                     <button @click.stop="openPostponeModal(bnplCache[order.bnplContractId])"
                                                             class="flex-1 py-1.5 text-xs border border-indigo-300 text-indigo-600 hover:bg-indigo-50 font-medium rounded-lg transition">
                                                         ⏰ Перенести
                                                         (<span x-text="postponeDaysLeftFor(bnplCache[order.bnplContractId])"></span> дн. ост.)
                                                     </button>
-                                                </template>
-                                                <template x-if="!canPostpone(bnplCache[order.bnplContractId])">
-                                                    <span class="flex-1 py-1.5 text-xs text-center border border-gray-200 text-gray-400 rounded-lg bg-gray-50">
-                                                        ⏰ Лимит переноса исчерпан
-                                                    </span>
                                                 </template>
                                             </div>
 
@@ -885,24 +890,22 @@
                     </div>
                 </div>
 
-                <!-- Комиссия -->
+                <!-- Комиссия за перенос: списывается СЕЙЧАС (рекуррент или форма банка), взнос не меняется -->
                 <div class="bg-orange-50 rounded-xl p-3 mb-5 space-y-1">
                     <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Сумма взноса</span>
+                        <span class="text-gray-600">Сумма взноса (не меняется)</span>
                         <span class="font-semibold text-gray-900" x-text="fmt(postponeInstAmount / 100)"></span>
                     </div>
-                    <div class="flex justify-between text-sm">
-                        <span class="text-gray-600">Комиссия (0.05%/день)</span>
-                        <span class="font-semibold text-orange-600"
-                              x-text="'+ ' + fmt(Math.round(postponeInstAmount * 0.0005 * postponeDays) / 100)"></span>
-                    </div>
                     <div class="flex justify-between text-sm border-t border-orange-100 pt-1 mt-1">
-                        <span class="font-semibold text-gray-700">Итого взнос</span>
-                        <span class="font-bold text-gray-900"
-                              x-text="fmt((postponeInstAmount + Math.round(postponeInstAmount * 0.0005 * postponeDays)) / 100)"></span>
+                        <span class="font-semibold text-gray-700">Комиссия к оплате сейчас (0.05%/день)</span>
+                        <span class="font-bold text-orange-600"
+                              x-text="fmt(Math.max(Math.round(postponeInstAmount * 0.0005 * postponeDays), 100) / 100)"></span>
                     </div>
                     <p class="text-xs text-gray-400 mt-1">
-                        Новая дата: <span class="font-medium text-gray-600" x-text="calcNewDueDate()"></span>
+                        Новая дата платежа: <span class="font-medium text-gray-600" x-text="calcNewDueDate()"></span>
+                    </p>
+                    <p class="text-xs text-gray-400">
+                        Комиссия спишется с привязанной карты или через форму банка. Минимум 1&nbsp;₽.
                     </p>
                 </div>
 
@@ -913,7 +916,7 @@
                     </button>
                     <button @click="confirmPostpone()" :disabled="postponeProcessing"
                             class="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white font-semibold rounded-xl text-sm transition">
-                        <span x-show="!postponeProcessing">Перенести</span>
+                        <span x-show="!postponeProcessing">Оплатить и перенести</span>
                         <span x-show="postponeProcessing">⏳</span>
                     </button>
                 </div>
@@ -1673,6 +1676,7 @@
                     const cart = await api.addToCart(product.id, this.qty[product.id] || 1);
                     this.cart = cart;
                     this.cartCount = cart?.items?.length || 0;
+                    this.qty[product.id] = 1;   // сброс счётчика товара в каталоге до 1 после добавления
                     this.toast(`«${product.name}» добавлен в корзину`, 'success');
                 } catch (e) { this.toast(e.message, 'error'); }
             },
@@ -1771,10 +1775,14 @@
             // Можно ли перенести взнос: ACTIVE + у ближайшего PENDING есть daysPostponeLeft > 0
             canPostpone(contract) {
                 if (!contract || contract.status !== 'ACTIVE') return false;
-                const next = (contract.installments || [])
+                const insts = contract.installments || [];
+                // Есть просроченный взнос → перенос недоступен (сначала нужно оплатить).
+                if (insts.some(i => i.status === 'OVERDUE')) return false;
+                const next = insts
                     .filter(i => i.status === 'PENDING')
                     .sort((a, b) => a.installmentNumber - b.installmentNumber)[0];
-                return next && (next.daysPostponeLeft ?? 0) > 0;
+                // Кнопку показываем только если можно перенести хотя бы на минимум — 3 дня.
+                return next && (next.daysPostponeLeft ?? 0) >= 3;
             },
 
             postponeDaysLeftFor(contract) {
@@ -1829,24 +1837,24 @@
             // ── BNPL: управление позициями ────────────────────────
             async issueItem(orderId, itemId) {
                 try {
-                    await api.updateItemStatus(orderId, itemId, 'ISSUED');
-                    this.toast('Товар отмечен как полученный', 'success');
+                    await api.updateItemStatus(orderId, itemId, 'ISSUED');   // 1 единица
+                    this.toast('Единица получена', 'success');
                     await this._refreshOrderAndBnpl(orderId);
                 } catch (e) { this.toast(e.message, 'error'); }
             },
 
             async cancelItem(orderId, itemId) {
                 try {
-                    await api.updateItemStatus(orderId, itemId, 'CANCELLED');
-                    this.toast('Товар отменён', 'success');
+                    await api.updateItemStatus(orderId, itemId, 'CANCELLED'); // 1 единица
+                    this.toast('Единица отменена', 'success');
                     await this._refreshOrderAndBnpl(orderId);
                 } catch (e) { this.toast(e.message, 'error'); }
             },
 
             async returnItem(orderId, itemId) {
                 try {
-                    await api.updateItemStatus(orderId, itemId, 'RETURNED');
-                    this.toast('Возврат оформлен', 'success');
+                    await api.updateItemStatus(orderId, itemId, 'RETURNED');  // 1 единица
+                    this.toast('Возврат единицы оформлен', 'success');
                     await this._refreshOrderAndBnpl(orderId);
                 } catch (e) { this.toast(e.message, 'error'); }
             },
@@ -1945,10 +1953,16 @@
                 if (this.postponeProcessing) return;
                 this.postponeProcessing = true;
                 try {
-                    await api.postponeInstallment(this.postponeContractId, this.postponeDays);
+                    const res = await api.postponeInstallment(this.postponeContractId, this.postponeDays);
+                    // Нет привязки → оплата комиссии через форму банка (дата сдвинется в callback).
+                    if (res && res.formUrl) {
+                        this.showPostponeModal = false;
+                        window.location.href = res.formUrl;
+                        return;
+                    }
+                    // Тихое списание комиссии по привязанной карте прошло.
                     this.showPostponeModal = false;
-                    this.toast(`Взнос перенесён на ${this.postponeDays} дней`, 'success');
-                    // Обновляем конкретный контракт в кэше
+                    this.toast(`Взнос перенесён на ${this.postponeDays} дн., комиссия списана`, 'success');
                     const updated = await api.getBnplContract(this.postponeContractId);
                     if (updated) this.bnplCache = { ...this.bnplCache, [this.postponeContractId]: updated };
                 } catch (e) { this.toast(e.message, 'error'); }
@@ -2243,7 +2257,17 @@
             },
 
             statusLabel(s) {
-                return { CREATED: 'Новый', PAID: 'Оплачен', CANCELLED: 'Отменён', DELIVERED: 'Доставлен' }[s] || s;
+                return {
+                    CREATED: 'Создан',
+                    PARTIALLY_ISSUED: 'Частично выдан',
+                    PARTIALLY_CANCELLED: 'Частично отменён',
+                    PARTIALLY_RETURNED: 'Частично возвращён',
+                    ISSUED: 'Выдан',
+                    PAID: 'Оплачен',
+                    RETURNED: 'Возвращён',
+                    CANCELLED: 'Отменён',
+                    DELIVERED: 'Доставлен',
+                }[s] || s;
             },
 
             bnplLabel(t) {
@@ -2257,8 +2281,13 @@
             statusBadge(s) {
                 return {
                     CREATED: 'bg-yellow-100 text-yellow-800',
+                    PARTIALLY_ISSUED: 'bg-blue-100 text-blue-800',
+                    PARTIALLY_CANCELLED: 'bg-orange-100 text-orange-700',
+                    PARTIALLY_RETURNED: 'bg-purple-100 text-purple-800',
+                    ISSUED: 'bg-cyan-100 text-cyan-800',
                     PAID: 'bg-green-100 text-green-800',
-                    CANCELLED: 'bg-red-100 text-red-700',
+                    RETURNED: 'bg-red-100 text-red-700',
+                    CANCELLED: 'bg-gray-100 text-gray-600',
                     DELIVERED: 'bg-blue-100 text-blue-800',
                 }[s] || 'bg-gray-100 text-gray-600';
             },

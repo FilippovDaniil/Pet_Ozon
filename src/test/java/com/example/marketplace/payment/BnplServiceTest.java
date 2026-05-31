@@ -2,6 +2,7 @@ package com.example.marketplace.payment;
 
 import com.example.marketplace.config.AlfaBankProperties;
 import com.example.marketplace.dto.response.BnplInstallmentResponse;
+import com.example.marketplace.dto.response.BnplPayResponse;
 import com.example.marketplace.entity.*;
 import com.example.marketplace.entity.enums.*;
 import com.example.marketplace.service.InvoiceService;
@@ -138,7 +139,7 @@ class BnplServiceTest {
     // ── postponeInstallment ───────────────────────────────────────────────────
 
     @Test
-    void postponeInstallment_validDays_updatesDueDateAndAddsCommission() {
+    void postponeInstallment_withCard_chargesFeeNowAndShiftsDate() throws Exception {
         User user = makeUser(1L);
         BnplContract contract = makeActiveContract(10L, user, 800_00L);
 
@@ -147,22 +148,68 @@ class BnplServiceTest {
                 100L, contract, 2, 200_00L, LocalDate.now().plusDays(5));
         contract.getInstallments().add(nextInst);
 
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-001");
+
+        // Комиссия = 200_00 × 0.0005 × 3 = 30 коп → пол до минимума 1 ₽ = 100 коп.
+        long expectedFee = Math.max(Math.round(200_00L * 0.0005 * 3), 100L);
         when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
-        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        stubSilentCharge(expectedFee, "b-001");
 
-        // Переносим на 3 дня
-        BnplInstallmentResponse result = bnplService.postponeInstallment(10L, 3, user);
+        BnplPayResponse res = bnplService.postponeInstallment(10L, 3, user);
 
-        // dueDate должна сдвинуться на 3 дня
-        assertThat(result.dueDate()).isEqualTo(LocalDate.now().plusDays(5 + 3));
+        // Тихое списание комиссии → вернулся график, formUrl нет.
+        assertThat(res.formUrl()).isNull();
+        assertThat(res.installments()).isNotNull();
+        // Дата сдвинулась на 3 дня; сумма взноса НЕ изменилась (комиссия оплачена отдельно).
+        assertThat(nextInst.getDueDate()).isEqualTo(LocalDate.now().plusDays(8));
+        assertThat(nextInst.getAmountKopecks()).isEqualTo(200_00L);
+        assertThat(nextInst.getDaysPostponed()).isEqualTo(3);
+        // Комиссия списана по связке и зафиксирована в журнале платежей.
+        verify(gateway).paymentOrderBinding(anyString(), eq(expectedFee), eq("b-001"));
+        verify(paymentRepo).save(any());
+    }
 
-        // Комиссия = 200_00 × 0.0005 × 3 = 30 копеек
-        long expectedFee = Math.round(200_00L * 0.0005 * 3);
-        assertThat(result.amountKopecks()).isEqualTo(200_00L + expectedFee);
+    @Test
+    void postponeInstallment_noCard_returnsFormUrl_dateNotShiftedYet() throws Exception {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        BnplInstallment nextInst = makePendingInstallment(
+                100L, contract, 2, 200_00L, LocalDate.now().plusDays(5));
+        contract.getInstallments().add(nextInst);
 
-        // daysPostponed = 3
-        assertThat(result.daysPostponed()).isEqualTo(3);
-        assertThat(result.daysPostponeLeft()).isEqualTo(14 - 3);
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+        when(cardService.getDefault(user)).thenReturn(Optional.empty()); // нет привязанной карты
+        when(gateway.registerOrderForBinding(anyString(), anyLong(), any(), any(), anyString()))
+                .thenReturn(objectMapper.readTree(
+                        "{\"orderId\":\"alfa-pstp-1\",\"formUrl\":\"https://bank/pay/pstp\"}"));
+        when(alfaBankOrderRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        BnplPayResponse res = bnplService.postponeInstallment(10L, 3, user);
+
+        // Нет связки → форма банка для оплаты комиссии; перенос применится в callback.
+        assertThat(res.formUrl()).isEqualTo("https://bank/pay/pstp");
+        assertThat(res.installments()).isNull();
+        // Дата ещё НЕ сдвинута (двигаем только после подтверждения оплаты).
+        assertThat(nextInst.getDueDate()).isEqualTo(LocalDate.now().plusDays(5));
+        assertThat(nextInst.getDaysPostponed()).isEqualTo(0);
+    }
+
+    @Test
+    void postponeInstallment_overdueInstallment_throwsException() {
+        User user = makeUser(1L);
+        BnplContract contract = makeActiveContract(10L, user, 800_00L);
+        BnplInstallment overdue = makePendingInstallment(100L, contract, 2, 200_00L, LocalDate.now().minusDays(2));
+        overdue.setStatus(BnplInstallmentStatus.OVERDUE);
+        contract.getInstallments().add(overdue);
+
+        when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
+
+        // Просроченный взнос → перенос недоступен.
+        assertThatThrownBy(() -> bnplService.postponeInstallment(10L, 3, user))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("просроченный");
     }
 
     @Test
@@ -183,7 +230,7 @@ class BnplServiceTest {
     }
 
     @Test
-    void postponeInstallment_multiplePostpones_accumulate() {
+    void postponeInstallment_multiplePostpones_accumulate() throws Exception {
         User user = makeUser(1L);
         BnplContract contract = makeActiveContract(10L, user, 800_00L);
 
@@ -191,14 +238,19 @@ class BnplServiceTest {
         nextInst.setDaysPostponed(5); // уже перенесён на 5 дней
         contract.getInstallments().add(nextInst);
 
+        CardBinding card = new CardBinding();
+        card.setBindingId("b-001");
+        long expectedFee = Math.max(Math.round(200_00L * 0.0005 * 4), 100L);
         when(contractRepo.findById(10L)).thenReturn(Optional.of(contract));
-        when(installmentRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(cardService.getDefault(user)).thenReturn(Optional.of(card));
+        stubSilentCharge(expectedFee, "b-001");
 
         // Второй перенос на 4 дня (5 + 4 = 9 ≤ 14 — допустимо)
-        BnplInstallmentResponse result = bnplService.postponeInstallment(10L, 4, user);
+        bnplService.postponeInstallment(10L, 4, user);
 
-        assertThat(result.daysPostponed()).isEqualTo(9);
-        assertThat(result.daysPostponeLeft()).isEqualTo(5);
+        // Накопленный перенос = 9 дней, дата сдвинута ещё на 4 дня.
+        assertThat(nextInst.getDaysPostponed()).isEqualTo(9);
+        assertThat(nextInst.getDueDate()).isEqualTo(LocalDate.now().plusDays(14));
     }
 
     @Test
@@ -576,10 +628,75 @@ class BnplServiceTest {
         verify(gateway, never()).paymentOrderBinding(anyString(), anyLong(), anyString());
     }
 
-    // ── issueItem / cancelItem / returnItem ────────────────────────────────────
+    // ── issueUnits / cancelUnits / returnUnits (поштучно) ───────────────────────
 
     @Test
-    void issueItem_pendingItem_changesStatusToIssued_withoutDeposit() {
+    void issueUnits_pendingItem_incrementsIssued_withoutDeposit() {
+        User user = makeUser(1L);
+        Order order = new Order();
+        order.setId(5L);
+        order.setUser(user);
+        order.setTotalAmount(new BigDecimal("1000.00"));
+
+        OrderItem item = new OrderItem();
+        item.setId(50L);
+        item.setOrder(order);
+        item.setQuantity(1);
+        item.setItemStatus(ItemStatus.PENDING_ISSUE);
+        order.setItems(new ArrayList<>(List.of(item)));
+
+        BnplContract contract = makeActiveContract(10L, user, 100_000L);
+        contract.setOrder(order);
+
+        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(contractRepo.findByOrder(order)).thenReturn(Optional.of(contract));
+        when(orderItemRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        bnplService.issueUnits(5L, 50L, 1);
+
+        // Единица выдана → счётчик выданных = 1, обобщённый бейдж → ISSUED
+        assertThat(item.getIssuedCount()).isEqualTo(1);
+        assertThat(item.getItemStatus()).isEqualTo(ItemStatus.ISSUED);
+        // Всё выдано, но рассрочка ещё активна (не COMPLETED) → статус заказа ISSUED («выдан»).
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.ISSUED);
+        // Депозит первого взноса делается при оплате (confirmPreAuth), НЕ при выдаче.
+        verify(gateway, never()).deposit(anyString(), anyLong());
+    }
+
+    @Test
+    void issueUnits_partial_oneOfThree_staysPending() {
+        User user = makeUser(1L);
+        Order order = new Order();
+        order.setId(5L);
+        order.setUser(user);
+        order.setTotalAmount(new BigDecimal("3000.00"));
+
+        OrderItem item = new OrderItem();
+        item.setId(50L);
+        item.setOrder(order);
+        item.setQuantity(3);
+        item.setItemStatus(ItemStatus.PENDING_ISSUE);
+        order.setItems(new ArrayList<>(List.of(item)));
+
+        BnplContract contract = makeActiveContract(10L, user, 300_000L);
+        contract.setOrder(order);
+
+        when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
+        when(contractRepo.findByOrder(order)).thenReturn(Optional.of(contract));
+        when(orderItemRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        bnplService.issueUnits(5L, 50L, 1);
+
+        // 1 из 3 выдана → 2 ещё ожидают, бейдж остаётся PENDING_ISSUE
+        assertThat(item.getIssuedCount()).isEqualTo(1);
+        assertThat(item.getPendingCount()).isEqualTo(2);
+        assertThat(item.getItemStatus()).isEqualTo(ItemStatus.PENDING_ISSUE);
+        // Часть выдана, часть ожидает → статус заказа PARTIALLY_ISSUED.
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PARTIALLY_ISSUED);
+    }
+
+    @Test
+    void issueUnits_moreThanAvailable_throws() {
         User user = makeUser(1L);
         Order order = new Order();
         order.setId(5L);
@@ -588,22 +705,19 @@ class BnplServiceTest {
         OrderItem item = new OrderItem();
         item.setId(50L);
         item.setOrder(order);
+        item.setQuantity(2);
         item.setItemStatus(ItemStatus.PENDING_ISSUE);
         order.setItems(new ArrayList<>(List.of(item)));
 
         when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
-        when(orderItemRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        bnplService.issueItem(5L, 50L);
-
-        // Статус товара → ISSUED
-        assertThat(item.getItemStatus()).isEqualTo(ItemStatus.ISSUED);
-        // Депозит первого взноса теперь делается при оплате (confirmPreAuth), НЕ при выдаче товара.
-        verify(gateway, never()).deposit(anyString(), anyLong());
+        assertThatThrownBy(() -> bnplService.issueUnits(5L, 50L, 3))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("доступно только 2");
     }
 
     @Test
-    void cancelItem_pendingItem_reversesShare() throws Exception {
+    void cancelUnits_pendingItem_reversesShare() throws Exception {
         User user = makeUser(1L);
         Order order = new Order();
         order.setId(5L);
@@ -637,9 +751,10 @@ class BnplServiceTest {
         JsonNode reverseResp = objectMapper.readTree("{\"errorCode\":\"0\"}");
         when(gateway.reverse(anyString(), anyLong())).thenReturn(reverseResp);
 
-        bnplService.cancelItem(5L, 50L);
+        bnplService.cancelUnits(5L, 50L, 1);
 
-        // Статус товара → CANCELLED
+        // Единица отменена → счётчик отменённых = 1, бейдж → CANCELLED
+        assertThat(item.getCancelledCount()).isEqualTo(1);
         assertThat(item.getItemStatus()).isEqualTo(ItemStatus.CANCELLED);
         // Частичный reverse был вызван
         verify(gateway).reverse(eq("alfa-pre-001"), anyLong());
@@ -649,7 +764,7 @@ class BnplServiceTest {
     }
 
     @Test
-    void cancelItem_partialCancellation_orderAndContractStayActive() throws Exception {
+    void cancelUnits_partialCancellation_orderAndContractStayActive() throws Exception {
         User user = makeUser(1L);
         Order order = new Order();
         order.setId(5L);
@@ -691,16 +806,16 @@ class BnplServiceTest {
                 .thenReturn(objectMapper.readTree("{\"errorCode\":\"0\"}"));
 
         // Отменяем только одну из двух позиций
-        bnplService.cancelItem(5L, 50L);
+        bnplService.cancelUnits(5L, 50L, 1);
 
         assertThat(item1.getItemStatus()).isEqualTo(ItemStatus.CANCELLED);
-        // Вторая позиция ещё активна → заказ и контракт НЕ закрываются
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.CREATED);
+        // Вторая позиция ещё активна → контракт НЕ закрывается, заказ → «частично отменён»
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.PARTIALLY_CANCELLED);
         assertThat(contract.getStatus()).isEqualTo(BnplContractStatus.ACTIVE);
     }
 
     @Test
-    void cancelItem_issuedItem_throwsException() {
+    void cancelUnits_noPendingUnits_throwsException() {
         User user = makeUser(1L);
         Order order = new Order();
         order.setId(5L);
@@ -710,19 +825,21 @@ class BnplServiceTest {
         OrderItem item = new OrderItem();
         item.setId(50L);
         item.setOrder(order);
-        item.setItemStatus(ItemStatus.ISSUED); // уже выдан
+        item.setQuantity(1);
+        item.setIssuedCount(1);                       // единственная единица уже выдана
+        item.setItemStatus(ItemStatus.ISSUED);
         order.setItems(new ArrayList<>(List.of(item)));
 
         when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
 
-        // Нельзя отменить выданный товар
-        assertThatThrownBy(() -> bnplService.cancelItem(5L, 50L))
+        // Нет ожидающих выдачи единиц → отменить нельзя
+        assertThatThrownBy(() -> bnplService.cancelUnits(5L, 50L, 1))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("PENDING_ISSUE");
+                .hasMessageContaining("отмены");
     }
 
     @Test
-    void returnItem_issuedItem_refunds() throws Exception {
+    void returnUnits_issuedItem_refunds() throws Exception {
         User user = makeUser(1L);
         Order order = new Order();
         order.setId(5L);
@@ -738,7 +855,8 @@ class BnplServiceTest {
         item.setProduct(product);
         item.setQuantity(1);
         item.setPriceAtOrder(new BigDecimal("1000.00"));
-        item.setItemStatus(ItemStatus.ISSUED); // уже выдан
+        item.setIssuedCount(1);                       // единица уже выдана
+        item.setItemStatus(ItemStatus.ISSUED);
         order.setItems(new ArrayList<>(List.of(item)));
 
         BnplContract contract = makeActiveContract(10L, user, 100_000L);
@@ -752,17 +870,20 @@ class BnplServiceTest {
         JsonNode refundResp = objectMapper.readTree("{\"errorCode\":\"0\"}");
         when(gateway.refund(anyString(), anyLong())).thenReturn(refundResp);
 
-        bnplService.returnItem(5L, 50L);
+        bnplService.returnUnits(5L, 50L, 1);
 
+        // Единица возвращена → выдано 0, возвращено 1, бейдж → RETURNED
+        assertThat(item.getIssuedCount()).isEqualTo(0);
+        assertThat(item.getReturnedCount()).isEqualTo(1);
         assertThat(item.getItemStatus()).isEqualTo(ItemStatus.RETURNED);
         verify(gateway).refund(eq("alfa-pre-001"), anyLong());
-        // Возвращена единственная позиция → заказ и контракт закрываются
-        assertThat(order.getStatus()).isEqualTo(OrderStatus.CANCELLED);
+        // Возвращена единственная позиция → контракт закрывается, заказ → «возвращён» (финал)
+        assertThat(order.getStatus()).isEqualTo(OrderStatus.RETURNED);
         assertThat(contract.getStatus()).isEqualTo(BnplContractStatus.CANCELLED);
     }
 
     @Test
-    void returnItem_pendingItem_throwsException() {
+    void returnUnits_noIssuedUnits_throwsException() {
         User user = makeUser(1L);
         Order order = new Order();
         order.setId(5L);
@@ -772,15 +893,16 @@ class BnplServiceTest {
         OrderItem item = new OrderItem();
         item.setId(50L);
         item.setOrder(order);
+        item.setQuantity(1);
         item.setItemStatus(ItemStatus.PENDING_ISSUE); // не выдан
         order.setItems(new ArrayList<>(List.of(item)));
 
         when(orderRepo.findById(5L)).thenReturn(Optional.of(order));
 
-        // Нельзя вернуть невыданный товар
-        assertThatThrownBy(() -> bnplService.returnItem(5L, 50L))
+        // Нет выданных единиц → вернуть нельзя
+        assertThatThrownBy(() -> bnplService.returnUnits(5L, 50L, 1))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("выданный");
+                .hasMessageContaining("выданных");
     }
 
     // ── initiate / confirmPreAuth (новый флоу: списываем первый взнос) ──────────

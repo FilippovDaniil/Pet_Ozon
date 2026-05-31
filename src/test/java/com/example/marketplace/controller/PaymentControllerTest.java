@@ -48,6 +48,8 @@ class PaymentControllerTest {
                 .thenThrow(new IllegalArgumentException("Not a BNPL pre-auth"));
         when(bnplService.confirmInstallmentForm("alfa-123"))
                 .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
+        when(bnplService.confirmPostponeForm("alfa-123"))
+                .thenThrow(new IllegalArgumentException("Not a postpone form"));
         when(fullPaymentService.confirm("alfa-123")).thenReturn("paid");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "alfa-123"))
@@ -63,6 +65,8 @@ class PaymentControllerTest {
                 .thenThrow(new IllegalArgumentException("Not a BNPL pre-auth"));
         when(bnplService.confirmInstallmentForm("alfa-456"))
                 .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
+        when(bnplService.confirmPostponeForm("alfa-456"))
+                .thenThrow(new IllegalArgumentException("Not a postpone form"));
         when(fullPaymentService.confirm("alfa-456")).thenReturn("failed");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "alfa-456"))
@@ -91,6 +95,8 @@ class PaymentControllerTest {
                 .thenThrow(new IllegalArgumentException("Not a BNPL pre-auth"));
         when(bnplService.confirmInstallmentForm("alfa-pend"))
                 .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
+        when(bnplService.confirmPostponeForm("alfa-pend"))
+                .thenThrow(new IllegalArgumentException("Not a postpone form"));
         when(fullPaymentService.confirm("alfa-pend")).thenReturn("pending");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "alfa-pend"))
@@ -114,6 +120,8 @@ class PaymentControllerTest {
                 .thenThrow(new IllegalArgumentException("Not BNPL"));
         when(bnplService.confirmInstallmentForm(anyString()))
                 .thenThrow(new IllegalArgumentException("Not a BNPL installment form"));
+        when(bnplService.confirmPostponeForm(anyString()))
+                .thenThrow(new IllegalArgumentException("Not a postpone form"));
         when(fullPaymentService.confirm(anyString())).thenReturn("paid");
 
         mockMvc.perform(get("/api/payment/callback").param("orderId", "any-order"))

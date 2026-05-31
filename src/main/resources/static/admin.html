@@ -225,7 +225,12 @@
                     <select x-model="orderFilter.status"
                             class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400">
                         <option value="">Все статусы</option>
-                        <option value="CREATED">Новые</option>
+                        <option value="CREATED">Созданы</option>
+                        <option value="PARTIALLY_ISSUED">Частично выданы</option>
+                        <option value="ISSUED">Выданы</option>
+                        <option value="PARTIALLY_CANCELLED">Частично отменены</option>
+                        <option value="PARTIALLY_RETURNED">Частично возвращены</option>
+                        <option value="RETURNED">Возвращены</option>
                         <option value="PAID">Оплачены</option>
                         <option value="DELIVERED">Доставлены</option>
                         <option value="CANCELLED">Отменены</option>
@@ -379,16 +384,26 @@
                                                 <span x-text="item.quantity"></span> ×
                                                 <span x-text="fmt(item.priceAtOrder)"></span>
                                             </span>
-                                            <!-- BNPL статус позиции -->
+                                            <!-- BNPL: поштучный статус позиции (разбивка по единицам) -->
                                             <template x-if="item.itemStatus">
-                                                <span class="text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0"
-                                                      :class="{
-                                                          'bg-yellow-100 text-yellow-700': item.itemStatus === 'PENDING_ISSUE',
-                                                          'bg-green-100 text-green-700':  item.itemStatus === 'ISSUED',
-                                                          'bg-gray-100 text-gray-500':    item.itemStatus === 'CANCELLED',
-                                                          'bg-orange-100 text-orange-600': item.itemStatus === 'RETURNED',
-                                                      }"
-                                                      x-text="{'PENDING_ISSUE':'Ожидает выдачи','ISSUED':'Выдан','CANCELLED':'Отменён','RETURNED':'Возвращён'}[item.itemStatus]"></span>
+                                                <span class="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+                                                    <template x-if="(item.pendingCount ?? 0) > 0">
+                                                        <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium"
+                                                              x-text="item.pendingCount + ' ожид.'"></span>
+                                                    </template>
+                                                    <template x-if="(item.issuedCount ?? 0) > 0">
+                                                        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium"
+                                                              x-text="item.issuedCount + ' выд.'"></span>
+                                                    </template>
+                                                    <template x-if="(item.cancelledCount ?? 0) > 0">
+                                                        <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium"
+                                                              x-text="item.cancelledCount + ' отм.'"></span>
+                                                    </template>
+                                                    <template x-if="(item.returnedCount ?? 0) > 0">
+                                                        <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-medium"
+                                                              x-text="item.returnedCount + ' возвр.'"></span>
+                                                    </template>
+                                                </span>
                                             </template>
                                         </div>
                                     </template>
@@ -507,9 +522,12 @@
                                     <template x-for="item in selectedOrder.items.filter(i => i.itemStatus)" :key="item.id">
                                         <div class="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg text-sm gap-2">
                                             <span class="flex-1 truncate text-gray-800" x-text="item.productName"></span>
-                                            <div class="flex items-center gap-1 flex-shrink-0">
-                                                <template x-if="item.itemStatus === 'PENDING_ISSUE'">
-                                                    <div class="flex gap-1">
+                                            <div class="flex items-center gap-1 flex-wrap justify-end flex-shrink-0">
+                                                <!-- Ожидают выдачи -->
+                                                <template x-if="(item.pendingCount ?? 0) > 0">
+                                                    <span class="inline-flex items-center gap-1">
+                                                        <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium"
+                                                              x-text="item.pendingCount + ' ожид.'"></span>
                                                         <button @click="adminIssueItem(selectedOrder.id, item.id)"
                                                                 class="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded font-medium transition">
                                                             Выдать
@@ -518,22 +536,28 @@
                                                                 class="px-2 py-1 text-xs border border-red-300 text-red-600 hover:bg-red-50 rounded font-medium transition">
                                                             Отменить
                                                         </button>
-                                                    </div>
+                                                    </span>
                                                 </template>
-                                                <template x-if="item.itemStatus === 'ISSUED'">
-                                                    <div class="flex items-center gap-1">
-                                                        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ Выдан</span>
+                                                <!-- Выданы -->
+                                                <template x-if="(item.issuedCount ?? 0) > 0">
+                                                    <span class="inline-flex items-center gap-1">
+                                                        <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full"
+                                                              x-text="'✓ ' + item.issuedCount + ' выд.'"></span>
                                                         <button @click="adminReturnItem(selectedOrder.id, item.id)"
                                                                 class="px-2 py-1 text-xs border border-yellow-300 text-yellow-700 hover:bg-yellow-50 rounded font-medium transition">
                                                             Возврат
                                                         </button>
-                                                    </div>
+                                                    </span>
                                                 </template>
-                                                <template x-if="item.itemStatus === 'CANCELLED'">
-                                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Отменён</span>
+                                                <!-- Отменены -->
+                                                <template x-if="(item.cancelledCount ?? 0) > 0">
+                                                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full"
+                                                          x-text="item.cancelledCount + ' отм.'"></span>
                                                 </template>
-                                                <template x-if="item.itemStatus === 'RETURNED'">
-                                                    <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">Возвращён</span>
+                                                <!-- Возвращены -->
+                                                <template x-if="(item.returnedCount ?? 0) > 0">
+                                                    <span class="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full"
+                                                          x-text="item.returnedCount + ' возвр.'"></span>
                                                 </template>
                                             </div>
                                         </div>
@@ -1393,24 +1417,24 @@
             // Управление позициями BNPL из модала администратора
             async adminIssueItem(orderId, itemId) {
                 try {
-                    await api.adminUpdateItemStatus(orderId, itemId, 'ISSUED');
-                    this.toast('Товар выдан', 'success');
+                    await api.adminUpdateItemStatus(orderId, itemId, 'ISSUED');   // 1 единица
+                    this.toast('Единица выдана', 'success');
                     await this._reloadModalOrder(orderId);
                 } catch (e) { this.toast(e.message, 'error'); }
             },
 
             async adminCancelItem(orderId, itemId) {
                 try {
-                    await api.adminUpdateItemStatus(orderId, itemId, 'CANCELLED');
-                    this.toast('Товар отменён', 'success');
+                    await api.adminUpdateItemStatus(orderId, itemId, 'CANCELLED'); // 1 единица
+                    this.toast('Единица отменена', 'success');
                     await this._reloadModalOrder(orderId);
                 } catch (e) { this.toast(e.message, 'error'); }
             },
 
             async adminReturnItem(orderId, itemId) {
                 try {
-                    await api.adminUpdateItemStatus(orderId, itemId, 'RETURNED');
-                    this.toast('Возврат оформлен', 'success');
+                    await api.adminUpdateItemStatus(orderId, itemId, 'RETURNED');  // 1 единица
+                    this.toast('Возврат единицы оформлен', 'success');
                     await this._reloadModalOrder(orderId);
                 } catch (e) { this.toast(e.message, 'error'); }
             },
@@ -1569,14 +1593,29 @@
             },
 
             statusLabel(s) {
-                return { CREATED: 'Новый', PAID: 'Оплачен', CANCELLED: 'Отменён', DELIVERED: 'Доставлен' }[s] || s;
+                return {
+                    CREATED: 'Создан',
+                    PARTIALLY_ISSUED: 'Частично выдан',
+                    PARTIALLY_CANCELLED: 'Частично отменён',
+                    PARTIALLY_RETURNED: 'Частично возвращён',
+                    ISSUED: 'Выдан',
+                    PAID: 'Оплачен',
+                    RETURNED: 'Возвращён',
+                    CANCELLED: 'Отменён',
+                    DELIVERED: 'Доставлен',
+                }[s] || s;
             },
 
             statusBadge(s) {
                 return {
                     CREATED: 'bg-yellow-100 text-yellow-800',
+                    PARTIALLY_ISSUED: 'bg-blue-100 text-blue-800',
+                    PARTIALLY_CANCELLED: 'bg-orange-100 text-orange-700',
+                    PARTIALLY_RETURNED: 'bg-purple-100 text-purple-800',
+                    ISSUED: 'bg-cyan-100 text-cyan-800',
                     PAID: 'bg-green-100 text-green-800',
-                    CANCELLED: 'bg-red-100 text-red-700',
+                    RETURNED: 'bg-red-100 text-red-700',
+                    CANCELLED: 'bg-gray-100 text-gray-600',
                     DELIVERED: 'bg-blue-100 text-blue-800',
                 }[s] || 'bg-gray-100 text-gray-600';
             },

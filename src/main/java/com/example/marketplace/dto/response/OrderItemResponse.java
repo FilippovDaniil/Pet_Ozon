@@ -18,5 +18,11 @@ public class OrderItemResponse {
     private String productName;
     private int quantity;
     private BigDecimal priceAtOrder;
-    private String itemStatus;  // null для FULL-заказов; PENDING_ISSUE/ISSUED/CANCELLED/RETURNED для BNPL
+    private String itemStatus;  // null для FULL-заказов; обобщённый бейдж для BNPL (PENDING_ISSUE/ISSUED/CANCELLED/RETURNED)
+
+    // Поштучный учёт фулфилмента (для BNPL-позиций). Сумма = quantity.
+    private Integer pendingCount;    // ожидают выдачи
+    private Integer issuedCount;     // выданы
+    private Integer cancelledCount;  // отменены
+    private Integer returnedCount;   // возвращены
 }

@@ -66,6 +66,11 @@ public class AlfaBankOrder {
     @Column(length = 128)
     private String bindingId;
 
+    // Для переноса взноса через форму банка (PSTP-заказы): на сколько дней переносим.
+    // Применяется в confirmPostponeForm после успешной оплаты комиссии. Null для прочих операций.
+    @Column
+    private Integer postponeDays;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

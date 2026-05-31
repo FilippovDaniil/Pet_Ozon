@@ -6,6 +6,7 @@ import com.example.marketplace.entity.PickupPoint;
 import com.example.marketplace.entity.Product;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.entity.enums.Role;
+import com.example.marketplace.payment.BnplService;
 import com.example.marketplace.repository.CartRepository;
 import com.example.marketplace.repository.PickupPointRepository;
 import com.example.marketplace.repository.ProductRepository;
@@ -40,6 +41,7 @@ public class AppConfig {
     private final PasswordEncoder      passwordEncoder;
     private final JdbcTemplate         jdbc;
     private final PickupPointRepository pickupPointRepository;
+    private final BnplService          bnplService;
 
     /**
      * Сидинг тестовых данных при старте приложения (CommandLineRunner запускается после поднятия контекста).
@@ -57,6 +59,9 @@ public class AppConfig {
         return args -> {
             log.info("=== Initialising test data ===");
             fixRoleConstraint();
+            fixOrderStatusConstraint();              // расширить CHECK-ограничение под новые статусы заказа
+            normalizeOrderItemUnitCounters();
+            bnplService.recalcAllOrderStatuses();   // привести статусы существующих BNPL-заказов к новой модели
 
             User client     = ensureUser("client@example.com",     "pass", "Иван Клиентов",    Role.CLIENT,     null);
             User admin      = ensureUser("admin@example.com",      "pass", "Администратор",    Role.ADMIN,      null);
@@ -477,6 +482,49 @@ public class AppConfig {
             log.info("users_role_check constraint updated");
         } catch (Exception e) {
             log.warn("Could not update users_role_check: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Пересоздаёт CHECK-ограничение на колонку status таблицы orders.
+     * Hibernate 6 при @Enumerated(STRING) создаёт orders_status_check со значениями enum на момент
+     * первого CREATE TABLE и НЕ обновляет его при ddl-auto=update (как и users_role_check).
+     * После добавления статусов (PARTIALLY_*, ISSUED, RETURNED) старое ограничение блокировало бы запись.
+     */
+    private void fixOrderStatusConstraint() {
+        try {
+            jdbc.execute("ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_status_check");
+            jdbc.execute("""
+                ALTER TABLE orders ADD CONSTRAINT orders_status_check
+                    CHECK (status IN ('CREATED','PARTIALLY_ISSUED','PARTIALLY_CANCELLED',
+                                      'PARTIALLY_RETURNED','ISSUED','PAID','RETURNED','CANCELLED','DELIVERED'))
+                """);
+            log.info("orders_status_check constraint updated");
+        } catch (Exception e) {
+            log.warn("Could not update orders_status_check: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Однократная идемпотентная инициализация поштучных счётчиков для СУЩЕСТВУЮЩИХ позиций.
+     * До введения счётчиков статус хранился одним значением item_status на всю позицию —
+     * переносим его в счётчики: ISSUED → issued_count, CANCELLED → cancelled_count,
+     * RETURNED → returned_count (= quantity). PENDING_ISSUE не трогаем (pending = quantity).
+     * Срабатывает только пока счётчики нулевые — повторный запуск ничего не меняет.
+     */
+    private void normalizeOrderItemUnitCounters() {
+        try {
+            String guard = " AND COALESCE(issued_count,0)=0 AND COALESCE(cancelled_count,0)=0 AND COALESCE(returned_count,0)=0";
+            int issued    = jdbc.update("UPDATE order_items SET issued_count    = quantity WHERE item_status = 'ISSUED'"    + guard);
+            int cancelled = jdbc.update("UPDATE order_items SET cancelled_count = quantity WHERE item_status = 'CANCELLED'" + guard);
+            int returned  = jdbc.update("UPDATE order_items SET returned_count  = quantity WHERE item_status = 'RETURNED'"  + guard);
+            if (issued + cancelled + returned > 0) {
+                log.info("Normalized order_item unit counters: issued={} cancelled={} returned={}",
+                        issued, cancelled, returned);
+            }
+        } catch (Exception e) {
+            // На свежей БД таблицы/колонок может ещё не быть — это нормально, просто пропускаем.
+            log.warn("Could not normalize order_item unit counters: {}", e.getMessage());
         }
     }
 

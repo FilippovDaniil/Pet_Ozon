@@ -102,9 +102,9 @@ const api = {
     getBnplContract: (contractId) =>
         apiFetch(`/api/bnpl/${contractId}`),
 
-    // Изменить статус позиции BNPL-заказа (ISSUED / CANCELLED / RETURNED)
-    updateItemStatus: (orderId, itemId, status) =>
-        apiFetch(`/api/orders/${orderId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    // Изменить статус единиц позиции BNPL-заказа (ISSUED / CANCELLED / RETURNED). quantity — кол-во единиц (по умолчанию 1).
+    updateItemStatus: (orderId, itemId, status, quantity = 1) =>
+        apiFetch(`/api/orders/${orderId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify({ status, quantity }) }),
 
     // Перенести ближайший взнос (days: 3-14)
     postponeInstallment: (contractId, days) =>
@@ -247,10 +247,10 @@ const api = {
     getAdminBnplContract: (contractId) =>
         apiFetch(`/api/admin/bnpl/${contractId}`),
 
-    adminUpdateItemStatus: (orderId, itemId, status) =>
+    adminUpdateItemStatus: (orderId, itemId, status, quantity = 1) =>
         apiFetch(`/api/admin/orders/${orderId}/items/${itemId}`, {
             method: 'PATCH',
-            body: JSON.stringify({ status }),
+            body: JSON.stringify({ status, quantity }),
         }),
 
     // Оплата заказа с дефолтной карты клиента (тихое списание).

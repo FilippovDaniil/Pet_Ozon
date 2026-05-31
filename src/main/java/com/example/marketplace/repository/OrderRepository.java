@@ -39,10 +39,9 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     /**
      * «Активные» заказы клиента — для вкладки «Мои заказы».
      *
-     * Показываем заказ, если он либо ещё ждёт оплаты (status = CREATED),
-     * либо к нему привязана активная рассрочка (контракт AWAITING_PAYMENT/ACTIVE —
-     * клиент ещё гасит взносы). Прочие заказы — оплаченные (PAID без активной рассрочки),
-     * отменённые (CANCELLED) и доставленные (DELIVERED) — считаются «финальными» и скрываются.
+     * Показываем заказ, если он НЕ в финальном статусе (PAID/RETURNED/CANCELLED/DELIVERED)
+     * либо к нему привязана активная рассрочка (контракт AWAITING_PAYMENT/ACTIVE — клиент ещё
+     * гасит взносы). Нефинальные: CREATED, PARTIALLY_ISSUED/CANCELLED/RETURNED, ISSUED.
      *
      * countQuery задан явно: автоматический COUNT для запросов с EXISTS Spring Data
      * генерирует не всегда корректно — фиксируем его, чтобы пагинация была точной.
@@ -50,19 +49,19 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     @Query(value = """
             SELECT o FROM Order o
             WHERE o.user = :user
-              AND ( o.status = :createdStatus
+              AND ( o.status NOT IN :finalStatuses
                     OR EXISTS (SELECT 1 FROM BnplContract c
                                WHERE c.order = o AND c.status IN :activeBnplStatuses) )
             """,
            countQuery = """
             SELECT COUNT(o) FROM Order o
             WHERE o.user = :user
-              AND ( o.status = :createdStatus
+              AND ( o.status NOT IN :finalStatuses
                     OR EXISTS (SELECT 1 FROM BnplContract c
                                WHERE c.order = o AND c.status IN :activeBnplStatuses) )
             """)
     Page<Order> findActiveForClient(@Param("user") User user,
-                                    @Param("createdStatus") OrderStatus createdStatus,
+                                    @Param("finalStatuses") List<OrderStatus> finalStatuses,
                                     @Param("activeBnplStatuses") List<BnplContractStatus> activeBnplStatuses,
                                     Pageable pageable);
 }

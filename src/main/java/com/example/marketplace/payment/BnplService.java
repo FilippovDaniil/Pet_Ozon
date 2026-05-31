@@ -31,9 +31,9 @@ import java.util.UUID;
  * Схема:
  *   initiate()        → registerPreAuth.do (холд полной BNPL-суммы) → formUrl
  *   confirmPreAuth()  → getOrderStatusExtended.do → если APPROVED → контракт ACTIVE
- *   issueItem()       → первый вызов → deposit.do на 1-й взнос + сохранить bindingId
- *   cancelItem()      → reverse.do на долю товара (если deposit ещё не был)
- *   returnItem()      → refund.do на долю товара (после deposit)
+ *   issueUnits()      → выдача N единиц позиции (статус фулфилмента; деньги уже списаны)
+ *   cancelUnits()     → reverse.do на долю N единиц (если deposit ещё не был)
+ *   returnUnits()     → refund.do на долю N единиц (после deposit)
  *
  * Последующие взносы 2..N списываются автоматически планировщиком BnplSchedulerService.
  */
@@ -183,88 +183,131 @@ public class BnplService {
         return "pending";
     }
 
-    // ─── Управление товарами ───────────────────────────────────────────────────
+    // ─── Управление товарами (поштучно) ─────────────────────────────────────────
+    //
+    // Каждая физическая единица позиции управляется отдельно. count — сколько единиц
+    // обработать за вызов (фронт шлёт 1 на клик). Статусы хранятся счётчиками на OrderItem:
+    // pending → issued (выдача), pending → cancelled (отмена), issued → returned (возврат).
 
-    /** Выдача товара. Чисто статус фулфилмента — первый взнос уже списан при оформлении рассрочки. */
+    /** Выдача N единиц позиции. Чисто статус фулфилмента — первый взнос уже списан при оформлении. */
     @Transactional
-    public void issueItem(Long orderId, Long itemId) {
+    public void issueUnits(Long orderId, Long itemId, int count) {
         OrderItem item = getOwnedItem(orderId, itemId);
-        if (item.getItemStatus() != ItemStatus.PENDING_ISSUE) {
-            throw new IllegalStateException("Нельзя выдать товар со статусом: " + item.getItemStatus());
-        }
+        requireManaged(item);
+        int n = normalizeCount(count, item.getPendingCount(), "Нет единиц, ожидающих выдачи");
 
-        // Депозит первого взноса выполняется в confirmPreAuth() при оплате на форме банка,
-        // поэтому здесь только меняем статус позиции.
-        item.setItemStatus(ItemStatus.ISSUED);
+        // Депозит первого взноса выполняется в confirmPreAuth(), поэтому здесь только статус.
+        item.setIssuedCount(item.getIssuedCount() + n);
+        recomputeItemStatus(item);
         orderItemRepo.save(item);
+        recalcOrderStatus(getContract(item.getOrder()));
 
-        log.info("ACTION=BNPL_ITEM_ISSUED orderId={} itemId={}", orderId, itemId);
+        log.info("ACTION=BNPL_UNITS_ISSUED orderId={} itemId={} count={}", orderId, itemId, n);
     }
 
-    /** Отмена товара (до выдачи). Частичный reverse на долю этого товара. */
+    /** Отмена N единиц (до выдачи). Частичный reverse на долю этих единиц (если deposit ещё не был). */
     @Transactional
-    public void cancelItem(Long orderId, Long itemId) {
+    public void cancelUnits(Long orderId, Long itemId, int count) {
         OrderItem item = getOwnedItem(orderId, itemId);
-        if (item.getItemStatus() != ItemStatus.PENDING_ISSUE) {
-            throw new IllegalStateException("Отменить можно только товар со статусом PENDING_ISSUE");
-        }
+        requireManaged(item);
+        int n = normalizeCount(count, item.getPendingCount(),
+                "Нет единиц для отмены (отменить можно только ожидающие выдачи)");
 
         BnplContract contract = getContract(item.getOrder());
-        long itemShare = calculateItemShareKopecks(item, contract);
+        long share = calculateShareKopecks(item, contract, n);
 
-        item.setItemStatus(ItemStatus.CANCELLED);
+        item.setCancelledCount(item.getCancelledCount() + n);
+        recomputeItemStatus(item);
         orderItemRepo.save(item);
 
         if (contract.getDepositedAmountKopecks() == 0L) {
-            // Deposit ещё не был — можно сделать частичный reverse.
+            // Deposit ещё не был — можно сделать частичный reverse на долю отменённых единиц.
             try {
-                gateway.reverse(contract.getAlfaPreAuthOrderId(), itemShare);
-                log.info("ACTION=BNPL_ITEM_CANCELLED_REVERSE orderId={} itemId={} kopecks={}",
-                        orderId, itemId, itemShare);
+                gateway.reverse(contract.getAlfaPreAuthOrderId(), share);
+                log.info("ACTION=BNPL_UNITS_CANCELLED_REVERSE orderId={} itemId={} count={} kopecks={}",
+                        orderId, itemId, n, share);
             } catch (Exception e) {
                 log.warn("Reverse failed for itemId={}: {}", itemId, e.getMessage());
             }
         }
 
-        // Если все товары отменены — отменяем контракт целиком.
+        // Если все единицы заказа отменены/возвращены — закрываем контракт; статус заказа пересчитываем.
         checkAndCancelContractIfAllCancelled(contract);
+        recalcOrderStatus(contract);
     }
 
-    /** Возврат товара (после выдачи). Refund на долю товара. */
+    /** Возврат N единиц (после выдачи). Refund на долю этих единиц. */
     @Transactional
-    public void returnItem(Long orderId, Long itemId) {
+    public void returnUnits(Long orderId, Long itemId, int count) {
         OrderItem item = getOwnedItem(orderId, itemId);
-        if (item.getItemStatus() != ItemStatus.ISSUED) {
-            throw new IllegalStateException("Вернуть можно только выданный товар");
-        }
+        requireManaged(item);
+        int n = normalizeCount(count, item.getIssuedCount(), "Нет выданных единиц для возврата");
 
         BnplContract contract = getContract(item.getOrder());
-        long itemShare = calculateItemShareKopecks(item, contract);
+        long share = calculateShareKopecks(item, contract, n);
 
-        item.setItemStatus(ItemStatus.RETURNED);
+        item.setIssuedCount(item.getIssuedCount() - n);
+        item.setReturnedCount(item.getReturnedCount() + n);
+        recomputeItemStatus(item);
         orderItemRepo.save(item);
 
         try {
-            gateway.refund(contract.getAlfaPreAuthOrderId(), itemShare);
-            log.info("ACTION=BNPL_ITEM_RETURNED_REFUND orderId={} itemId={} kopecks={}",
-                    orderId, itemId, itemShare);
+            gateway.refund(contract.getAlfaPreAuthOrderId(), share);
+            log.info("ACTION=BNPL_UNITS_RETURNED_REFUND orderId={} itemId={} count={} kopecks={}",
+                    orderId, itemId, n, share);
         } catch (Exception e) {
             log.warn("Refund failed for itemId={}: {}", itemId, e.getMessage());
         }
 
-        // Если после возврата все позиции отменены/возвращены — закрываем контракт и заказ.
+        // Если после возврата все единицы отменены/возвращены — закрываем контракт; статус пересчитываем.
         checkAndCancelContractIfAllCancelled(contract);
+        recalcOrderStatus(contract);
+    }
+
+    /** Позиция должна быть под управлением фулфилмента (BNPL): itemStatus != null. */
+    private void requireManaged(OrderItem item) {
+        if (item.getItemStatus() == null) {
+            throw new IllegalStateException("Позиция не относится к заказу с фулфилментом (нет управления выдачей)");
+        }
+    }
+
+    /** Нормализует запрошенное кол-во единиц: минимум 1, не больше доступного. */
+    private int normalizeCount(int requested, int available, String emptyMessage) {
+        int n = requested <= 0 ? 1 : requested;   // по умолчанию — одна единица
+        if (available <= 0) throw new IllegalStateException(emptyMessage);
+        if (n > available) {
+            throw new IllegalStateException("Запрошено " + n + " ед., доступно только " + available);
+        }
+        return n;
+    }
+
+    /**
+     * Пересчитывает обобщённый бейдж позиции из счётчиков (для отображения и как маркер управляемости).
+     * Пока есть ожидающие — PENDING_ISSUE; иначе если есть выданные — ISSUED; иначе при наличии
+     * возвратов — RETURNED; иначе всё отменено — CANCELLED.
+     */
+    private void recomputeItemStatus(OrderItem item) {
+        if (item.getPendingCount() > 0)      item.setItemStatus(ItemStatus.PENDING_ISSUE);
+        else if (item.getIssuedCount() > 0)  item.setItemStatus(ItemStatus.ISSUED);
+        else if (item.getReturnedCount() > 0) item.setItemStatus(ItemStatus.RETURNED);
+        else                                  item.setItemStatus(ItemStatus.CANCELLED);
     }
 
     // ─── Перенос взноса ──────────────────────────────────────────────────────
 
     /**
-     * Переносит dueDate ближайшего PENDING взноса контракта на указанное кол-во дней.
-     * Комиссия = amountKopecks × 0.0005 × days, прибавляется к сумме взноса.
-     * Суммарный перенос не может превысить 14 дней.
+     * Перенос ближайшего PENDING-взноса на {@code days} дней.
+     *
+     * Перенос — это полноценная оплата комиссии ЗДЕСЬ И СЕЙЧАС (а не раздувание следующего взноса):
+     *   • есть привязанная карта → тихое списание комиссии (MIT) → дата сдвигается сразу;
+     *   • связки нет → возвращаем formUrl: клиент платит комиссию через форму банка,
+     *     дата сдвигается в callback (confirmPostponeForm).
+     *
+     * Ограничения: контракт ACTIVE, нет просроченных взносов, суммарный перенос ≤ 14 дней,
+     * за раз 3..14 дней (валидируется в DTO). Комиссия = взнос × 0.05% × дней, минимум 1 ₽.
      */
     @Transactional
-    public BnplInstallmentResponse postponeInstallment(Long contractId, int days, User user) {
+    public BnplPayResponse postponeInstallment(Long contractId, int days, User user) {
         BnplContract contract = contractRepo.findById(contractId)
                 .orElseThrow(() -> new ResourceNotFoundException("Контракт не найден: " + contractId));
         if (!contract.getOrder().getUser().getId().equals(user.getId())) {
@@ -273,8 +316,14 @@ public class BnplService {
         if (contract.getStatus() != BnplContractStatus.ACTIVE) {
             throw new IllegalStateException("Перенос недоступен: контракт не активен");
         }
+        // Просроченные взносы переносить нельзя — их нужно оплатить.
+        boolean hasOverdue = contract.getInstallments().stream()
+                .anyMatch(i -> i.getStatus() == BnplInstallmentStatus.OVERDUE);
+        if (hasOverdue) {
+            throw new IllegalStateException("Перенос недоступен: есть просроченный взнос — сначала оплатите его");
+        }
 
-        // Находим ближайший PENDING взнос
+        // Ближайший непогашенный взнос.
         BnplInstallment inst = contract.getInstallments().stream()
                 .filter(i -> i.getStatus() == BnplInstallmentStatus.PENDING)
                 .min(java.util.Comparator.comparing(BnplInstallment::getDueDate))
@@ -286,19 +335,137 @@ public class BnplService {
                     "Превышен лимит переноса. Использовано: " + alreadyUsed + " дней, доступно: " + (14 - alreadyUsed));
         }
 
-        // Комиссия: 0.05% от суммы взноса за каждый день переноса
-        long feeKopecks = Math.round(inst.getAmountKopecks() * 0.0005 * days);
+        // Комиссия: 0.05% от суммы взноса за каждый день переноса, минимум 1 ₽ (валидная сумма для шлюза).
+        long feeKopecks = Math.max(Math.round(inst.getAmountKopecks() * 0.0005 * days), 100L);
 
-        inst.setDueDate(inst.getDueDate().plusDays(days));
-        inst.setDaysPostponed(alreadyUsed + days);
-        inst.setAmountKopecks(inst.getAmountKopecks() + feeKopecks);
-        inst.setPostponeFeePaidKopecks(inst.getPostponeFeePaidKopecks() + feeKopecks);
-        installmentRepo.save(inst);
+        String clientId = "user-" + user.getId();
+        CardBinding card = cardService.getDefault(user).orElse(null);
+        String bindingId = (card == null) ? null : resolveRecurrentBindingId(card, clientId);
 
-        log.info("ACTION=BNPL_INSTALLMENT_POSTPONED contractId={} installmentId={} days={} feeKopecks={}",
+        if (bindingId != null) {
+            // Тихое списание комиссии по привязанной карте → сразу применяем перенос.
+            String alfaOrderId = chargePostponeFeeRecurrent(feeKopecks, clientId, bindingId);
+            applyPostpone(inst, days, feeKopecks);
+            installmentRepo.save(inst);
+            recordPayment(contract, feeKopecks, "POSTPONE",
+                    "Комиссия за перенос взноса №" + inst.getInstallmentNumber() + " на " + days + " дн.", alfaOrderId);
+            log.info("ACTION=BNPL_POSTPONE_CHARGED contractId={} installmentId={} days={} feeKopecks={}",
+                    contractId, inst.getId(), days, feeKopecks);
+            return BnplPayResponse.charged(contract.getInstallments().stream()
+                    .map(this::toInstallmentResponse).toList());
+        }
+
+        // Связки нет → оплата комиссии через форму банка; перенос применится в callback.
+        String formUrl = initiatePostponeForm(contract, inst, days, feeKopecks, clientId);
+        log.info("ACTION=BNPL_POSTPONE_FORM contractId={} installmentId={} days={} feeKopecks={}",
                 contractId, inst.getId(), days, feeKopecks);
+        return BnplPayResponse.redirect(formUrl);
+    }
 
-        return toInstallmentResponse(inst);
+    /**
+     * Однократный пересчёт статуса всех BNPL-заказов (вызывается при старте из AppConfig).
+     * Нужен для заказов, созданных ДО введения статусной модели: их order.status мог остаться
+     * устаревшим (например, PAID при активной рассрочке). Идемпотентно — сохраняет только при изменении.
+     */
+    @Transactional
+    public void recalcAllOrderStatuses() {
+        int changed = 0;
+        for (BnplContract c : contractRepo.findAll()) {
+            OrderStatus before = c.getOrder().getStatus();
+            recalcOrderStatus(c);
+            if (c.getOrder().getStatus() != before) changed++;
+        }
+        if (changed > 0) log.info("Recalculated order status for {} BNPL orders on startup", changed);
+    }
+
+    /** Сдвигает дату взноса и фиксирует использованные дни/уплаченную комиссию. Сумму взноса НЕ меняет. */
+    private void applyPostpone(BnplInstallment inst, int days, long feeKopecks) {
+        int already  = inst.getDaysPostponed() == null ? 0 : inst.getDaysPostponed();
+        long feePaid = inst.getPostponeFeePaidKopecks() == null ? 0L : inst.getPostponeFeePaidKopecks();
+        inst.setDueDate(inst.getDueDate().plusDays(days));
+        inst.setDaysPostponed(already + days);
+        inst.setPostponeFeePaidKopecks(feePaid + feeKopecks);
+    }
+
+    /** Тихое списание комиссии переноса по связке (MIT, без 3DS). Возвращает alfaOrderId. */
+    private String chargePostponeFeeRecurrent(long feeKopecks, String clientId, String bindingId) {
+        String orderNumber = "PSTP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 13);
+        JsonNode reg = gateway.registerOrderForBinding(
+                orderNumber, feeKopecks, props.getReturnUrl(), props.getFailUrl(), clientId);
+        String mdOrder = reg.path("orderId").asText(null);
+        if (mdOrder == null || mdOrder.isBlank()) {
+            throw new IllegalStateException("Не удалось зарегистрировать платёж комиссии в шлюзе");
+        }
+        JsonNode result = gateway.paymentOrderBinding(mdOrder, feeKopecks, bindingId);
+        if (!result.path("acsUrl").asText("").isBlank()) {
+            throw new IllegalStateException("Банк запросил 3DS — тихое списание комиссии недоступно");
+        }
+        return result.path("orderId").asText(mdOrder);
+    }
+
+    /** Регистрирует одностадийный заказ на сумму комиссии (PSTP-) и staging-запись с днями переноса. */
+    private String initiatePostponeForm(BnplContract contract, BnplInstallment inst, int days,
+                                        long feeKopecks, String clientId) {
+        String orderNumber = "PSTP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 13);
+        JsonNode reg = gateway.registerOrderForBinding(
+                orderNumber, feeKopecks, props.getReturnUrl(), props.getFailUrl(), clientId);
+        String alfaOrderId = reg.path("orderId").asText(null);
+        String formUrl     = reg.path("formUrl").asText(null);
+        if (alfaOrderId == null || alfaOrderId.isBlank() || formUrl == null || formUrl.isBlank()) {
+            throw new IllegalStateException("Не удалось зарегистрировать платёж комиссии в шлюзе");
+        }
+        AlfaBankOrder rec = new AlfaBankOrder();
+        rec.setOrderNumber(orderNumber);
+        rec.setAlfaOrderId(alfaOrderId);
+        rec.setBnplContract(contract);
+        rec.setBnplInstallment(inst);
+        rec.setPostponeDays(days);
+        rec.setAmountKopecks(feeKopecks);
+        rec.setStatus(AlfaBankOrderStatus.FORM_SHOWN);
+        rec.setFormUrl(formUrl);
+        alfaBankOrderRepo.save(rec);
+        return formUrl;
+    }
+
+    /**
+     * Подтверждение оплаты комиссии переноса через форму банка (PSTP-). Применяет перенос.
+     * Бросает IllegalArgumentException если alfaOrderId не относится к переносу — controller пробует дальше.
+     */
+    @Transactional
+    public String confirmPostponeForm(String alfaOrderId) {
+        AlfaBankOrder rec = alfaBankOrderRepo.findByAlfaOrderId(alfaOrderId)
+                .filter(r -> r.getOrderNumber() != null && r.getOrderNumber().startsWith("PSTP-")
+                        && r.getBnplInstallment() != null && r.getPostponeDays() != null)
+                .orElseThrow(() -> new IllegalArgumentException("Not a postpone form payment: " + alfaOrderId));
+
+        if (rec.getStatus() == AlfaBankOrderStatus.DEPOSITED) return "paid";   // идемпотентность
+        if (rec.getStatus() == AlfaBankOrderStatus.FAILED)    return "failed";
+
+        JsonNode status = gateway.getOrderStatusExtended(alfaOrderId);
+        int orderStatus = status.path("orderStatus").asInt(-1);
+
+        if (orderStatus == 2) {  // комиссия списана
+            BnplInstallment inst   = rec.getBnplInstallment();
+            BnplContract    contract = rec.getBnplContract();
+            applyPostpone(inst, rec.getPostponeDays(), rec.getAmountKopecks());
+            installmentRepo.save(inst);
+            recordPayment(contract, rec.getAmountKopecks(), "POSTPONE",
+                    "Комиссия за перенос взноса №" + inst.getInstallmentNumber() + " на " + rec.getPostponeDays() + " дн.",
+                    alfaOrderId);
+            rec.setStatus(AlfaBankOrderStatus.DEPOSITED);
+            alfaBankOrderRepo.save(rec);
+            // Если клиент отметил «сохранить карту» — сохраним (только реальный bindingInfo).
+            cardService.saveFromStatusResponse(contract.getOrder().getUser(), status);
+            log.info("ACTION=BNPL_POSTPONE_FORM_PAID contractId={} installmentId={} days={} feeKopecks={}",
+                    contract.getId(), inst.getId(), rec.getPostponeDays(), rec.getAmountKopecks());
+            return "paid";
+        }
+        if (orderStatus == 6) {  // отклонено
+            rec.setStatus(AlfaBankOrderStatus.FAILED);
+            alfaBankOrderRepo.save(rec);
+            return "failed";
+        }
+        return "pending";
     }
 
     // ─── Досрочная оплата ─────────────────────────────────────────────────────
@@ -693,6 +860,10 @@ public class BnplService {
             alfaBankOrderRepo.save(r);
         });
 
+        // markAsPaid() выставил заказу PAID, но рассрочка ещё активна и товары не выданы —
+        // пересчитываем реальный статус (станет CREATED: всё ожидает выдачи).
+        recalcOrderStatus(contract);
+
         log.info("ACTION=BNPL_FIRST_INSTALLMENT_PAID contractId={} kopecks={} bindingId={}",
                 contract.getId(), first.getAmountKopecks(), bindingId);
     }
@@ -737,6 +908,8 @@ public class BnplService {
         if (allDone) {
             contract.setStatus(BnplContractStatus.COMPLETED);
         }
+        // Пересчитываем статус заказа: при COMPLETED + всё выдано → PAID (финал, скрыт в ЛК).
+        recalcOrderStatus(contract);
     }
 
     /**
@@ -764,11 +937,11 @@ public class BnplService {
     }
 
     /**
-     * Пропорциональная доля товара в BNPL-сумме (с комиссией).
-     * itemTotal / orderTotal × bnplTotal
+     * Пропорциональная доля {@code units} единиц позиции в BNPL-сумме (с комиссией).
+     * (priceAtOrder × units) / orderTotal × bnplTotal
      */
-    private long calculateItemShareKopecks(OrderItem item, BnplContract contract) {
-        BigDecimal itemTotal  = item.getPriceAtOrder().multiply(BigDecimal.valueOf(item.getQuantity()));
+    private long calculateShareKopecks(OrderItem item, BnplContract contract, int units) {
+        BigDecimal itemTotal  = item.getPriceAtOrder().multiply(BigDecimal.valueOf(units));
         BigDecimal orderTotal = item.getOrder().getTotalAmount();
         if (orderTotal.compareTo(BigDecimal.ZERO) == 0) return 0L;
         BigDecimal share = itemTotal.divide(orderTotal, 10, RoundingMode.HALF_UP)
@@ -779,9 +952,10 @@ public class BnplService {
     private void checkAndCancelContractIfAllCancelled(BnplContract contract) {
         Order order = contract.getOrder();
         boolean hasItems = !order.getItems().isEmpty();
+        // Все единицы всех позиций разрешены не в пользу выдачи: нет ни ожидающих, ни выданных
+        // (т.е. каждая единица либо отменена, либо возвращена).
         boolean allCancelledOrReturned = hasItems && order.getItems().stream()
-                .allMatch(i -> i.getItemStatus() == ItemStatus.CANCELLED
-                            || i.getItemStatus() == ItemStatus.RETURNED);
+                .allMatch(i -> i.getPendingCount() == 0 && i.getIssuedCount() == 0);
         if (allCancelledOrReturned) {
             contract.setStatus(BnplContractStatus.CANCELLED);
             contract.getInstallments().forEach(inst -> {
@@ -791,15 +965,60 @@ public class BnplService {
                 }
             });
             contractRepo.save(contract);
-
-            // Все позиции отменены/возвращены → заказ тоже переходит в финальный статус CANCELLED.
-            // Иначе он завис бы в CREATED и остался видимым в списке «Мои заказы».
-            if (order.getStatus() != OrderStatus.CANCELLED) {
-                order.setStatus(OrderStatus.CANCELLED);
-                orderRepo.save(order);
-            }
+            // Финальный статус заказа (CANCELLED при полной отмене / RETURNED при возвратах)
+            // проставит recalcOrderStatus у вызывающего метода.
             log.info("ACTION=BNPL_CONTRACT_CANCELLED contractId={} orderId={}",
                     contract.getId(), order.getId());
+        }
+    }
+
+    /**
+     * Пересчитывает статус заказа из поштучных счётчиков всех позиций и статуса контракта.
+     * Только для управляемых (BNPL) заказов. Финальный DELIVERED (ручная отметка админа) не трогаем.
+     *
+     * Приоритет (сверху вниз, первое совпадение):
+     *   1. все отменены                                   → CANCELLED (финал)
+     *   2. нет активных, был возврат                      → RETURNED  (финал)
+     *   3. всё выдано и рассрочка погашена (COMPLETED)    → PAID      (финал)
+     *   4. есть возвраты, но остались активные единицы    → PARTIALLY_RETURNED
+     *   5. всё выдано, но ещё не доплачено                → ISSUED
+     *   6. часть выдана, часть ожидает                    → PARTIALLY_ISSUED
+     *   7. что-то отменено, выданных нет                  → PARTIALLY_CANCELLED
+     *   8. иначе (всё ожидает / ждёт оплаты формы)        → CREATED
+     */
+    private void recalcOrderStatus(BnplContract contract) {
+        Order order = contract.getOrder();
+        if (order.getStatus() == OrderStatus.DELIVERED) return; // legacy ручной финал — не перетираем
+        if (order.getItems() == null) return;
+
+        int total = 0, issued = 0, cancelled = 0, returned = 0;
+        boolean managed = false;
+        for (OrderItem i : order.getItems()) {
+            if (i.getItemStatus() == null) continue;  // позиция без фулфилмента
+            managed = true;
+            total     += i.getQuantity();
+            issued    += i.getIssuedCount();
+            cancelled += i.getCancelledCount();
+            returned  += i.getReturnedCount();
+        }
+        if (!managed || total == 0) return;
+        int pending = total - issued - cancelled - returned;
+        boolean completed = contract.getStatus() == BnplContractStatus.COMPLETED;
+
+        OrderStatus s;
+        if (cancelled == total)                               s = OrderStatus.CANCELLED;
+        else if (issued == 0 && pending == 0 && returned > 0) s = OrderStatus.RETURNED;
+        else if (pending == 0 && issued > 0 && completed)     s = OrderStatus.PAID;
+        else if (returned > 0)                                s = OrderStatus.PARTIALLY_RETURNED;
+        else if (pending == 0 && issued > 0)                  s = OrderStatus.ISSUED;
+        else if (issued > 0)                                  s = OrderStatus.PARTIALLY_ISSUED;
+        else if (cancelled > 0)                               s = OrderStatus.PARTIALLY_CANCELLED;
+        else                                                  s = OrderStatus.CREATED;
+
+        if (order.getStatus() != s) {
+            order.setStatus(s);
+            orderRepo.save(order);
+            log.info("ACTION=ORDER_STATUS_RECALC orderId={} status={}", order.getId(), s);
         }
     }
 

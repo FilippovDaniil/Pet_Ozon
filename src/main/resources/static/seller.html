@@ -829,14 +829,29 @@
             },
 
             statusLabel(s) {
-                return { CREATED: 'Новый', PAID: 'Оплачен', CANCELLED: 'Отменён', DELIVERED: 'Доставлен' }[s] || s;
+                return {
+                    CREATED: 'Создан',
+                    PARTIALLY_ISSUED: 'Частично выдан',
+                    PARTIALLY_CANCELLED: 'Частично отменён',
+                    PARTIALLY_RETURNED: 'Частично возвращён',
+                    ISSUED: 'Выдан',
+                    PAID: 'Оплачен',
+                    RETURNED: 'Возвращён',
+                    CANCELLED: 'Отменён',
+                    DELIVERED: 'Доставлен',
+                }[s] || s;
             },
 
             statusBadge(s) {
                 return {
                     CREATED:   'bg-yellow-100 text-yellow-800',
+                    PARTIALLY_ISSUED: 'bg-blue-100 text-blue-800',
+                    PARTIALLY_CANCELLED: 'bg-orange-100 text-orange-700',
+                    PARTIALLY_RETURNED: 'bg-purple-100 text-purple-800',
+                    ISSUED:    'bg-cyan-100 text-cyan-800',
                     PAID:      'bg-green-100 text-green-800',
-                    CANCELLED: 'bg-red-100 text-red-700',
+                    RETURNED:  'bg-red-100 text-red-700',
+                    CANCELLED: 'bg-gray-100 text-gray-600',
                     DELIVERED: 'bg-blue-100 text-blue-800',
                 }[s] || 'bg-gray-100 text-gray-600';
             },

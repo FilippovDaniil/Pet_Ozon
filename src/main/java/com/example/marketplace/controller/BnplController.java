@@ -4,7 +4,6 @@ import com.example.marketplace.dto.request.PayInstallmentRequest;
 import com.example.marketplace.dto.request.PostponeInstallmentRequest;
 import com.example.marketplace.dto.request.UpdateItemStatusRequest;
 import com.example.marketplace.dto.response.BnplContractResponse;
-import com.example.marketplace.dto.response.BnplInstallmentResponse;
 import com.example.marketplace.dto.response.BnplPayResponse;
 import com.example.marketplace.entity.User;
 import com.example.marketplace.payment.BnplService;
@@ -48,11 +47,15 @@ public class BnplController {
         return bnplService.getContractById(contractId, resolveUser(ud));
     }
 
-    /** Перенос ближайшего PENDING-взноса. Возвращает обновлённый взнос. */
+    /**
+     * Перенос ближайшего PENDING-взноса. Перенос — это оплата комиссии здесь и сейчас:
+     * если есть привязка — тихое списание (возвращает {@code installments}); если нет —
+     * {@code formUrl} для оплаты комиссии через форму банка (дата сдвинется в callback).
+     */
     @PostMapping(value = "/api/bnpl/{contractId}/postpone", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public BnplInstallmentResponse postpone(@PathVariable Long contractId,
-                                            @Valid @RequestBody PostponeInstallmentRequest req,
-                                            @AuthenticationPrincipal UserDetails ud) {
+    public BnplPayResponse postpone(@PathVariable Long contractId,
+                                    @Valid @RequestBody PostponeInstallmentRequest req,
+                                    @AuthenticationPrincipal UserDetails ud) {
         return bnplService.postponeInstallment(contractId, req.days(), resolveUser(ud));
     }
 
@@ -70,12 +73,12 @@ public class BnplController {
         return bnplService.payInstallmentByClient(contractId, amount, resolveUser(ud));
     }
 
-    /** Изменить статус позиции BNPL-заказа (клиент). */
+    /** Изменить статус единиц позиции BNPL-заказа (клиент). quantity — кол-во единиц (по умолчанию 1). */
     @PatchMapping("/api/orders/{orderId}/items/{itemId}")
     public void updateItemStatus(@PathVariable Long orderId,
                                  @PathVariable Long itemId,
                                  @Valid @RequestBody UpdateItemStatusRequest request) {
-        applyItemStatus(orderId, itemId, request.status());
+        applyItemStatus(orderId, itemId, request.status(), request.quantity());
     }
 
     /** То же — для администратора. */
@@ -83,15 +86,16 @@ public class BnplController {
     public void adminUpdateItemStatus(@PathVariable Long orderId,
                                       @PathVariable Long itemId,
                                       @Valid @RequestBody UpdateItemStatusRequest request) {
-        applyItemStatus(orderId, itemId, request.status());
+        applyItemStatus(orderId, itemId, request.status(), request.quantity());
     }
 
-    /** Диспетчер статуса позиции: направляет в нужный метод BnplService (deposit/reverse/refund). */
-    private void applyItemStatus(Long orderId, Long itemId, String status) {
+    /** Диспетчер статуса единиц: направляет в нужный метод BnplService (поштучно, deposit/reverse/refund). */
+    private void applyItemStatus(Long orderId, Long itemId, String status, Integer quantity) {
+        int count = (quantity == null || quantity < 1) ? 1 : quantity;
         switch (status.toUpperCase()) {
-            case "ISSUED"    -> bnplService.issueItem(orderId, itemId);
-            case "CANCELLED" -> bnplService.cancelItem(orderId, itemId);
-            case "RETURNED"  -> bnplService.returnItem(orderId, itemId);
+            case "ISSUED"    -> bnplService.issueUnits(orderId, itemId, count);
+            case "CANCELLED" -> bnplService.cancelUnits(orderId, itemId, count);
+            case "RETURNED"  -> bnplService.returnUnits(orderId, itemId, count);
             default -> throw new IllegalArgumentException(
                     "Неизвестный статус: " + status + ". Допустимые: ISSUED, CANCELLED, RETURNED");
         }

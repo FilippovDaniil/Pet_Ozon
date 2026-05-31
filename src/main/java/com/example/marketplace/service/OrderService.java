@@ -56,7 +56,7 @@ public class OrderService {
 
     /**
      * «Активные» заказы клиента для вкладки «Мои заказы».
-     * Скрывает заказы в финальном статусе (PAID/CANCELLED/DELIVERED),
+     * Скрывает заказы в финальном статусе (PAID/RETURNED/CANCELLED/DELIVERED),
      * но оставляет видимыми те, у которых рассрочка ещё не погашена
      * (контракт AWAITING_PAYMENT/ACTIVE) — иначе управлять взносами будет негде.
      */
@@ -65,7 +65,7 @@ public class OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
         return orderRepository.findActiveForClient(
                 user,
-                OrderStatus.CREATED,
+                List.of(OrderStatus.PAID, OrderStatus.RETURNED, OrderStatus.CANCELLED, OrderStatus.DELIVERED),
                 List.of(BnplContractStatus.AWAITING_PAYMENT, BnplContractStatus.ACTIVE),
                 pageable
         ).map(this::toResponse);
@@ -119,6 +119,11 @@ public class OrderService {
             if (item.getItemStatus() != null) {
                 ir.setItemStatus(item.getItemStatus().name());
             }
+            // Поштучный учёт — фронт показывает кнопки выдачи/отмены/возврата по 1 единице.
+            ir.setPendingCount(item.getPendingCount());
+            ir.setIssuedCount(item.getIssuedCount());
+            ir.setCancelledCount(item.getCancelledCount());
+            ir.setReturnedCount(item.getReturnedCount());
             return ir;
         }).collect(Collectors.toList()));
         invoiceRepository.findByOrder(order)
@@ -126,14 +131,8 @@ public class OrderService {
         bnplContractRepository.findByOrder(order).ifPresent(c -> {
             r.setBnplContractId(c.getId());
             r.setBnplStatus(c.getStatus().name());
-            // Пока рассрочка активна (первый взнос внесён, но не вся сумма) — заказ не «оплачен».
-            // markAsPaid() переводит его в PAID, но клиент ещё должен остальные взносы,
-            // поэтому в UI показываем CREATED, чтобы не вводить в заблуждение.
-            // (полноценная статусная модель — отдельной задачей)
-            if (order.getStatus() == OrderStatus.PAID
-                    && c.getStatus() == BnplContractStatus.ACTIVE) {
-                r.setStatus(OrderStatus.CREATED);
-            }
+            // Статус заказа теперь честно отражает фулфилмент + оплату (BnplService.recalcOrderStatus):
+            // активная рассрочка → CREATED/частичные/ISSUED, полностью оплачено → PAID. Костыль не нужен.
         });
         if (order.getUser() != null) {
             r.setCustomerName(order.getUser().getFullName());

@@ -137,17 +137,17 @@ class OrderServiceTest {
                 makeOrder(1L, user, OrderStatus.CREATED, new BigDecimal("1000.00"))
         ));
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(orderRepository.findActiveForClient(eq(user), eq(OrderStatus.CREATED), any(), any(Pageable.class)))
+        when(orderRepository.findActiveForClient(eq(user), any(), any(), any(Pageable.class)))
                 .thenReturn(page);
 
         Page<OrderResponse> result = orderService.getActiveOrdersForClient(1L, PageRequest.of(0, 20));
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getStatus()).isEqualTo(OrderStatus.CREATED);
-        // Передаём именно «активные» статусы рассрочки — AWAITING_PAYMENT и ACTIVE.
+        // Передаём финальные статусы (скрываются) и активные статусы рассрочки (показываются).
         verify(orderRepository).findActiveForClient(
                 eq(user),
-                eq(OrderStatus.CREATED),
+                eq(List.of(OrderStatus.PAID, OrderStatus.RETURNED, OrderStatus.CANCELLED, OrderStatus.DELIVERED)),
                 eq(List.of(BnplContractStatus.AWAITING_PAYMENT, BnplContractStatus.ACTIVE)),
                 any(Pageable.class));
     }
@@ -188,9 +188,11 @@ class OrderServiceTest {
     // ── отображение статуса для BNPL-заказов ───────────────────────────────────
 
     @Test
-    void toResponse_activeBnpl_reportsCreatedStatusNotPaid() {
+    void toResponse_activeBnpl_reflectsDbStatusAndBnplStatus() {
         User user = makeUser(1L);
-        Order order = makeOrder(1L, user, OrderStatus.PAID, new BigDecimal("1000.00")); // в БД PAID (первый взнос)
+        // Статус в БД теперь честный (его выставляет BnplService.recalcOrderStatus):
+        // активная рассрочка без выдачи → CREATED. toResponse не подменяет статус, а отражает его.
+        Order order = makeOrder(1L, user, OrderStatus.CREATED, new BigDecimal("1000.00"));
         BnplContract c = new BnplContract();
         c.setId(7L);
         c.setStatus(BnplContractStatus.ACTIVE);
@@ -200,7 +202,6 @@ class OrderServiceTest {
 
         OrderResponse r = orderService.getOrderById(1L);
 
-        // Рассрочка ещё гасится → заказ показываем как «Создан», а не «Оплачен».
         assertThat(r.getStatus()).isEqualTo(OrderStatus.CREATED);
         assertThat(r.getBnplStatus()).isEqualTo("ACTIVE");
         assertThat(r.getBnplContractId()).isEqualTo(7L);

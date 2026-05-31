@@ -85,23 +85,39 @@ class BnplControllerTest {
 
     // ── POST /api/bnpl/{id}/postpone ──────────────────────────────────────────
 
-    // Перенос в допустимых пределах → 200 + обновлённый взнос (daysPostponed/Left пересчитаны).
+    // Перенос с привязанной картой → тихое списание комиссии → 200 + обновлённый график.
     @Test
-    void postpone_validDays_returns200WithUpdatedInstallment() throws Exception {
+    void postpone_validDays_charged_returns200WithInstallments() throws Exception {
         User user = mockUser();
         when(userRepository.findByEmail("client@test.com")).thenReturn(Optional.of(user));
 
-        BnplInstallmentResponse updated = makeInstallmentResponse(2, "PENDING", 3);
-        when(bnplService.postponeInstallment(eq(10L), eq(3), eq(user))).thenReturn(updated);
+        BnplPayResponse charged = BnplPayResponse.charged(List.of(makeInstallmentResponse(2, "PENDING", 3)));
+        when(bnplService.postponeInstallment(eq(10L), eq(3), eq(user))).thenReturn(charged);
 
         mockMvc.perform(post("/api/bnpl/10/postpone")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"days\": 3}")
                         .with(user("client@test.com").roles("CLIENT")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.daysPostponed").value(3))
-                .andExpect(jsonPath("$.daysPostponeLeft").value(11))
-                .andExpect(jsonPath("$.status").value("PENDING"));
+                .andExpect(jsonPath("$.installments[0].daysPostponed").value(3))
+                .andExpect(jsonPath("$.installments[0].daysPostponeLeft").value(11))
+                .andExpect(jsonPath("$.installments[0].status").value("PENDING"));
+    }
+
+    // Перенос без привязки → оплата комиссии через форму банка → 200 + formUrl.
+    @Test
+    void postpone_noBinding_returns200WithFormUrl() throws Exception {
+        User user = mockUser();
+        when(userRepository.findByEmail("client@test.com")).thenReturn(Optional.of(user));
+        when(bnplService.postponeInstallment(eq(10L), eq(3), eq(user)))
+                .thenReturn(BnplPayResponse.redirect("https://bank/pay/pstp"));
+
+        mockMvc.perform(post("/api/bnpl/10/postpone")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"days\": 3}")
+                        .with(user("client@test.com").roles("CLIENT")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.formUrl").value("https://bank/pay/pstp"));
     }
 
     @Test
@@ -224,10 +240,10 @@ class BnplControllerTest {
 
     // ── PATCH /api/orders/{id}/items/{itemId} ─────────────────────────────────
 
-    // status=ISSUED → делегирование issueItem.
+    // status=ISSUED → делегирование issueUnits (кол-во по умолчанию = 1).
     @Test
-    void updateItemStatus_issue_callsIssueItem() throws Exception {
-        doNothing().when(bnplService).issueItem(5L, 50L);
+    void updateItemStatus_issue_callsIssueUnits() throws Exception {
+        doNothing().when(bnplService).issueUnits(5L, 50L, 1);
 
         mockMvc.perform(patch("/api/orders/5/items/50")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -235,13 +251,13 @@ class BnplControllerTest {
                         .with(user("client@test.com").roles("CLIENT")))
                 .andExpect(status().isOk());
 
-        verify(bnplService).issueItem(5L, 50L);
+        verify(bnplService).issueUnits(5L, 50L, 1);
     }
 
-    // status=CANCELLED → делегирование cancelItem.
+    // status=CANCELLED → делегирование cancelUnits.
     @Test
-    void updateItemStatus_cancel_callsCancelItem() throws Exception {
-        doNothing().when(bnplService).cancelItem(5L, 50L);
+    void updateItemStatus_cancel_callsCancelUnits() throws Exception {
+        doNothing().when(bnplService).cancelUnits(5L, 50L, 1);
 
         mockMvc.perform(patch("/api/orders/5/items/50")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -249,13 +265,13 @@ class BnplControllerTest {
                         .with(user("client@test.com").roles("CLIENT")))
                 .andExpect(status().isOk());
 
-        verify(bnplService).cancelItem(5L, 50L);
+        verify(bnplService).cancelUnits(5L, 50L, 1);
     }
 
-    // status=RETURNED → делегирование returnItem.
+    // status=RETURNED → делегирование returnUnits.
     @Test
-    void updateItemStatus_return_callsReturnItem() throws Exception {
-        doNothing().when(bnplService).returnItem(5L, 50L);
+    void updateItemStatus_return_callsReturnUnits() throws Exception {
+        doNothing().when(bnplService).returnUnits(5L, 50L, 1);
 
         mockMvc.perform(patch("/api/orders/5/items/50")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -263,7 +279,21 @@ class BnplControllerTest {
                         .with(user("client@test.com").roles("CLIENT")))
                 .andExpect(status().isOk());
 
-        verify(bnplService).returnItem(5L, 50L);
+        verify(bnplService).returnUnits(5L, 50L, 1);
+    }
+
+    // Явное кол-во единиц в теле → прокидывается в сервис.
+    @Test
+    void updateItemStatus_withQuantity_passesCount() throws Exception {
+        doNothing().when(bnplService).issueUnits(5L, 50L, 2);
+
+        mockMvc.perform(patch("/api/orders/5/items/50")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\": \"ISSUED\", \"quantity\": 2}")
+                        .with(user("client@test.com").roles("CLIENT")))
+                .andExpect(status().isOk());
+
+        verify(bnplService).issueUnits(5L, 50L, 2);
     }
 
     @Test
@@ -276,10 +306,10 @@ class BnplControllerTest {
                 .andExpect(status().is4xxClientError());
     }
 
-    // Админский путь PATCH /api/admin/orders/... тоже вызывает issueItem.
+    // Админский путь PATCH /api/admin/orders/... тоже вызывает issueUnits.
     @Test
-    void adminUpdateItemStatus_issue_callsIssueItem() throws Exception {
-        doNothing().when(bnplService).issueItem(5L, 50L);
+    void adminUpdateItemStatus_issue_callsIssueUnits() throws Exception {
+        doNothing().when(bnplService).issueUnits(5L, 50L, 1);
 
         mockMvc.perform(patch("/api/admin/orders/5/items/50")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -287,6 +317,6 @@ class BnplControllerTest {
                         .with(user("admin@test.com").roles("ADMIN")))
                 .andExpect(status().isOk());
 
-        verify(bnplService).issueItem(5L, 50L);
+        verify(bnplService).issueUnits(5L, 50L, 1);
     }
 }
