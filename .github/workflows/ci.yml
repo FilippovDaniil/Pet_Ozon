@@ -231,7 +231,7 @@ jobs:
       # Теги: короткий SHA коммита (7 символов) + latest.
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
